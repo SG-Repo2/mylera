@@ -5,9 +5,9 @@
 ### Prerequisites
 - Node.js (v18 or later)
 - Yarn package manager
-- Expo CLI (`npm install -g expo-cli`)
+
 - Supabase account
-- iOS Simulator (for Mac) or Android Emulator
+- iOS Simulator (for Mac) andr Android Emulator
 
 ### Environment Setup
 1. Clone the repository
@@ -224,7 +224,3 @@ class ErrorBoundary extends React.Component {
 - [Supabase Documentation](https://supabase.io/docs)
 - [NativeWind Documentation](https://www.nativewind.dev)
 
-### Community
-- GitHub Discussions
-- Discord Channel
-- Stack Overflow Tags
