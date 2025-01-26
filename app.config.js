@@ -23,6 +23,24 @@ export default {
           resizeMode: "contain",
           backgroundColor: "#ffffff"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          android: {
+            compileSdkVersion: 34,
+            targetSdkVersion: 34,
+            minSdkVersion: 26,
+            buildToolsVersion: "34.0.0",
+            enableWebP: false,
+            enableSeparateBuildPerCPUArchitecture: false
+          },
+          ios: {
+            deploymentTarget: "16.1",
+            useFrameworks: "static",
+            newArchEnabled: false
+          }
+        }
       ]
     ],
     ios: {
