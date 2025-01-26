@@ -1,57 +1,5 @@
 # Implementation Tasks
 
-## Task for Coder
-
-Please implement the MyLera app following these step-by-step instructions:
-
-1. **Initial Setup**
-```bash
-# Create new Expo project
-npx create-expo-app mylera --template blank-typescript
-
-# Install dependencies
-cd mylera
-yarn add @react-native-async-storage/async-storage @react-navigation/native @react-navigation/native-stack @supabase/supabase-js expo-constants nativewind react-native-safe-area-context react-native-screens react-native-url-polyfill
-yarn add -D tailwindcss@3.3.2
-```
-
-
-```
-EXPO_PUBLIC_SUPABASE_URL=your_project_url
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-```
-
-3. **Project Structure**
-Create the following directory structure:
-```
-src/
-├── features/
-│   ├── auth/
-│   │   ├── screens/
-│   │   │   └── LoginScreen.tsx
-│   │   ├── hooks/
-│   │   │   └── useAuth.ts
-│   ├── metrics/
-│   │   ├── screens/
-│   │   │   └── MetricsDashboardScreen.tsx
-│   │   ├── components/
-│   │   │   └── MetricCard.tsx
-│   ├── leaderboard/
-│   │   ├── screens/
-│   │   │   └── LeaderboardScreen.tsx
-│   │   ├── components/
-│   │   │   └── LeaderboardItem.tsx
-├── services/
-│   ├── supabaseClient.ts
-│   ├── metricsService.ts
-│   ├── leaderboardService.ts
-├── providers/
-│   └── AuthProvider.tsx
-├── navigation/
-│   └── AppNavigator.tsx
-└── App.tsx
-```
-
 4. **Implementation Order**
 Follow this sequence to implement the components:
 

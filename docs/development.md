@@ -210,13 +210,7 @@ class ErrorBoundary extends React.Component {
 3. Navigation problems
 4. State management bugs
 
-### Debug Tools
-- React Native Debugger
-- Supabase Dashboard
-- Expo Developer Tools
-- Chrome Developer Tools
 
-## Resources
 
 ### Documentation
 - [Expo Documentation](https://docs.expo.dev)
