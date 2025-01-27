@@ -8,13 +8,19 @@ export default {
     scheme: "mylera",
     userInterfaceStyle: "automatic",
     plugins: [
+      [
+        "expo-splash-screen",
+        {
+          disableAutoSetup: true,
+        },
+      ],
       "expo-router",
       [
         "expo-health-connect",
         {
-          package: "com.groebe1kenobi.mylera", 
-          modes: ["read"]
-        }
+          package: "com.groebe1kenobi.mylera",
+          modes: ["read"],
+        },
       ],
       [
         "expo-build-properties",
@@ -22,14 +28,15 @@ export default {
           android: {
             compileSdkVersion: 35,
             targetSdkVersion: 35,
-            minSdkVersion: 26
+            minSdkVersion: 26,
           },
           ios: {
-            deploymentTarget: "16.1"
-          }
-        }
-      ]
+            deploymentTarget: "16.1",
+          },
+        },
+      ],
     ],
+    
     ios: {
       bundleIdentifier: "com.groebe1kenobi.mylera",
       infoPlist: {
