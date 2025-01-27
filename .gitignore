@@ -35,5 +35,42 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# Android
+android/*
+!android/build.gradle
+!android/settings.gradle
+!android/gradle.properties
+!android/gradlew
+!android/gradlew.bat
+!android/gradle/wrapper/
+!android/app/
+android/app/*
+!android/app/build.gradle
+!android/app/src/
+!android/app/proguard-rules.pro
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/*.hprof
+android/.cxx/
+
+# iOS
+ios/*
+!ios/Podfile
+!ios/Podfile.properties.json
+!ios/.xcode.env
+!ios/*.xcodeproj/project.pbxproj
+!ios/*.xcworkspace/contents.xcworkspacedata
+ios/build/
+ios/Pods/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/DerivedData/
+ios/.xcode.env.local
+
 app-example
 docs/*.md
+**/repomix-output.txt
