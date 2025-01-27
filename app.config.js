@@ -5,44 +5,63 @@ export default {
     version: "1.0.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "myapp",
+    scheme: "mylera",
     userInterfaceStyle: "automatic",
-    newArchEnabled: true,
-    ios: {
-      bundleIdentifier: "com.groebe1kenobi.mylera",
-      supportsTablet: false,
-    },
-    android: {
-      package: "com.groebe1kenobi.mylera",
-      adaptiveIcon: {
-        foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff",
-      },
-    },
-    web: {
-      bundler: "metro",
-      output: "static",
-      favicon: "./assets/images/favicon.png",
-    },
     plugins: [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-health-connect",
         {
-          image: "./assets/images/splash-icon.png",
-          imageWidth: 200,
-          resizeMode: "contain",
-          backgroundColor: "#ffffff",
+          package: "com.groebe1kenobi.mylera",
+          modes: ["read"],
+        },
+      ],
+      [
+        "expo-build-properties",
+        {
+          android: {
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            minSdkVersion: 26,
+          },
+          ios: {
+            deploymentTarget: "16.1",
+          },
         },
       ],
     ],
-    experiments: {
-      typedRoutes: true,
+    
+    ios: {
+      bundleIdentifier: "com.groebe1kenobi.mylera",
+      infoPlist: {
+        NSHealthShareUsageDescription: "Allow Mylera to read your health data for activity tracking",
+        NSHealthKitUsageDescription: "Mylera securely accesses HealthKit to track your fitness metrics"
+      },
+      entitlements: {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.read": [
+          "HKQuantityTypeIdentifierStepCount",
+          "HKQuantityTypeIdentifierDistanceWalkingRunning",
+          "HKQuantityTypeIdentifierHeartRate",
+          "HKQuantityTypeIdentifierActiveEnergyBurned"
+        ]
+      }
+    },
+    android: {
+      package: "com.groebe1kenobi.mylera",
+      permissions: [
+        "android.permission.health.READ_STEPS",
+        "android.permission.health.READ_DISTANCE",
+        "android.permission.health.READ_HEART_RATE",
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED"
+      ]
     },
     extra: {
       eas: {
-        projectId: "094cff24-896c-4aa7-bc5c-f6ad805c83e6", 
+        projectId: "094cff24-896c-4aa7-bc5c-f6ad805c83e6"
       },
-    },
-  },
+      supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+    }
+  }
 };

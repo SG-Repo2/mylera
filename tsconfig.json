@@ -1,54 +1,15 @@
 {
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "baseUrl": ".",
+    "strict": true,
     "paths": {
       "@/*": [
-        "./src/*"
-      ],
-      "@/features/*": [
-        "./src/features/*"
-      ],
-      "@/providers/*": [
-        "./src/providers/*"
-      ],
-      "@/services/*": [
-        "./src/services/*"
-      ],
-      "@/navigation/*": [
-        "./src/navigation/*"
+        "./*"
       ]
-    },
-    "allowJs": true,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "module": "esnext",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "preserve",
-    "target": "esnext",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-    "types": [
-      "jest",
-      "node"
-    ]
+    }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
-  ],
-  "exclude": [
-    "node_modules"
-  ],
-  "extends": "expo/tsconfig.base"
+    "**/*.tsx"
+  ]
 }
