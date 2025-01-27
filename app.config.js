@@ -12,16 +12,8 @@ export default {
       [
         "expo-health-connect",
         {
-          package: "com.groebe1kenobi.mylera.health",
-          modes: ["read"]  // Only read permission
-        }
-      ], 
-      [
-        "expo-splash-screen",
-        {
-          image: "./assets/images/splash-icon.png",
-          resizeMode: "contain",
-          backgroundColor: "#ffffff"
+          package: "com.groebe1kenobi.mylera", // Corrected to match bundleIdentifier
+          modes: ["read"]
         }
       ],
       [
@@ -30,26 +22,19 @@ export default {
           android: {
             compileSdkVersion: 34,
             targetSdkVersion: 34,
-            minSdkVersion: 26,
-            buildToolsVersion: "34.0.0",
-            enableWebP: false,
-            enableSeparateBuildPerCPUArchitecture: false
+            minSdkVersion: 26
           },
           ios: {
-            deploymentTarget: "16.1",
-            useFrameworks: "static",
-            newArchEnabled: false
+            deploymentTarget: "16.1"
           }
         }
       ]
     ],
     ios: {
       bundleIdentifier: "com.groebe1kenobi.mylera",
-      supportsTablet: false,
       infoPlist: {
-        NSHealthShareUsageDescription: "Allow Mylera to read your health data to track your daily metrics and calculate points.",
-        // Only need read permission
-        NSHealthKitUsageDescription: "Mylera uses HealthKit to track your fitness metrics."
+        NSHealthShareUsageDescription: "Allow Mylera to read your health data for activity tracking",
+        NSHealthKitUsageDescription: "Mylera securely accesses HealthKit to track your fitness metrics"
       },
       entitlements: {
         "com.apple.developer.healthkit": true,
