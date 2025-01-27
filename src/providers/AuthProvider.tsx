@@ -32,7 +32,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
-
+  
+  const signUp = async (email: string, password: string) => {
+    try {
+      setError(null);
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) throw error;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'An error occurred.');
+    }
+  };
   const signIn = async (email: string, password: string) => {
     try {
       setError(null);
