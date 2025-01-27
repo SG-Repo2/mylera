@@ -73,3 +73,4 @@ ios/.xcode.env.local
 
 app-example
 docs/*.md
+**/repomix-output.txt

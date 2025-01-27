@@ -1,12 +1,6 @@
-/**
- * We want the root _layout.tsx to protect all routes outside of (auth). 
- *  This means that if a user is not logged in, we redirect them to (auth)/login. We can also display a loading indicator while checking session state.
- * 	We use router.replace(...) to avoid the user being able to go back to a protected route if they are not authenticated.
-	•	This _layout.tsx is automatically applied to all routes in app/ except for those in (auth)/, which has its own _layout.tsx.
- */
 // app/_layout.tsx
 import React, { useEffect } from 'react';
-import { Stack, useRouter, Slot } from 'expo-router';
+import { useRouter, Slot } from 'expo-router';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 
@@ -16,6 +10,7 @@ function ProtectedRoutes() {
 
   useEffect(() => {
     if (!loading && !session) {
+      // If not authenticated, redirect to (auth)/login
       router.replace('/(auth)/login');
     }
   }, [loading, session, router]);
@@ -27,14 +22,15 @@ function ProtectedRoutes() {
       </View>
     );
   }
-  return <Stack screenOptions={{ headerShown: false }} />;
+
+  // Once authenticated, we just render child layouts
+  return <Slot />;
 }
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <ProtectedRoutes />
-      <Slot />
     </AuthProvider>
   );
 }

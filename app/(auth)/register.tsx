@@ -44,7 +44,7 @@ export default function RegisterScreen() {
     // If there's no error from AuthProvider, we can navigate.
     if (!error) {
       // Navigate to the login screen or anywhere you prefer
-      router.push('/(auth)/login');
+      router.push('/(auth)/(home)');
     }
   };
 
