@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Button, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { createHealthProvider } from '@/src/providers/health/HealthProviderFactory';
+import { createHealthProvider } from '@/src/providers/health/factory/HealthProviderFactory';
 
 export default function HealthSetupScreen() {
   const router = useRouter();
