@@ -8,12 +8,6 @@ export default {
     scheme: "mylera",
     userInterfaceStyle: "automatic",
     plugins: [
-      [
-        "expo-splash-screen",
-        {
-          disableAutoSetup: true,
-        },
-      ],
       "expo-router",
       [
         "expo-health-connect",
