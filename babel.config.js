@@ -3,7 +3,6 @@ module.exports = function (api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      // Removed reanimated plugin since it's not in dependencies
     ],
   };
 };

@@ -12,7 +12,7 @@ export default {
       [
         "expo-health-connect",
         {
-          package: "com.groebe1kenobi.mylera", // Corrected to match bundleIdentifier
+          package: "com.groebe1kenobi.mylera", 
           modes: ["read"]
         }
       ],
