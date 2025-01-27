@@ -1,30 +1,12 @@
-import { Tabs } from 'expo-router';
-import { Home, Activity, User } from 'lucide-react';
+import React from 'react';
+import { Stack } from 'expo-router';
 
 export default function AppLayout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <Home color={color} size={24} />
-        }}
-      />
-      <Tabs.Screen
-        name="metrics"
-        options={{
-          title: 'Metrics',
-          tabBarIcon: ({ color }) => <Activity color={color} size={24} />
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => <User color={color} size={24} />
-        }}
-      />
-    </Tabs>
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(home)" />
+      <Stack.Screen name="leaderboard" />
+      <Stack.Screen name="profile" />
+    </Stack>
   );
 }
