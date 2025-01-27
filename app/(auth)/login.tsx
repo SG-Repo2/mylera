@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
-import { useAuth } from '@/providers/AuthProvider';
+import { useAuth } from '@/src/providers/AuthProvider';
 
 export function LoginScreen() {
   const [email, setEmail] = useState('');
