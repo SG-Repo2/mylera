@@ -1,9 +1,5 @@
 import { View, Text, Pressable } from 'react-native';
-import { styled } from 'nativewind';
-
-const SView = styled(View);
-const SText = styled(Text);
-const SPressable = styled(Pressable);
+import tw from 'twrnc';
 
 interface MetricCardProps {
   title: string;
@@ -18,27 +14,29 @@ export function MetricCard({ title, value, goal, points, unit, onPress }: Metric
   const progress = Math.min((value / goal) * 100, 100);
 
   return (
-    <SPressable onPress={onPress} className="bg-primary rounded-xl p-4 m-2">
-      <SView className="flex-row justify-between mb-3">
-        <SText className="text-white font-medium">{title}</SText>
-        <SText className="text-white/70 text-sm">{points} pts</SText>
-      </SView>
+    <Pressable onPress={onPress} style={tw`bg-primary rounded-xl p-4 m-2`}>
+      <View style={tw`flex-row justify-between mb-3`}>
+        <Text style={tw`text-white font-medium`}>{title}</Text>
+        <Text style={tw`text-white/70 text-sm`}>{points} pts</Text>
+      </View>
 
-      <SView>
-        <SView className="flex-row items-baseline space-x-1 mb-2">
-          <SText className="text-white text-2xl font-bold">
+      <View>
+        <View style={tw`flex-row items-baseline space-x-1 mb-2`}>
+          <Text style={tw`text-white text-2xl font-bold`}>
             {value.toLocaleString()}
-          </SText>
-          <SText className="text-white text-base">{unit}</SText>
-        </SView>
+          </Text>
+          <Text style={tw`text-white text-base`}>{unit}</Text>
+        </View>
 
-        <SView className="bg-white/20 w-full h-2 rounded-full">
-          <SView
-            className="bg-white h-full rounded-full"
-            style={{ width: `${progress}%` }}
+        <View style={tw`bg-white/20 w-full h-2 rounded-full`}>
+          <View
+            style={[
+              tw`bg-white h-full rounded-full`,
+              { width: `${progress}%` },
+            ]}
           />
-        </SView>
-      </SView>
-    </SPressable>
+        </View>
+      </View>
+    </Pressable>
   );
 }
