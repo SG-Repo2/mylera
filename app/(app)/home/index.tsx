@@ -1,22 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
-import { getLeaderboard } from '@/services/leaderboardService';
+import { leaderboardService } from '@/src/services/leaderboardService';
+
+// Add type for entries
+interface LeaderboardEntry {
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  total_points: number;
+  metrics_completed: number;
+  rank: number;
+}
 
 export function LeaderboardScreen() {
-  const [entries, setEntries] = useState<any[]>([]);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
+    const fetchLeaderboard = async () => {
       try {
-        const data = await getLeaderboard();
-        setEntries(data || []);
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date().toISOString().split('T')[0];
+        const data = await leaderboardService.getDailyLeaderboard(today);
+        setEntries(data);
       } catch (e) {
         console.error('Leaderboard fetch error:', e);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    fetchLeaderboard();
   }, []);
 
   if (loading) return <ActivityIndicator />;
@@ -26,18 +40,14 @@ export function LeaderboardScreen() {
       <Text style={styles.title}>Today's Leaderboard</Text>
       <FlatList
         data={entries}
-        keyExtractor={(item, index) => `${item.user_id}-${index}`}
-        renderItem={({ item, index }) => {
-          const { display_name, avatar_url, show_profile } = item.user_profiles || {};
-          const nameToShow = show_profile ? display_name : 'Anonymous';
-          return (
-            <View style={styles.item}>
-              <Text style={styles.rank}>{index + 1}.</Text>
-              <Text style={styles.name}>{nameToShow ?? 'Anonymous'}</Text>
-              <Text style={styles.score}>{item.total_points} pts</Text>
-            </View>
-          );
-        }}
+        keyExtractor={(item) => item.user_id}
+        renderItem={({ item }) => (
+          <View style={styles.item}>
+            <Text style={styles.rank}>{item.rank}.</Text>
+            <Text style={styles.name}>{item.display_name}</Text>
+            <Text style={styles.score}>{item.total_points} pts</Text>
+          </View>
+        )}
       />
     </View>
   );

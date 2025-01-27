@@ -1,42 +1,32 @@
 import { supabase } from './supabaseClient';
-
-export type MetricType = 'steps' | 'distance' | 'calories';
-
-interface MetricScore {
-  user_id: string;
-  date: string;
-  metric_type: MetricType;
-  goal_reached: boolean;
-  points: number;
-}
-
-interface MetricUpdate {
-  value: number;
-  goal: number;
-  type: MetricType;
-}
+import { PostgrestResponse } from '@supabase/supabase-js';
+import { 
+  MetricType, 
+  DailyMetricScore, 
+  MetricUpdate,
+  MetricGoals 
+} from '@/src/types/metrics';
 
 export const metricsService = {
-  async getDailyMetrics(userId: string, date: string) {
+  async getDailyMetrics(userId: string, date: string): Promise<DailyMetricScore[]> {
     const { data, error } = await supabase
       .from('daily_metric_scores')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', date);
+      .eq('date', date) as PostgrestResponse<DailyMetricScore>;
 
     if (error) throw error;
-    return data;
+    return data || [];
   },
 
-  async updateMetric(userId: string, update: MetricUpdate) {
+  async updateMetric(userId: string, update: MetricUpdate): Promise<void> {
     const today = new Date().toISOString().split('T')[0];
     const goalReached = update.value >= update.goal;
     
-    // Calculate points based on progress
     const progressPercentage = Math.min((update.value / update.goal) * 100, 100);
     const points = Math.floor(progressPercentage);
 
-    const metricScore: MetricScore = {
+    const metricScore: Partial<DailyMetricScore> = {
       user_id: userId,
       date: today,
       metric_type: update.type,
@@ -51,13 +41,10 @@ export const metricsService = {
       });
 
     if (error) throw error;
-
-    // Update daily totals
     await this.updateDailyTotal(userId, today);
   },
 
-  async updateDailyTotal(userId: string, date: string) {
-    // Get all metrics for the day
+  async updateDailyTotal(userId: string, date: string): Promise<void> {
     const { data: metrics, error: metricsError } = await supabase
       .from('daily_metric_scores')
       .select('points, goal_reached')
@@ -66,11 +53,9 @@ export const metricsService = {
 
     if (metricsError) throw metricsError;
 
-    // Calculate totals
     const totalPoints = metrics?.reduce((sum, metric) => sum + metric.points, 0) ?? 0;
     const metricsCompleted = metrics?.filter(metric => metric.goal_reached).length ?? 0;
 
-    // Update daily_totals
     const { error: updateError } = await supabase
       .from('daily_totals')
       .upsert({
@@ -85,11 +70,14 @@ export const metricsService = {
     if (updateError) throw updateError;
   },
 
-  getMetricGoals(): Record<MetricType, number> {
+  getMetricGoals(): MetricGoals {
     return {
-      steps: 10000,
-      distance: 5, // km
-      calories: 2000,
+      steps: { defaultGoal: 10000, unit: 'steps' },
+      distance: { defaultGoal: 5, unit: 'km' },
+      calories: { defaultGoal: 2000, unit: 'kcal' },
+      heart_rate: { defaultGoal: 120, unit: 'bpm' },
+      exercise: { defaultGoal: 30, unit: 'min' },
+      standing: { defaultGoal: 12, unit: 'hr' }
     };
   },
 };
