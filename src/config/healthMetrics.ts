@@ -31,7 +31,7 @@ const progressCalculators = {
   standing: (value: number, goal: number) => Math.min(value / goal, 1),
 };
 
-export const healthMetrics: Record<MetricType, {
+export interface MetricConfig {
   id: MetricType;
   title: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -41,7 +41,9 @@ export const healthMetrics: Record<MetricType, {
   formatValue: (value: number) => string;
   calculateProgress: (value: number, goal: number) => number;
   displayUnit: string; // Human readable unit
-}> = {
+}
+
+export const healthMetrics: Record<MetricType, MetricConfig> = {
   steps: {
     id: 'steps',
     title: 'Steps',

@@ -1,25 +1,35 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback } from 'react';
 import { View, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
 import { useHealthData } from '../../hooks/useHealthData';
 import { ErrorView } from '../shared/ErrorView';
-import { MetricCard } from './MetricCard';
-import healthMetrics from '../../config/healthMetrics';
+import { MetricCardList } from './MetricCardList';
 import type { HealthProvider } from '../../providers/health/types/provider';
-import type { MetricType } from '../../types/metrics';
 
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
-  date: string;
+  date?: string;
+  showAlerts?: boolean;
 }
 
-export function Dashboard({ provider, userId, date }: DashboardProps) {
+export function Dashboard({
+  provider,
+  userId,
+  date = new Date().toISOString().split('T')[0],
+  showAlerts = true
+}: DashboardProps) {
   const {
     metrics,
     loading,
     error,
     syncHealthData
   } = useHealthData(provider, userId, date, { autoSync: true });
+
+  // Memoize handlers at the top level
+  const handleRetry = useCallback(() => syncHealthData(true), [syncHealthData]);
+  const handleRefresh = useCallback(() => {
+    syncHealthData(true);
+  }, [syncHealthData]);
 
   // Handle loading state
   if (loading && !metrics) {
@@ -35,54 +45,14 @@ export function Dashboard({ provider, userId, date }: DashboardProps) {
     return (
       <ErrorView
         message={error.message}
-        onRetry={useCallback(() => syncHealthData(true), [syncHealthData])}
+        onRetry={handleRetry}
       />
     );
   }
 
-  // Memoize metric value calculation
-  const getMetricValue = useCallback((type: MetricType): number => {
-    if (!metrics) return 0;
-    return metrics[type] || 0;
-  }, [metrics]);
-
-  // Memoize refresh handler
-  const handleRefresh = useCallback(() => {
-    syncHealthData(true);
-  }, [syncHealthData]);
-
-  // Memoize metric cards
-  const metricCards = useMemo(() => {
-    return Object.entries(healthMetrics).map(([key, config]) => {
-      const type = key as MetricType;
-      const value = getMetricValue(type);
-      const progress = config.calculateProgress(value, config.defaultGoal);
-
-      const handlePress = () => {
-        // Handle metric card press - could open detailed view
-        console.log(`Pressed ${type} metric card`);
-      };
-
-      return (
-        <MetricCard
-          key={type}
-          title={config.title}
-          value={value}
-          goal={config.defaultGoal}
-          unit={config.displayUnit}
-          icon={config.icon}
-          progress={progress}
-          color={config.color}
-          onPress={handlePress}
-        />
-      );
-    });
-  }, [getMetricValue]);
-
   return (
     <ScrollView
       className="flex-1 bg-gray-50"
-      contentContainerClassName="p-4"
       refreshControl={
         <RefreshControl
           refreshing={loading}
@@ -91,9 +61,7 @@ export function Dashboard({ provider, userId, date }: DashboardProps) {
         />
       }
     >
-      <View className="flex-1 gap-4">
-        {metricCards}
-      </View>
+      {metrics && <MetricCardList metrics={metrics} showAlerts={showAlerts} />}
     </ScrollView>
   );
 }
