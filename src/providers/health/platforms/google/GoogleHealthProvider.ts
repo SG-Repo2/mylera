@@ -1,62 +1,40 @@
-// src/providers/google/GoogleHealthProvider.ts
-
 import { Platform } from 'react-native';
 import {
   initialize,
   requestPermission,
   readRecords,
-  SdkAvailabilityStatus,
-  getSdkStatus,
 } from 'react-native-health-connect';
-import type { HealthMetrics, HealthProvider } from '../../types';
+import { HealthMetrics, HealthProvider } from '../../types';
 import { DateUtils } from '../../../../utils/DateUtils';
-import { calculateHealthScore } from '../../../utils/HealthScoring';
+//import { calculateHealthScore } from '../../../utils/HealthScoring';
+import { HEALTH_PERMISSIONS } from './permissions';
 
-/**
- * TypeScript interfaces matching the expected data from Health Connect.
- */
 interface StepsRecord {
   count: number;
-  startTime: string;
-  endTime: string;
 }
 
 interface DistanceRecord {
   distance: {
     inMeters: number;
   };
-  startTime: string;
-  endTime: string;
 }
 
 interface CaloriesRecord {
   energy: {
     inKilocalories: number;
   };
-  startTime: string;
-  endTime: string;
-}
-
-interface HeartRateSample {
-  beatsPerMinute: number;
 }
 
 interface HeartRateRecord {
-  samples: HeartRateSample[];
-  startTime: string;
-  endTime: string;
+  samples: Array<{
+    beatsPerMinute: number;
+  }>;
 }
 
-/**
- * GoogleHealthProvider implementation using react-native-health-connect v3.x
- */
 export class GoogleHealthProvider implements HealthProvider {
   private initialized = false;
   private initializationPromise: Promise<void> | null = null;
 
-  /**
-   * Ensure Health Connect is initialized before making other calls.
-   */
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) {
       return;
@@ -77,86 +55,95 @@ export class GoogleHealthProvider implements HealthProvider {
     }
   }
 
-  /**
-   * Perform the actual initialization of Health Connect.
-   */
   private async performInitialization(): Promise<void> {
     if (Platform.OS !== 'android') {
       throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
     console.log('[GoogleHealthProvider] Initializing Health Connect...');
-    const status = await getSdkStatus();
-    if (status !== SdkAvailabilityStatus.SDK_AVAILABLE) {
-      throw new Error(`Health Connect not available. Status: ${status}`);
+    const available = await initialize();
+    
+    if (!available) {
+      throw new Error('Health Connect is not available');
     }
 
-    const isInitialized = await initialize();
-    if (!isInitialized) {
-      throw new Error('Health Connect initialization failed.');
-    }
-
+    console.log('[GoogleHealthProvider] Health Connect initialized successfully');
     this.initialized = true;
-    console.log('[GoogleHealthProvider] Health Connect initialized successfully.');
   }
 
-  /**
-   * Initialize the provider.
-   */
   async initialize(): Promise<void> {
     await this.ensureInitialized();
   }
 
-  /**
-   * Request read permissions for Steps, Distance, ActiveCaloriesBurned, and HeartRate.
-   */
-  async requestPermissions(): Promise<void> {
-    await this.ensureInitialized();
-    await requestPermission([
-      { accessType: 'read', recordType: 'Steps' },
-      { accessType: 'read', recordType: 'Distance' },
-      { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
-      { accessType: 'read', recordType: 'HeartRate' },
-    ]);
-    console.log('[GoogleHealthProvider] Requested read permissions.');
-  }
-
-  /**
-   * Check if permissions are granted by attempting a small read.
-   */
-  async checkPermissionsStatus(): Promise<boolean> {
+  async requestPermissions(): Promise<boolean> {
     try {
-      const now = new Date();
-      await this.readSteps(
-        new Date(now.getTime() - 1 * 60 * 1000).toISOString(), // 1 minute ago
-        now.toISOString()
-      );
+      await this.ensureInitialized();
+
+      console.log('[GoogleHealthProvider] Requesting permissions...');
+      await requestPermission([
+        { accessType: 'read', recordType: 'Steps' },
+        { accessType: 'read', recordType: 'Distance' },
+        { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
+        { accessType: 'read', recordType: 'HeartRate' }
+      ]);
+      
+      await this.verifyPermissions();
+      console.log('[GoogleHealthProvider] Permissions granted and verified');
       return true;
-    } catch (err) {
-      console.warn('[GoogleHealthProvider] checkPermissionsStatus failed:', err);
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Permission request failed:', error);
       return false;
     }
   }
 
-  /**
-   * Cleanup the provider.
-   */
+  async checkPermissionsStatus(): Promise<boolean> {
+    try {
+      if (!this.initialized) {
+        const available = await initialize();
+        if (!available) {
+          console.log('[GoogleHealthProvider] Health Connect is not available');
+          return false;
+        }
+      }
+      
+      await this.verifyPermissions();
+      return true;
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Permission check failed:', error);
+      return false;
+    }
+  }
+
+  private async verifyPermissions(): Promise<void> {
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const testRange = {
+      operator: 'between' as const,
+      startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
+      endTime: now.toISOString(),
+    };
+    
+    await Promise.all([
+      readRecords('Steps', { timeRangeFilter: testRange }),
+      readRecords('Distance', { timeRangeFilter: testRange }),
+      readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
+      readRecords('HeartRate', { timeRangeFilter: testRange })
+    ]);
+  }
+
   async cleanup(): Promise<void> {
     this.initialized = false;
     this.initializationPromise = null;
-    console.log('[GoogleHealthProvider] Cleanup complete.');
+    console.log('[GoogleHealthProvider] Cleanup complete');
   }
 
-  /**
-   * Fetch all health metrics.
-   */
   async getMetrics(): Promise<HealthMetrics> {
     try {
       await this.ensureInitialized();
 
       const now = new Date();
       const startOfDay = DateUtils.getStartOfDay(now);
-
+      
       const timeRangeFilter = {
         operator: 'between' as const,
         startTime: startOfDay.toISOString(),
@@ -165,42 +152,27 @@ export class GoogleHealthProvider implements HealthProvider {
 
       console.log('[GoogleHealthProvider] Fetching metrics for:', timeRangeFilter);
 
-      const [steps, distance, calories, heartRate] = await Promise.all([
-        this.readSteps(timeRangeFilter.startTime, timeRangeFilter.endTime),
-        this.readDistance(timeRangeFilter.startTime, timeRangeFilter.endTime),
-        this.readCalories(timeRangeFilter.startTime, timeRangeFilter.endTime),
-        this.readHeartRate(timeRangeFilter.startTime, timeRangeFilter.endTime),
+      const [steps, distance, calories, heart_rate] = await Promise.all([
+        this.getSteps(timeRangeFilter),
+        this.getDistance(timeRangeFilter),
+        this.getCalories(timeRangeFilter),
+        this.getHeartRate(timeRangeFilter),
       ]);
 
-      const totalSteps = steps.reduce((acc, record) => acc + record.count, 0) || null;
-      const totalDistance =
-        (distance.reduce((acc, record) => acc + record.distance.inMeters, 0) / 1000) || null; // in km
-      const totalCalories =
-        calories.reduce(
-          (acc, record) => acc + record.energy.inKilocalories,
-          0
-        ) || null;
-      const averageHeartRate = this.calculateAverageHeartRate(heartRate);
-
       const metrics: HealthMetrics = {
-        id: '', // Assign as needed
-        user_id: '', // Assign as needed
+        id: '',
+        user_id: '',
         date: DateUtils.getLocalDateString(startOfDay),
-        steps: totalSteps,
-        distance: totalDistance,
-        calories: totalCalories,
-        heart_rate: averageHeartRate,
-        daily_score: calculateHealthScore({
-          steps: totalSteps || 0,
-          distance: totalDistance || 0,
-          calories: totalCalories || 0,
-          heart_rate: averageHeartRate || 0,
-        }).totalScore,
-        weekly_score: null, // Implement as needed
-        streak_days: null, // Implement as needed
+        steps,
+        distance,
+        calories,
+        heart_rate,
+        daily_score: 0,
+        weekly_score: null,
+        streak_days: null,
         last_updated: now.toISOString(),
         created_at: now.toISOString(),
-        updated_at: now.toISOString(),
+        updated_at: now.toISOString()
       };
 
       console.log('[GoogleHealthProvider] Metrics retrieved:', metrics);
@@ -211,101 +183,89 @@ export class GoogleHealthProvider implements HealthProvider {
     }
   }
 
-  /**
-   * Read Steps records within a time range.
-   */
-  async readSteps(startTime: string, endTime: string): Promise<StepsRecord[]> {
-    await this.initialize();
-    const response = await readRecords<StepsRecord>({
-      recordType: 'Steps',
-      timeRangeFilter: {
-        operator: 'between',
-        startTime,
-        endTime,
-      },
-    });
-    console.log('[GoogleHealthProvider] readSteps ->', response.records);
-    return response.records.map((r) => r.record);
-  }
-
-  /**
-   * Read Distance records within a time range.
-   */
-  async readDistance(startTime: string, endTime: string): Promise<DistanceRecord[]> {
-    await this.initialize();
-    const response = await readRecords<DistanceRecord>({
-      recordType: 'Distance',
-      timeRangeFilter: {
-        operator: 'between',
-        startTime,
-        endTime,
-      },
-    });
-    console.log('[GoogleHealthProvider] readDistance ->', response.records);
-    return response.records.map((r) => r.record);
-  }
-
-  /**
-   * Read ActiveCaloriesBurned records within a time range.
-   */
-  async readCalories(
-    startTime: string,
-    endTime: string
-  ): Promise<CaloriesRecord[]> {
-    await this.initialize();
-    const response = await readRecords<CaloriesRecord>({
-      recordType: 'ActiveCaloriesBurned',
-      timeRangeFilter: {
-        operator: 'between',
-        startTime,
-        endTime,
-      },
-    });
-    console.log('[GoogleHealthProvider] readCalories ->', response.records);
-    return response.records.map((r) => r.record);
-  }
-
-  /**
-   * Read HeartRate records within a time range.
-   */
-  async readHeartRate(
-    startTime: string,
-    endTime: string
-  ): Promise<HeartRateRecord[]> {
-    await this.initialize();
-    const response = await readRecords<HeartRateRecord>({
-      recordType: 'HeartRate',
-      timeRangeFilter: {
-        operator: 'between',
-        startTime,
-        endTime,
-      },
-    });
-    console.log('[GoogleHealthProvider] readHeartRate ->', response.records);
-    return response.records.map((r) => r.record);
-  }
-
-  /**
-   * Calculate the average heart rate from HeartRateRecords.
-   */
-  private calculateAverageHeartRate(records: HeartRateRecord[]): number | null {
+  private async getSteps(timeRangeFilter: any): Promise<number | null> {
     try {
-      const allSamples = records.flatMap((r) => r.samples);
-      const validSamples = allSamples.filter(
-        (s) =>
-          s.beatsPerMinute > 0 &&
-          s.beatsPerMinute < 300 &&
-          !isNaN(s.beatsPerMinute)
+      console.log('[GoogleHealthProvider] Reading steps...');
+      const response = await readRecords('Steps', { timeRangeFilter });
+      const records = response.records as StepsRecord[];
+      if (!records.length) return null;
+      
+      const total = records.reduce((sum, record) => sum + (record.count || 0), 0);
+      console.log('[GoogleHealthProvider] Steps total:', total);
+      return Math.round(total);
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Error reading steps:', error);
+      return null;
+    }
+  }
+
+  private async getDistance(timeRangeFilter: any): Promise<number | null> {
+    try {
+      console.log('[GoogleHealthProvider] Reading distance...');
+      const response = await readRecords('Distance', { timeRangeFilter });
+      const records = response.records as DistanceRecord[];
+      if (!records.length) return null;
+      
+      const totalMeters = records.reduce((sum, record) => 
+        sum + (record.distance?.inMeters || 0), 0);
+      const kilometers = totalMeters / 1000;
+      console.log('[GoogleHealthProvider] Distance total (km):', kilometers);
+      return Math.round(kilometers * 100) / 100; // Round to 2 decimal places
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Error reading distance:', error);
+      return null;
+    }
+  }
+
+  private async getCalories(timeRangeFilter: any): Promise<number | null> {
+    try {
+      console.log('[GoogleHealthProvider] Reading calories...');
+      const response = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
+      const records = response.records as CaloriesRecord[];
+      if (!records.length) return null;
+      
+      const total = records.reduce((sum, record) => 
+        sum + (record.energy?.inKilocalories || 0), 0);
+      console.log('[GoogleHealthProvider] Calories total:', total);
+      return Math.round(total);
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Error reading calories:', error);
+      return null;
+    }
+  }
+
+  private async getHeartRate(timeRangeFilter: any): Promise<number | null> {
+    try {
+      console.log('[GoogleHealthProvider] Reading heart rate...');
+      const response = await readRecords('HeartRate', { timeRangeFilter });
+      const records = response.records as HeartRateRecord[];
+      
+      if (!records || !records.length) {
+        return null;
+      }
+
+      // Get all valid heart rate samples
+      const validSamples = records.flatMap(record => 
+        record.samples.filter(sample => 
+          typeof sample.beatsPerMinute === 'number' &&
+          !isNaN(sample.beatsPerMinute) &&
+          sample.beatsPerMinute > 0 &&
+          sample.beatsPerMinute < 300
+        )
       );
 
-      if (validSamples.length === 0) return null;
+      if (!validSamples.length) {
+        return null;
+      }
 
-      const sum = validSamples.reduce((acc, s) => acc + s.beatsPerMinute, 0);
-      const avg = sum / validSamples.length;
-      console.log('[GoogleHealthProvider] Average Heart Rate:', avg);
-      return Math.round(avg);
+      // Calculate average heart rate
+      const sum = validSamples.reduce((acc, sample) => acc + sample.beatsPerMinute, 0);
+      const average = sum / validSamples.length;
+      
+      console.log('[GoogleHealthProvider] Heart rate average:', average);
+      return Math.round(average);
     } catch (error) {
-      console.error('[GoogleHealthProvider] Error calculating average heart rate:', error);
+      console.error('[GoogleHealthProvider] Error reading heart rate:', error);
       return null;
     }
   }
