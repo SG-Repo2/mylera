@@ -10,13 +10,6 @@ export default {
     plugins: [
       "expo-router",
       [
-        "expo-health-connect",
-        {
-          package: "com.groebe1kenobi.mylera",
-          modes: ["read"],
-        },
-      ],
-      [
         "expo-build-properties",
         {
           android: {
