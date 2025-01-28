@@ -63,17 +63,21 @@ export class AppleHealthProvider implements HealthProvider {
       date: now.toISOString(),
     };
 
-    const steps = await this.getSteps(options);
+    const [steps, distance, calories, heart_rate] = await Promise.all([
+      this.getSteps(options),
+      this.getDistance(options),
+      this.getCalories(options),
+      this.getHeartRate(options),
+    ]);
     
-    // This is a minimal implementation - you'll want to add other metrics
     return {
       id: '',
       user_id: '',
       date: now.toISOString().split('T')[0],
-      steps: steps,
-      distance: null,
-      calories: null,
-      heart_rate: null,
+      steps,
+      distance,
+      calories,
+      heart_rate,
       daily_score: 0,
       weekly_score: null,
       streak_days: null,
@@ -83,15 +87,82 @@ export class AppleHealthProvider implements HealthProvider {
     };
   }
 
-  private async getSteps(options: HealthInputOptions): Promise<number> {
-    return new Promise((resolve, reject) => {
+  private async getSteps(options: HealthInputOptions): Promise<number | null> {
+    return new Promise((resolve) => {
       AppleHealthKit.getStepCount(options, (error: string, results: any) => {
         if (error) {
-          reject(new Error(error));
+          console.error('[AppleHealthProvider] Error reading steps:', error);
+          resolve(null);
         } else {
           resolve(results.value || 0);
         }
       });
+    });
+  }
+
+  private async getDistance(options: HealthInputOptions): Promise<number | null> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getDistanceWalkingRunning(
+        options,
+        (err: string, results: { value: number }) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading distance:', err);
+            resolve(null);
+          } else {
+            const kilometers = (results.value || 0) / 1000;
+            resolve(Math.round(kilometers * 100) / 100);
+          }
+        }
+      );
+    });
+  }
+
+  private async getCalories(options: HealthInputOptions): Promise<number | null> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getActiveEnergyBurned(
+        options,
+        (err: string, results: Array<{ value: number }>) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading calories:', err);
+            resolve(null);
+          } else {
+            const totalCalories = results.reduce((sum, result) => sum + (result.value || 0), 0);
+            resolve(Math.round(totalCalories));
+          }
+        }
+      );
+    });
+  }
+
+  private async getHeartRate(options: HealthInputOptions): Promise<number | null> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getHeartRateSamples(
+        {
+          ...options,
+          ascending: true,
+        },
+        (err: string, results: Array<{ value: number }>) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading heart rate:', err);
+            resolve(null);
+          } else {
+            const validSamples = results.filter(sample =>
+              typeof sample.value === 'number' &&
+              !isNaN(sample.value) &&
+              sample.value > 0 &&
+              sample.value < 300
+            );
+
+            if (!validSamples.length) {
+              resolve(null);
+              return;
+            }
+
+            const sum = validSamples.reduce((acc, sample) => acc + sample.value, 0);
+            resolve(Math.round(sum / validSamples.length));
+          }
+        }
+      );
     });
   }
 }

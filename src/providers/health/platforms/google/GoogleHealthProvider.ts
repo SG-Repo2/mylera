@@ -6,7 +6,6 @@ import {
 } from 'react-native-health-connect';
 import { HealthMetrics, HealthProvider } from '../../types';
 import { DateUtils } from '../../../../utils/DateUtils';
-//import { calculateHealthScore } from '../../../utils/HealthScoring';
 import { HEALTH_PERMISSIONS } from './permissions';
 
 interface StepsRecord {
@@ -60,14 +59,12 @@ export class GoogleHealthProvider implements HealthProvider {
       throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
-    console.log('[GoogleHealthProvider] Initializing Health Connect...');
     const available = await initialize();
     
     if (!available) {
       throw new Error('Health Connect is not available');
     }
 
-    console.log('[GoogleHealthProvider] Health Connect initialized successfully');
     this.initialized = true;
   }
 
@@ -79,7 +76,6 @@ export class GoogleHealthProvider implements HealthProvider {
     try {
       await this.ensureInitialized();
 
-      console.log('[GoogleHealthProvider] Requesting permissions...');
       await requestPermission([
         { accessType: 'read', recordType: 'Steps' },
         { accessType: 'read', recordType: 'Distance' },
@@ -88,7 +84,6 @@ export class GoogleHealthProvider implements HealthProvider {
       ]);
       
       await this.verifyPermissions();
-      console.log('[GoogleHealthProvider] Permissions granted and verified');
       return true;
     } catch (error) {
       console.error('[GoogleHealthProvider] Permission request failed:', error);
@@ -101,7 +96,6 @@ export class GoogleHealthProvider implements HealthProvider {
       if (!this.initialized) {
         const available = await initialize();
         if (!available) {
-          console.log('[GoogleHealthProvider] Health Connect is not available');
           return false;
         }
       }
@@ -109,7 +103,6 @@ export class GoogleHealthProvider implements HealthProvider {
       await this.verifyPermissions();
       return true;
     } catch (error) {
-      console.error('[GoogleHealthProvider] Permission check failed:', error);
       return false;
     }
   }
@@ -134,7 +127,6 @@ export class GoogleHealthProvider implements HealthProvider {
   async cleanup(): Promise<void> {
     this.initialized = false;
     this.initializationPromise = null;
-    console.log('[GoogleHealthProvider] Cleanup complete');
   }
 
   async getMetrics(): Promise<HealthMetrics> {
@@ -150,8 +142,6 @@ export class GoogleHealthProvider implements HealthProvider {
         endTime: now.toISOString(),
       };
 
-      console.log('[GoogleHealthProvider] Fetching metrics for:', timeRangeFilter);
-
       const [steps, distance, calories, heart_rate] = await Promise.all([
         this.getSteps(timeRangeFilter),
         this.getDistance(timeRangeFilter),
@@ -159,7 +149,7 @@ export class GoogleHealthProvider implements HealthProvider {
         this.getHeartRate(timeRangeFilter),
       ]);
 
-      const metrics: HealthMetrics = {
+      return {
         id: '',
         user_id: '',
         date: DateUtils.getLocalDateString(startOfDay),
@@ -174,9 +164,6 @@ export class GoogleHealthProvider implements HealthProvider {
         created_at: now.toISOString(),
         updated_at: now.toISOString()
       };
-
-      console.log('[GoogleHealthProvider] Metrics retrieved:', metrics);
-      return metrics;
     } catch (error) {
       console.error('[GoogleHealthProvider] Error fetching metrics:', error);
       throw error;
@@ -185,13 +172,11 @@ export class GoogleHealthProvider implements HealthProvider {
 
   private async getSteps(timeRangeFilter: any): Promise<number | null> {
     try {
-      console.log('[GoogleHealthProvider] Reading steps...');
       const response = await readRecords('Steps', { timeRangeFilter });
       const records = response.records as StepsRecord[];
       if (!records.length) return null;
       
       const total = records.reduce((sum, record) => sum + (record.count || 0), 0);
-      console.log('[GoogleHealthProvider] Steps total:', total);
       return Math.round(total);
     } catch (error) {
       console.error('[GoogleHealthProvider] Error reading steps:', error);
@@ -201,7 +186,6 @@ export class GoogleHealthProvider implements HealthProvider {
 
   private async getDistance(timeRangeFilter: any): Promise<number | null> {
     try {
-      console.log('[GoogleHealthProvider] Reading distance...');
       const response = await readRecords('Distance', { timeRangeFilter });
       const records = response.records as DistanceRecord[];
       if (!records.length) return null;
@@ -209,8 +193,7 @@ export class GoogleHealthProvider implements HealthProvider {
       const totalMeters = records.reduce((sum, record) => 
         sum + (record.distance?.inMeters || 0), 0);
       const kilometers = totalMeters / 1000;
-      console.log('[GoogleHealthProvider] Distance total (km):', kilometers);
-      return Math.round(kilometers * 100) / 100; // Round to 2 decimal places
+      return Math.round(kilometers * 100) / 100;
     } catch (error) {
       console.error('[GoogleHealthProvider] Error reading distance:', error);
       return null;
@@ -219,14 +202,12 @@ export class GoogleHealthProvider implements HealthProvider {
 
   private async getCalories(timeRangeFilter: any): Promise<number | null> {
     try {
-      console.log('[GoogleHealthProvider] Reading calories...');
       const response = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
       const records = response.records as CaloriesRecord[];
       if (!records.length) return null;
       
       const total = records.reduce((sum, record) => 
         sum + (record.energy?.inKilocalories || 0), 0);
-      console.log('[GoogleHealthProvider] Calories total:', total);
       return Math.round(total);
     } catch (error) {
       console.error('[GoogleHealthProvider] Error reading calories:', error);
@@ -236,7 +217,6 @@ export class GoogleHealthProvider implements HealthProvider {
 
   private async getHeartRate(timeRangeFilter: any): Promise<number | null> {
     try {
-      console.log('[GoogleHealthProvider] Reading heart rate...');
       const response = await readRecords('HeartRate', { timeRangeFilter });
       const records = response.records as HeartRateRecord[];
       
@@ -244,7 +224,6 @@ export class GoogleHealthProvider implements HealthProvider {
         return null;
       }
 
-      // Get all valid heart rate samples
       const validSamples = records.flatMap(record => 
         record.samples.filter(sample => 
           typeof sample.beatsPerMinute === 'number' &&
@@ -258,12 +237,8 @@ export class GoogleHealthProvider implements HealthProvider {
         return null;
       }
 
-      // Calculate average heart rate
       const sum = validSamples.reduce((acc, sample) => acc + sample.beatsPerMinute, 0);
-      const average = sum / validSamples.length;
-      
-      console.log('[GoogleHealthProvider] Heart rate average:', average);
-      return Math.round(average);
+      return Math.round(sum / validSamples.length);
     } catch (error) {
       console.error('[GoogleHealthProvider] Error reading heart rate:', error);
       return null;
