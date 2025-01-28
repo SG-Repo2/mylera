@@ -1,4 +1,3 @@
-// app/(app)/(home)/[metric].tsx
 import React from 'react';
 import { View, Text } from 'react-native';
 
