@@ -1,39 +1,67 @@
+import React from 'react';
 import { View } from 'react-native';
 import { MetricCard } from './MetricCard';
 import { MetricType } from '../../types/metrics';
 import { healthMetrics } from '../../config/healthMetrics';
 import { HealthMetrics } from '../../providers/health/types/metrics';
-import { getMetricValue, calculateProgress, shouldShowAlert } from '../../utils/metrics/calculations';
+import { getMetricValue, calculateProgress } from '../../utils/metrics/calculations';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
-  showAlerts?: boolean;
+  totalPoints: number;
 }
 
-export function MetricCardList({ metrics, showAlerts = true }: MetricCardListProps) {
+const backgroundColors = {
+  steps: 'bg-emerald-500',
+  heart_rate: 'bg-red-400',
+  calories: 'bg-purple-500',
+  distance: 'bg-blue-500'
+};
 
+export function MetricCardList({ metrics, totalPoints }: MetricCardListProps) {
   return (
     <View className="p-4 space-y-4">
-      {Object.entries(healthMetrics).map(([key, config]) => {
-        const type = key as MetricType;
-        const value = getMetricValue(metrics, type);
-        const progress = calculateProgress(value, config);
-        const alert = showAlerts && shouldShowAlert(type, value, config);
-
-        return (
-          <MetricCard
-            key={type}
-            title={config.title}
-            value={value}
-            goal={config.defaultGoal}
-            unit={config.displayUnit}
-            icon={config.icon}
-            progress={progress}
-            color={config.color}
-            showAlert={alert}
+      {/* Total Points Card */}
+      <View className="bg-white p-4 rounded-xl shadow-sm">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-xl font-primary text-gray-800">Total Points</Text>
+          <View className="flex-row items-center space-x-2">
+            <MaterialCommunityIcons name="chart-line" size={24} color="#10B981" />
+            <Text className="text-2xl font-bold">
+              {totalPoints} <Text className="text-gray-500 text-lg">/ 1000</Text>
+            </Text>
+          </View>
+        </View>
+        <View className="mt-4 bg-gray-100 h-2 rounded-full overflow-hidden">
+          <View
+            className="h-full bg-emerald-500 rounded-full"
+            style={{ width: `${(totalPoints / 1000) * 100}%` }}
           />
-        );
-      })}
+        </View>
+      </View>
+
+      {/* Metric Cards Grid */}
+      <View className="space-y-4">
+        {Object.entries(healthMetrics).map(([key, config]) => {
+          const type = key as MetricType;
+          const value = getMetricValue(metrics, type);
+          const progress = calculateProgress(value, config);
+
+          return (
+            <MetricCard
+              key={type}
+              title={config.title}
+              value={value}
+              points={metrics[type]?.points || 0}
+              goal={config.defaultGoal}
+              unit={config.displayUnit}
+              icon={config.icon}
+              progress={progress}
+              backgroundColor={backgroundColors[type] || 'bg-gray-500'}
+            />
+          );
+        })}
+      </View>
     </View>
   );
 }

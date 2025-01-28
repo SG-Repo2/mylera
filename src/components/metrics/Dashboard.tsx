@@ -1,5 +1,6 @@
+// src/components/metrics/Dashboard.tsx
 import React, { useCallback } from 'react';
-import { View, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, ScrollView, RefreshControl, Text } from 'react-native';
 import { useHealthData } from '../../hooks/useHealthData';
 import { ErrorView } from '../shared/ErrorView';
 import { PermissionErrorView } from '../shared/PermissionErrorView';
@@ -12,16 +13,14 @@ interface DashboardProps {
   provider: HealthProvider;
   userId: string;
   date?: string;
-  showAlerts?: boolean;
 }
 
 export function Dashboard({
   provider,
   userId,
   date = new Date().toISOString().split('T')[0],
-  showAlerts = true
 }: DashboardProps) {
-  const { healthPermissionStatus, requestHealthPermissions } = useAuth();
+  const { user } = useAuth();
   const {
     metrics,
     loading,
@@ -29,7 +28,6 @@ export function Dashboard({
     syncHealthData
   } = useHealthData(provider, userId, date, { autoSync: true });
 
-  // Memoize handlers at the top level
   const handleRetry = useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
       const status = await requestHealthPermissions();
@@ -41,47 +39,24 @@ export function Dashboard({
     }
   }, [syncHealthData, error, requestHealthPermissions]);
 
-  const handleRefresh = useCallback(() => {
-    syncHealthData(true);
-  }, [syncHealthData]);
-
-  // Handle loading state
   if (loading && !metrics) {
     return (
       <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" color="#0284c7" />
+        <ActivityIndicator size="large" className="text-primary" />
       </View>
     );
   }
 
-  // Handle permission denied state
-  if (healthPermissionStatus === 'denied') {
-    return (
-      <PermissionErrorView
-        onRetry={handleRetry}
-      />
-    );
+  if (error) {
+    if (error instanceof HealthProviderPermissionError) {
+      return <PermissionErrorView onRetry={handleRetry} />;
+    }
+    return <ErrorView message={error.message} onRetry={handleRetry} />;
   }
 
-  // Handle other error states
-  if (error) {
-    // If it's a permission error, show the permission error view
-    if (error instanceof HealthProviderPermissionError) {
-      return (
-        <PermissionErrorView
-          onRetry={handleRetry}
-        />
-      );
-    }
-    
-    // For other errors, show the generic error view
-    return (
-      <ErrorView
-        message={error.message}
-        onRetry={handleRetry}
-      />
-    );
-  }
+  const totalPoints = metrics ? Object.values(metrics)
+    .filter(metric => typeof metric === 'number')
+    .reduce((sum, points) => sum + (points || 0), 0) : 0;
 
   return (
     <ScrollView
@@ -89,12 +64,33 @@ export function Dashboard({
       refreshControl={
         <RefreshControl
           refreshing={loading}
-          onRefresh={handleRefresh}
-          tintColor="#0284c7"
+          onRefresh={() => syncHealthData(true)}
+          tintColor="#10B981"
         />
       }
     >
-      {metrics && <MetricCardList metrics={metrics} showAlerts={showAlerts} />}
+      <View className="p-4">
+        <Text className="text-2xl font-primary text-gray-800">
+          Good {getTimeOfDay()}, {user?.email?.split('@')[0]}
+        </Text>
+        <Text className="text-3xl font-bold font-primary text-gray-900 mt-1">
+          Your Dashboard
+        </Text>
+      </View>
+
+      {metrics && (
+        <MetricCardList 
+          metrics={metrics} 
+          totalPoints={totalPoints}
+        />
+      )}
     </ScrollView>
   );
+}
+
+function getTimeOfDay() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  return 'evening';
 }
