@@ -1,28 +1,17 @@
 // src/components/metrics/MetricCard.tsx
 import React from 'react';
 import { View, Text, Pressable } from 'react-native';
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-// This type defines which icon set and name to use for each metric type
-type IconConfig = {
-  set: 'MaterialCommunityIcons' | 'Ionicons';
-  name: string;
-};
-
-// Icon mappings for different metric types
-const ICON_MAPPINGS: Record<string, IconConfig> = {
-  steps: { set: 'MaterialCommunityIcons', name: 'shoe-print' },
-  heart: { set: 'Ionicons', name: 'heart' },
-  distance: { set: 'MaterialCommunityIcons', name: 'map-marker-distance' },
-  calories: { set: 'MaterialCommunityIcons', name: 'fire' },
-};
+import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
+import type { MetricType } from '@/src/types/metrics';
 
 interface MetricCardProps {
   title: string;
   value: number;
   goal: number;
   unit: string;
-  icon: keyof typeof ICON_MAPPINGS;
+  icon: keyof typeof IconType.glyphMap;
   progress: number;
   color: string;
   showAlert?: boolean;
@@ -83,22 +72,11 @@ export function MetricCard({
 
   // Function to render the appropriate icon based on the icon config
   const renderIcon = () => {
-    const iconConfig = ICON_MAPPINGS[icon];
-    if (!iconConfig) return null;
-
-    return iconConfig.set === 'MaterialCommunityIcons' ? (
-      <MaterialCommunityIcons 
-        name={iconConfig.name as any} 
-        size={24} 
-        color={colors .iconColor} 
-      />
-    ) : (
-      <Ionicons 
-        name={iconConfig.name as any} 
-        size={24} 
-        color={colors.iconColor} 
-      />
-    );
+    return <MaterialCommunityIcons 
+      name={icon} 
+      size={24} 
+      color={colors.iconColor} 
+    />;
   };
 
   return (

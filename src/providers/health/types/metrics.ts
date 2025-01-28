@@ -45,6 +45,8 @@ export interface HealthMetrics {
   steps: number | null;
   distance: number | null;      // Always in meters
   calories: number | null;      // Always in kcal
+  exercise: number | null;      // Exercise minutes
+  standing: number | null;      // Standing hours
   heart_rate: number | null;    // Average BPM for the period
   daily_score: number;
   weekly_score: number | null;

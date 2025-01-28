@@ -39,3 +39,13 @@ export class HealthDataNormalizationError extends HealthProviderError {
     this.name = 'HealthDataNormalizationError';
   }
 }
+
+export class HealthDataError extends HealthProviderError {
+  code: string;
+  
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'HealthDataError';
+    this.code = code;
+  }
+}

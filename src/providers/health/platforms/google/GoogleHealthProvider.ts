@@ -281,6 +281,8 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         distance,
         calories,
         heart_rate,
+      exercise: null,  // To be implemented later
+      standing: null,  // To be implemented later
         daily_score: 0,
         weekly_score: null,
         streak_days: null,
