@@ -2,8 +2,11 @@ import React, { useCallback } from 'react';
 import { View, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
 import { useHealthData } from '../../hooks/useHealthData';
 import { ErrorView } from '../shared/ErrorView';
+import { PermissionErrorView } from '../shared/PermissionErrorView';
 import { MetricCardList } from './MetricCardList';
+import { useAuth } from '../../providers/AuthProvider';
 import type { HealthProvider } from '../../providers/health/types/provider';
+import { HealthProviderPermissionError } from '../../providers/health/types/errors';
 
 interface DashboardProps {
   provider: HealthProvider;
@@ -18,6 +21,7 @@ export function Dashboard({
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
+  const { healthPermissionStatus, requestHealthPermissions } = useAuth();
   const {
     metrics,
     loading,
@@ -26,7 +30,17 @@ export function Dashboard({
   } = useHealthData(provider, userId, date, { autoSync: true });
 
   // Memoize handlers at the top level
-  const handleRetry = useCallback(() => syncHealthData(true), [syncHealthData]);
+  const handleRetry = useCallback(async () => {
+    if (error instanceof HealthProviderPermissionError) {
+      const status = await requestHealthPermissions();
+      if (status === 'granted') {
+        syncHealthData(true);
+      }
+    } else {
+      syncHealthData(true);
+    }
+  }, [syncHealthData, error, requestHealthPermissions]);
+
   const handleRefresh = useCallback(() => {
     syncHealthData(true);
   }, [syncHealthData]);
@@ -40,8 +54,27 @@ export function Dashboard({
     );
   }
 
-  // Handle error state
+  // Handle permission denied state
+  if (healthPermissionStatus === 'denied') {
+    return (
+      <PermissionErrorView
+        onRetry={handleRetry}
+      />
+    );
+  }
+
+  // Handle other error states
   if (error) {
+    // If it's a permission error, show the permission error view
+    if (error instanceof HealthProviderPermissionError) {
+      return (
+        <PermissionErrorView
+          onRetry={handleRetry}
+        />
+      );
+    }
+    
+    // For other errors, show the generic error view
     return (
       <ErrorView
         message={error.message}

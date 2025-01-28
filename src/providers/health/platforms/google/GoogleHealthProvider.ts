@@ -8,12 +8,14 @@ import { BaseHealthProvider } from '../../types/provider';
 import { 
   HealthMetrics, 
   RawHealthData, 
-  RawHealthMetric,
   NormalizedMetric,
   METRIC_UNITS 
 } from '../../types/metrics';
 import { MetricType } from '../../../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
+import { PermissionState, PermissionStatus } from '../../types/permissions';
+import { HealthProviderPermissionError } from '../../types/errors';
+import { HEALTH_PERMISSIONS } from './permissions';
 
 interface StepsRecord {
   startTime: string;
@@ -82,56 +84,109 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
-  async requestPermissions(): Promise<boolean> {
+  async requestPermissions(): Promise<PermissionStatus> {
+    if (!this.permissionManager) {
+      throw new Error('Permission manager not initialized');
+    }
+
     try {
       await this.ensureInitialized();
 
-      await requestPermission([
-        { accessType: 'read', recordType: 'Steps' },
-        { accessType: 'read', recordType: 'Distance' },
-        { accessType: 'read', recordType: 'ActiveCaloriesBurned' },
-        { accessType: 'read', recordType: 'HeartRate' }
-      ]);
+      // Check if permissions are already granted
+      const currentState = await this.checkPermissionsStatus();
+      if (currentState.status === 'granted') {
+        return 'granted';
+      }
+
+      // Request permissions through Health Connect
+      await requestPermission(HEALTH_PERMISSIONS);
       
-      await this.verifyPermissions();
-      return true;
+      // Verify permissions were granted
+      const verificationResult = await this.verifyPermissions();
+      const status: PermissionStatus = verificationResult ? 'granted' : 'denied';
+      
+      await this.permissionManager.updatePermissionState(status);
+      return status;
     } catch (error) {
-      console.error('[GoogleHealthProvider] Permission request failed:', error);
-      return false;
+      await this.permissionManager.handlePermissionError(
+        'HealthConnect',
+        error
+      );
+      return 'denied';
     }
   }
 
-  async checkPermissionsStatus(): Promise<boolean> {
+  async checkPermissionsStatus(): Promise<PermissionState> {
+    if (!this.permissionManager) {
+      throw new Error('Permission manager not initialized');
+    }
+
+    // First check cached state
+    const cachedState = await this.permissionManager.getPermissionState();
+    if (cachedState) {
+      return cachedState;
+    }
+
     try {
       if (!this.initialized) {
         const available = await initialize();
         if (!available) {
-          return false;
+          const state: PermissionState = {
+            status: 'denied',
+            lastChecked: Date.now(),
+            deniedPermissions: ['HealthConnect']
+          };
+          await this.permissionManager.updatePermissionState('denied', ['HealthConnect']);
+          return state;
         }
       }
       
-      await this.verifyPermissions();
+      const hasPermissions = await this.verifyPermissions();
+      const status: PermissionStatus = hasPermissions ? 'granted' : 'not_determined';
+      
+      const state: PermissionState = {
+        status,
+        lastChecked: Date.now()
+      };
+
+      await this.permissionManager.updatePermissionState(status);
+      return state;
+    } catch (error) {
+      const state: PermissionState = {
+        status: 'denied',
+        lastChecked: Date.now(),
+        deniedPermissions: ['HealthConnect']
+      };
+      await this.permissionManager.updatePermissionState('denied', ['HealthConnect']);
+      return state;
+    }
+  }
+
+  private async verifyPermissions(): Promise<boolean> {
+    try {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const testRange = {
+        operator: 'between' as const,
+        startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
+        endTime: now.toISOString(),
+      };
+      
+      await Promise.all([
+        readRecords('Steps', { timeRangeFilter: testRange }),
+        readRecords('Distance', { timeRangeFilter: testRange }),
+        readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
+        readRecords('HeartRate', { timeRangeFilter: testRange })
+      ]);
       return true;
     } catch (error) {
       return false;
     }
   }
 
-  private async verifyPermissions(): Promise<void> {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const testRange = {
-      operator: 'between' as const,
-      startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
-      endTime: now.toISOString(),
-    };
-    
-    await Promise.all([
-      readRecords('Steps', { timeRangeFilter: testRange }),
-      readRecords('Distance', { timeRangeFilter: testRange }),
-      readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
-      readRecords('HeartRate', { timeRangeFilter: testRange })
-    ]);
+  async handlePermissionDenial(): Promise<void> {
+    await super.handlePermissionDenial();
+    // Additional platform-specific handling could be added here
   }
 
   async fetchRawMetrics(
@@ -139,6 +194,15 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData> {
+    // Check permissions before fetching
+    const permissionState = await this.checkPermissionsStatus();
+    if (permissionState.status !== 'granted') {
+      throw new HealthProviderPermissionError(
+        'HealthConnect',
+        'Permission not granted for health data access'
+      );
+    }
+
     await this.ensureInitialized();
 
     const timeRangeFilter = {
@@ -281,8 +345,8 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         distance,
         calories,
         heart_rate,
-      exercise: null,  // To be implemented later
-      standing: null,  // To be implemented later
+        exercise: null,  // To be implemented later
+        standing: null,  // To be implemented later
         daily_score: 0,
         weekly_score: null,
         streak_days: null,

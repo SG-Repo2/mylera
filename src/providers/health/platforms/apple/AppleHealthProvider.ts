@@ -3,7 +3,7 @@ import AppleHealthKit, {
   HealthKitPermissions,
   HealthInputOptions,
 } from 'react-native-health';
-import { permissions } from './permissions';
+import { permissions, HEALTH_PERMISSIONS } from './permissions';
 import { BaseHealthProvider } from '../../types/provider';
 import type { 
   HealthMetrics, 
@@ -13,6 +13,8 @@ import type {
 } from '../../types/metrics';
 import { METRIC_UNITS } from '../../types/metrics';
 import { MetricType } from '../../../../types/metrics';
+import { PermissionState, PermissionStatus } from '../../types/permissions';
+import { HealthProviderPermissionError } from '../../types/errors';
 
 export class AppleHealthProvider extends BaseHealthProvider {
   async initialize(): Promise<void> {
@@ -36,17 +38,71 @@ export class AppleHealthProvider extends BaseHealthProvider {
     });
   }
 
-  async requestPermissions(): Promise<boolean> {
+  async requestPermissions(): Promise<PermissionStatus> {
+    if (!this.permissionManager) {
+      throw new Error('Permission manager not initialized');
+    }
+
     try {
       await this.initialize();
-      return true;
+
+      // Check if permissions are already granted
+      const currentState = await this.checkPermissionsStatus();
+      if (currentState.status === 'granted') {
+        return 'granted';
+      }
+
+      // Request permissions through HealthKit
+      return new Promise((resolve) => {
+        AppleHealthKit.initHealthKit(permissions, async (error: string) => {
+          if (error) {
+            await this.permissionManager?.updatePermissionState('denied');
+            resolve('denied');
+            return;
+          }
+
+          // Verify permissions were actually granted
+          const available = await this.checkAvailability();
+          const status: PermissionStatus = available ? 'granted' : 'denied';
+          
+          await this.permissionManager?.updatePermissionState(status);
+          resolve(status);
+        });
+      });
     } catch (error) {
-      console.error('HealthKit permission error:', error);
-      return false;
+      await this.permissionManager?.handlePermissionError(
+        'HealthKit',
+        error
+      );
+      return 'denied';
     }
   }
 
-  async checkPermissionsStatus(): Promise<boolean> {
+  async checkPermissionsStatus(): Promise<PermissionState> {
+    if (!this.permissionManager) {
+      throw new Error('Permission manager not initialized');
+    }
+
+    // First check cached state
+    const cachedState = await this.permissionManager.getPermissionState();
+    if (cachedState) {
+      return cachedState;
+    }
+
+    // If no cached state, check current status
+    const available = await this.checkAvailability();
+    const status: PermissionStatus = available ? 'granted' : 'not_determined';
+    
+    const state: PermissionState = {
+      status,
+      lastChecked: Date.now()
+    };
+
+    await this.permissionManager.updatePermissionState(status);
+    return state;
+  }
+
+  private async checkAvailability(): Promise<boolean> {
     return new Promise((resolve) => {
       AppleHealthKit.isAvailable((error: Object, available: boolean) => {
         if (error || !available) {
@@ -58,11 +114,25 @@ export class AppleHealthProvider extends BaseHealthProvider {
     });
   }
 
+  async handlePermissionDenial(): Promise<void> {
+    await super.handlePermissionDenial();
+    // Additional platform-specific handling could be added here
+  }
+
   async fetchRawMetrics(
     startDate: Date,
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData> {
+    // Check permissions before fetching
+    const permissionState = await this.checkPermissionsStatus();
+    if (permissionState.status !== 'granted') {
+      throw new HealthProviderPermissionError(
+        'HealthKit',
+        'Permission not granted for health data access'
+      );
+    }
+
     await this.ensureInitialized();
 
     const options = {

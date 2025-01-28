@@ -9,15 +9,19 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
+import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
+import { PermissionStatus } from './health/types/permissions';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   loading: boolean;
   error: string | null;
+  healthPermissionStatus: PermissionStatus | null;
   register: (email: string, password: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  requestHealthPermissions: () => Promise<PermissionStatus>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,21 +31,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
 
   useEffect(() => {
     // Check initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session ?? null);
       setUser(session?.user ?? null);
+      
+      // Initialize health provider if user is logged in
+      if (session?.user) {
+        try {
+          const provider = HealthProviderFactory.getProvider();
+          await provider.initializePermissions(session.user.id);
+          const permissionState = await provider.checkPermissionsStatus();
+          setHealthPermissionStatus(permissionState.status);
+        } catch (error) {
+          console.error('Error initializing health provider:', error);
+          setHealthPermissionStatus('not_determined');
+        }
+      }
+      
       setLoading(false);
     });
 
     // Listen for session changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
+      
+      // Handle health permissions on auth state change
+      if (session?.user) {
+        try {
+          const provider = HealthProviderFactory.getProvider();
+          await provider.initializePermissions(session.user.id);
+          const permissionState = await provider.checkPermissionsStatus();
+          setHealthPermissionStatus(permissionState.status);
+        } catch (error) {
+          console.error('Error checking health permissions:', error);
+          setHealthPermissionStatus('not_determined');
+        }
+      } else {
+        setHealthPermissionStatus(null);
+      }
+      
       setLoading(false);
     });
 
@@ -107,14 +142,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * Request health permissions for the current user
+   */
+  const requestHealthPermissions = async (): Promise<PermissionStatus> => {
+    if (!user) {
+      throw new Error('User must be logged in to request health permissions');
+    }
+
+    try {
+      setError(null);
+      setLoading(true);
+
+      const provider = HealthProviderFactory.getProvider();
+      const status = await provider.requestPermissions();
+      setHealthPermissionStatus(status);
+      return status;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to request health permissions';
+      setError(message);
+      setHealthPermissionStatus('denied');
+      return 'denied';
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const value: AuthContextType = {
     session,
     user,
     loading,
     error,
+    healthPermissionStatus,
     register,
     login,
     logout,
+    requestHealthPermissions,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

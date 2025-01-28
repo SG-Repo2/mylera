@@ -1,12 +1,18 @@
 import type { HealthMetrics, RawHealthData, NormalizedMetric } from './metrics';
 import type { MetricType } from '../../../types/metrics';
+import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
 
 export interface HealthProvider {
   // Lifecycle methods
   initialize(): Promise<void>;
-  requestPermissions(): Promise<boolean>;
-  checkPermissionsStatus(): Promise<boolean>;
   cleanup(): Promise<void>;
+
+  // Permission management
+  initializePermissions(userId: string): Promise<void>;
+  requestPermissions(): Promise<PermissionStatus>;
+  checkPermissionsStatus(): Promise<PermissionState>;
+  handlePermissionDenial(): Promise<void>;
+  getPermissionManager(): PermissionManager | null;
 
   // Raw data methods
   fetchRawMetrics(
@@ -34,15 +40,33 @@ export interface HealthProvider {
 export abstract class BaseHealthProvider implements HealthProvider {
   protected initialized: boolean = false;
   protected lastSyncTime: Date | null = null;
+  protected permissionManager: PermissionManager | null = null;
 
   abstract initialize(): Promise<void>;
-  abstract requestPermissions(): Promise<boolean>;
-  abstract checkPermissionsStatus(): Promise<boolean>;
   abstract fetchRawMetrics(
     startDate: Date,
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData>;
+
+  // Permission management
+  async initializePermissions(userId: string): Promise<void> {
+    this.permissionManager = new PermissionManager(userId);
+  }
+
+  abstract requestPermissions(): Promise<PermissionStatus>;
+  abstract checkPermissionsStatus(): Promise<PermissionState>;
+
+  async handlePermissionDenial(): Promise<void> {
+    // Default implementation - can be overridden by platform-specific providers
+    if (this.permissionManager) {
+      await this.permissionManager.clearCache();
+    }
+  }
+
+  getPermissionManager(): PermissionManager | null {
+    return this.permissionManager;
+  }
 
   // Shared implementation for cleanup
   async cleanup(): Promise<void> {
