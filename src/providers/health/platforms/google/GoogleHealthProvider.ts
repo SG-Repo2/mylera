@@ -4,37 +4,65 @@ import {
   requestPermission,
   readRecords,
 } from 'react-native-health-connect';
-import { HealthMetrics, HealthProvider } from '../../types';
+import { BaseHealthProvider } from '../../types/provider';
+import { 
+  HealthMetrics, 
+  RawHealthData, 
+  RawHealthMetric,
+  NormalizedMetric,
+  METRIC_UNITS 
+} from '../../types/metrics';
+import { MetricType } from '../../../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
-import { HEALTH_PERMISSIONS } from './permissions';
 
 interface StepsRecord {
+  startTime: string;
+  endTime: string;
   count: number;
 }
 
 interface DistanceRecord {
+  startTime: string;
+  endTime: string;
   distance: {
     inMeters: number;
   };
 }
 
 interface CaloriesRecord {
+  startTime: string;
+  endTime: string;
   energy: {
     inKilocalories: number;
   };
 }
 
 interface HeartRateRecord {
+  startTime: string;
+  endTime: string;
   samples: Array<{
     beatsPerMinute: number;
   }>;
 }
 
-export class GoogleHealthProvider implements HealthProvider {
-  private initialized = false;
+export class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
 
-  private async ensureInitialized(): Promise<void> {
+  private async performInitialization(): Promise<void> {
+    if (Platform.OS !== 'android') {
+      throw new Error('GoogleHealthProvider can only be used on Android');
+    }
+
+    const available = await initialize();
+    
+    if (!available) {
+      throw new Error('Health Connect is not available');
+    }
+
+    this.initialized = true;
+  }
+
+  async initialize(): Promise<void> {
     if (this.initialized) {
       return;
     }
@@ -52,24 +80,6 @@ export class GoogleHealthProvider implements HealthProvider {
     } finally {
       this.initializationPromise = null;
     }
-  }
-
-  private async performInitialization(): Promise<void> {
-    if (Platform.OS !== 'android') {
-      throw new Error('GoogleHealthProvider can only be used on Android');
-    }
-
-    const available = await initialize();
-    
-    if (!available) {
-      throw new Error('Health Connect is not available');
-    }
-
-    this.initialized = true;
-  }
-
-  async initialize(): Promise<void> {
-    await this.ensureInitialized();
   }
 
   async requestPermissions(): Promise<boolean> {
@@ -124,30 +134,144 @@ export class GoogleHealthProvider implements HealthProvider {
     ]);
   }
 
-  async cleanup(): Promise<void> {
-    this.initialized = false;
-    this.initializationPromise = null;
+  async fetchRawMetrics(
+    startDate: Date,
+    endDate: Date,
+    types: MetricType[]
+  ): Promise<RawHealthData> {
+    await this.ensureInitialized();
+
+    const timeRangeFilter = {
+      operator: 'between' as const,
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString(),
+    };
+
+    const rawData: RawHealthData = {};
+
+    await Promise.all(
+      types.map(async (type) => {
+        switch (type) {
+          case 'steps':
+            const stepsResponse = await readRecords('Steps', { timeRangeFilter });
+            rawData.steps = (stepsResponse.records as StepsRecord[]).map(record => ({
+              startDate: record.startTime,
+              endDate: record.endTime,
+              value: record.count,
+              unit: 'count',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }));
+            break;
+
+          case 'distance':
+            const distanceResponse = await readRecords('Distance', { timeRangeFilter });
+            rawData.distance = (distanceResponse.records as DistanceRecord[]).map(record => ({
+              startDate: record.startTime,
+              endDate: record.endTime,
+              value: record.distance.inMeters,
+              unit: 'meters',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }));
+            break;
+
+          case 'calories':
+            const caloriesResponse = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
+            rawData.calories = (caloriesResponse.records as CaloriesRecord[]).map(record => ({
+              startDate: record.startTime,
+              endDate: record.endTime,
+              value: record.energy.inKilocalories,
+              unit: 'kcal',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }));
+            break;
+
+          case 'heart_rate':
+            const heartRateResponse = await readRecords('HeartRate', { timeRangeFilter });
+            rawData.heart_rate = (heartRateResponse.records as HeartRateRecord[]).flatMap(record =>
+              record.samples.map(sample => ({
+                startDate: record.startTime,
+                endDate: record.endTime,
+                value: sample.beatsPerMinute,
+                unit: 'bpm',
+                sourceBundle: 'com.google.android.apps.fitness'
+              }))
+            );
+            break;
+        }
+      })
+    );
+
+    return rawData;
+  }
+
+  normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
+    const metrics: NormalizedMetric[] = [];
+
+    switch (type) {
+      case 'steps':
+        if (rawData.steps) {
+          metrics.push(...rawData.steps.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.STEPS,
+            type: 'steps'
+          } as NormalizedMetric)));
+        }
+        break;
+
+      case 'distance':
+        if (rawData.distance) {
+          metrics.push(...rawData.distance.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.DISTANCE,
+            type: 'distance'
+          } as NormalizedMetric)));
+        }
+        break;
+
+      case 'calories':
+        if (rawData.calories) {
+          metrics.push(...rawData.calories.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.CALORIES,
+            type: 'calories'
+          } as NormalizedMetric)));
+        }
+        break;
+
+      case 'heart_rate':
+        if (rawData.heart_rate) {
+          metrics.push(...rawData.heart_rate.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.HEART_RATE,
+            type: 'heart_rate'
+          } as NormalizedMetric)));
+        }
+        break;
+    }
+
+    return metrics;
   }
 
   async getMetrics(): Promise<HealthMetrics> {
     try {
-      await this.ensureInitialized();
-
       const now = new Date();
       const startOfDay = DateUtils.getStartOfDay(now);
       
-      const timeRangeFilter = {
-        operator: 'between' as const,
-        startTime: startOfDay.toISOString(),
-        endTime: now.toISOString(),
-      };
+      const rawData = await this.fetchRawMetrics(
+        startOfDay,
+        now,
+        ['steps', 'distance', 'calories', 'heart_rate']
+      );
 
-      const [steps, distance, calories, heart_rate] = await Promise.all([
-        this.getSteps(timeRangeFilter),
-        this.getDistance(timeRangeFilter),
-        this.getCalories(timeRangeFilter),
-        this.getHeartRate(timeRangeFilter),
-      ]);
+      // Normalize and aggregate the data
+      const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
+      const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
+      const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
+      const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
 
       return {
         id: '',
@@ -170,78 +294,20 @@ export class GoogleHealthProvider implements HealthProvider {
     }
   }
 
-  private async getSteps(timeRangeFilter: any): Promise<number | null> {
-    try {
-      const response = await readRecords('Steps', { timeRangeFilter });
-      const records = response.records as StepsRecord[];
-      if (!records.length) return null;
-      
-      const total = records.reduce((sum, record) => sum + (record.count || 0), 0);
-      return Math.round(total);
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Error reading steps:', error);
-      return null;
-    }
-  }
+  private aggregateMetric(metrics: NormalizedMetric[]): number | null {
+    if (!metrics.length) return null;
 
-  private async getDistance(timeRangeFilter: any): Promise<number | null> {
-    try {
-      const response = await readRecords('Distance', { timeRangeFilter });
-      const records = response.records as DistanceRecord[];
-      if (!records.length) return null;
-      
-      const totalMeters = records.reduce((sum, record) => 
-        sum + (record.distance?.inMeters || 0), 0);
-      const kilometers = totalMeters / 1000;
-      return Math.round(kilometers * 100) / 100;
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Error reading distance:', error);
-      return null;
-    }
-  }
-
-  private async getCalories(timeRangeFilter: any): Promise<number | null> {
-    try {
-      const response = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
-      const records = response.records as CaloriesRecord[];
-      if (!records.length) return null;
-      
-      const total = records.reduce((sum, record) => 
-        sum + (record.energy?.inKilocalories || 0), 0);
-      return Math.round(total);
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Error reading calories:', error);
-      return null;
-    }
-  }
-
-  private async getHeartRate(timeRangeFilter: any): Promise<number | null> {
-    try {
-      const response = await readRecords('HeartRate', { timeRangeFilter });
-      const records = response.records as HeartRateRecord[];
-      
-      if (!records || !records.length) {
-        return null;
-      }
-
-      const validSamples = records.flatMap(record => 
-        record.samples.filter(sample => 
-          typeof sample.beatsPerMinute === 'number' &&
-          !isNaN(sample.beatsPerMinute) &&
-          sample.beatsPerMinute > 0 &&
-          sample.beatsPerMinute < 300
-        )
-      );
-
-      if (!validSamples.length) {
-        return null;
-      }
-
-      const sum = validSamples.reduce((acc, sample) => acc + sample.beatsPerMinute, 0);
-      return Math.round(sum / validSamples.length);
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Error reading heart rate:', error);
-      return null;
+    switch (metrics[0].type) {
+      case 'heart_rate':
+        // Average for heart rate
+        return Math.round(
+          metrics.reduce((sum, m) => sum + m.value, 0) / metrics.length
+        );
+      default:
+        // Sum for other metrics
+        return Math.round(
+          metrics.reduce((sum, m) => sum + m.value, 0)
+        );
     }
   }
 }
