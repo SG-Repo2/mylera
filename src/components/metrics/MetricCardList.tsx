@@ -1,14 +1,10 @@
 import { View, StyleSheet } from 'react-native';
 import { MetricCard } from './MetricCard';
-import { MetricType } from '../../types/metrics';
 import { healthMetrics } from '../../config/healthMetrics';
-import { HealthMetrics } from '../../providers/health/types/metrics';
+import { useMetricsStore } from '../../stores/metricsStore';
 import { getMetricValue, calculateProgress, shouldShowAlert } from '../../utils/metrics/calculations';
-
-interface MetricCardListProps {
-  metrics: HealthMetrics;
-  showAlerts?: boolean;
-}
+import { useAuth } from '../../providers/AuthProvider';
+import { MetricType } from '../../types/metrics';
 
 // Define the metrics we're actually displaying
 type DisplayedMetricType = 'steps' | 'heart_rate' | 'calories' | 'distance';
@@ -32,7 +28,26 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number): number
   return Math.min(pointsMap[type](value), maxPoints[type]);
 };
 
-export function MetricCardList({ metrics, showAlerts = true }: MetricCardListProps) {
+interface MetricCardListProps {
+  showAlerts?: boolean;
+}
+
+export function MetricCardList({ showAlerts = true }: MetricCardListProps) {
+  const { user } = useAuth();
+  const { metrics, updateMetric } = useMetricsStore();
+
+  const handleMetricUpdate = async (type: MetricType, value: number) => {
+    if (!user || !metrics) return;
+
+    await updateMetric(user.id, {
+      type,
+      value,
+      goal: healthMetrics[type].defaultGoal
+    });
+  };
+
+  if (!metrics) return null;
+
   return (
     <View style={styles.container}>
       <View style={styles.cardList}>
@@ -47,6 +62,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
           progress={calculateProgress(getMetricValue(metrics, 'steps'), healthMetrics.steps)}
           color="primary"
           showAlert={showAlerts && shouldShowAlert('steps', getMetricValue(metrics, 'steps'), healthMetrics.steps)}
+          onPress={() => handleMetricUpdate('steps', getMetricValue(metrics, 'steps'))}
         />
 
         {/* Heart Rate and Calories - Side by Side */}
@@ -62,6 +78,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
               progress={calculateProgress(getMetricValue(metrics, 'heart_rate'), healthMetrics.heart_rate)}
               color="metric-red"
               showAlert={showAlerts && shouldShowAlert('heart_rate', getMetricValue(metrics, 'heart_rate'), healthMetrics.heart_rate)}
+              onPress={() => handleMetricUpdate('heart_rate', getMetricValue(metrics, 'heart_rate'))}
             />
           </View>
           <View style={styles.halfWidth}>
@@ -75,6 +92,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
               progress={calculateProgress(getMetricValue(metrics, 'calories'), healthMetrics.calories)}
               color="accent"
               showAlert={showAlerts && shouldShowAlert('calories', getMetricValue(metrics, 'calories'), healthMetrics.calories)}
+              onPress={() => handleMetricUpdate('calories', getMetricValue(metrics, 'calories'))}
             />
           </View>
         </View>
@@ -90,6 +108,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
           progress={calculateProgress(getMetricValue(metrics, 'distance'), healthMetrics.distance)}
           color="secondary"
           showAlert={showAlerts && shouldShowAlert('distance', getMetricValue(metrics, 'distance'), healthMetrics.distance)}
+          onPress={() => handleMetricUpdate('distance', getMetricValue(metrics, 'distance'))}
         />
       </View>
     </View>

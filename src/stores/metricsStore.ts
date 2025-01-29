@@ -1,164 +1,352 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { metricsService } from '@/src/services/metricsService';
-import type {
-  MetricType,
-  DailyMetricScore,
-  MetricUpdate,
-  MetricValidationError
-} from '@/src/types/schemas';
-import { validateMetricData, validateDisplayMetric } from '@/src/components/metrics/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DailyMetricScore, MetricType, MetricUpdate } from '../types/schemas';
+import { metricsService } from '../services/metricsService';
+import { HealthMetrics } from '../providers/health/types/metrics';
+import { metricsCache } from '../utils/metrics/MetricsCache';
+import {
+  withRetry,
+  validateMetricUpdate,
+  validateDailyMetricScore,
+  debounce,
+  StoreError,
+  ValidationError,
+  NetworkError,
+  DatabaseError
+} from '../utils/storeUtils';
+
+interface MetricsWindow {
+  start: string;
+  end: string;
+}
 
 interface MetricsState {
-  // Daily metrics data
-  dailyMetrics: Record<string, DailyMetricScore[]>;
-  lastFetched: Record<string, number>;
-  isLoading: boolean;
-  error: Error | null;
+  metrics: HealthMetrics | null;
+  dailyScores: DailyMetricScore[];
+  loading: boolean;
+  error: StoreError | null;
+  lastSynced: string | null;
+  pendingUpdates: Map<string, MetricUpdate>;
+  window: MetricsWindow;
   
   // Actions
-  fetchDailyMetrics: (userId: string, date: string) => Promise<void>;
+  setMetrics: (metrics: HealthMetrics) => void;
+  setDailyScores: (scores: DailyMetricScore[]) => void;
   updateMetric: (userId: string, update: MetricUpdate) => Promise<void>;
+  syncDailyMetrics: (userId: string, date: string) => Promise<void>;
+  setWindow: (start: string, end: string) => Promise<void>;
+  loadWindowData: (userId: string) => Promise<void>;
+  retryPendingUpdates: () => Promise<void>;
   clearError: () => void;
 }
 
-// Cache duration in milliseconds (5 minutes)
-const CACHE_DURATION = 5 * 60 * 1000;
+const RETRY_CONFIG = {
+  maxAttempts: 3,
+  initialDelay: 1000,
+  maxDelay: 5000,
+  backoffFactor: 2,
+};
+
+const SYNC_DEBOUNCE_MS = 1000;
+
+// Create a debounced function that returns a Promise
+const createDebouncedSync = () => {
+  let currentPromise: Promise<void> | null = null;
+  const debouncedFn = debounce((userId: string, date: string, set: any, get: any) => {
+    currentPromise = (async () => {
+      set({ loading: true, error: null });
+      
+      try {
+        const scores = await withRetry(
+          async () => {
+            const result = await metricsService.getDailyMetrics(userId, date);
+            result.forEach(validateDailyMetricScore);
+            return result;
+          },
+          RETRY_CONFIG
+        );
+
+        // Cache the fetched data
+        await metricsCache.set(userId, 'steps', scores, date, date);
+
+        set({
+          dailyScores: scores,
+          lastSynced: new Date().toISOString(),
+          loading: false,
+        });
+      } catch (error) {
+        let storeError: StoreError;
+        if (error instanceof ValidationError) {
+          storeError = error;
+        } else if (error instanceof Error && error.message.includes('42703')) {
+          storeError = new DatabaseError(
+            'Database schema is out of sync. Please contact support.',
+            error
+          );
+        } else {
+          storeError = new StoreError(
+            'Failed to sync metrics',
+            'SYNC_ERROR',
+            error
+          );
+        }
+
+        set({
+          error: storeError,
+          loading: false,
+        });
+      }
+    })();
+    return currentPromise;
+  }, SYNC_DEBOUNCE_MS);
+
+  return (userId: string, date: string, set: any, get: any) => {
+    debouncedFn(userId, date, set, get);
+    return currentPromise || Promise.resolve();
+  };
+};
+
+const debouncedSync = createDebouncedSync();
 
 export const useMetricsStore = create<MetricsState>()(
   persist(
     (set, get) => ({
-      dailyMetrics: {},
-      lastFetched: {},
-      isLoading: false,
+      metrics: null,
+      dailyScores: [],
+      loading: false,
       error: null,
+      lastSynced: null,
+      pendingUpdates: new Map(),
+      window: {
+        start: new Date().toISOString().split('T')[0],
+        end: new Date().toISOString().split('T')[0],
+      },
 
-      fetchDailyMetrics: async (userId: string, date: string) => {
-        const state = get();
-        const cacheKey = `${userId}-${date}`;
-        const lastFetchTime = state.lastFetched[cacheKey] || 0;
-        const now = Date.now();
-
-        // Return cached data if it's still fresh
-        if (
-          state.dailyMetrics[cacheKey] &&
-          now - lastFetchTime < CACHE_DURATION
-        ) {
-          return;
+      setMetrics: (metrics) => set({ metrics }),
+      
+      setDailyScores: (scores) => {
+        try {
+          scores.forEach(validateDailyMetricScore);
+          set({ dailyScores: scores });
+        } catch (error) {
+          set({ 
+            error: error instanceof ValidationError 
+              ? error 
+              : new ValidationError('Invalid daily metric scores', [String(error)])
+          });
         }
+      },
+      
+      clearError: () => set({ error: null }),
 
-        set({ isLoading: true, error: null });
+      setWindow: async (start: string, end: string) => {
+        set({ window: { start, end } });
+        metricsCache.setWindow(start, end);
+        const state = get();
+        if (state.dailyScores[0]?.user_id) {
+          await get().loadWindowData(state.dailyScores[0].user_id);
+        }
+      },
+
+      loadWindowData: async (userId: string) => {
+        const { window } = get();
+        set({ loading: true, error: null });
 
         try {
-          const metrics = await metricsService.getDailyMetrics(userId, date);
-          
-          set(state => ({
-            dailyMetrics: {
-              ...state.dailyMetrics,
-              [cacheKey]: metrics
+          // Try to get data from cache first
+          const cachedData = await metricsCache.get(
+            userId,
+            'steps',
+            window.start,
+            window.end
+          );
+
+          if (cachedData) {
+            set({ dailyScores: cachedData, loading: false });
+            return;
+          }
+
+          // If not in cache, fetch from server
+          const scores = await withRetry(
+            async () => {
+              const result = await metricsService.getDailyMetrics(userId, window.start);
+              result.forEach(validateDailyMetricScore);
+              return result;
             },
-            lastFetched: {
-              ...state.lastFetched,
-              [cacheKey]: now
-            },
-            isLoading: false
-          }));
-        } catch (error) {
+            RETRY_CONFIG
+          );
+
+          // Cache the fetched data
+          await metricsCache.set(
+            userId,
+            'steps',
+            scores,
+            window.start,
+            window.end
+          );
+
           set({
-            error: error instanceof Error ? error : new Error('Failed to fetch metrics'),
-            isLoading: false
+            dailyScores: scores,
+            lastSynced: new Date().toISOString(),
+            loading: false,
+          });
+        } catch (error) {
+          let storeError: StoreError;
+          if (error instanceof ValidationError) {
+            storeError = error;
+          } else if (error instanceof Error && error.message.includes('42703')) {
+            storeError = new DatabaseError(
+              'Database schema is out of sync. Please contact support.',
+              error
+            );
+          } else {
+            storeError = new StoreError(
+              'Failed to load metrics',
+              'LOAD_ERROR',
+              error
+            );
+          }
+
+          set({
+            error: storeError,
+            loading: false,
           });
         }
       },
 
-      updateMetric: async (userId: string, update: MetricUpdate) => {
-        const state = get();
-        const today = new Date().toISOString().split('T')[0];
-        const cacheKey = `${userId}-${today}`;
-
-        // Optimistically update the UI
-        const optimisticUpdate = (metrics: DailyMetricScore[]) => {
-          const { points, goalReached } = metricsService.calculateMetricScore(
-            update.value,
-            update.goal
-          );
-
-          const updatedMetrics = metrics.map(metric =>
-            metric.metric_type === update.type
-              ? {
-                  ...metric,
-                  value: update.value,
-                  goal: update.goal,
-                  points,
-                  goal_reached: goalReached,
-                  updated_at: new Date().toISOString()
-                }
-              : metric
-          );
-
-          return updatedMetrics;
-        };
-
-        // Store the previous state for rollback
-        const previousMetrics = state.dailyMetrics[cacheKey];
-
-        // Apply optimistic update
-        set(state => ({
-          dailyMetrics: {
-            ...state.dailyMetrics,
-            [cacheKey]: previousMetrics ? optimisticUpdate(previousMetrics) : []
-          }
-        }));
+      updateMetric: async (userId, update) => {
+        const currentDate = new Date().toISOString().split('T')[0];
+        const updateKey = `${userId}-${update.type}-${currentDate}`;
 
         try {
-          await metricsService.updateMetric(userId, update);
+          validateMetricUpdate(update);
           
-          // Refresh the data to ensure consistency
-          await get().fetchDailyMetrics(userId, today);
-        } catch (error) {
-          // Rollback on failure
+          // Create optimistic update
+          const optimisticScore: DailyMetricScore = {
+            id: `temp-${Date.now()}`,
+            user_id: userId,
+            date: currentDate,
+            metric_type: update.type,
+            value: update.value,
+            goal: update.goal,
+            points: 0,
+            goal_reached: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          // Store pending update and apply optimistic update
           set(state => ({
-            dailyMetrics: {
-              ...state.dailyMetrics,
-              [cacheKey]: previousMetrics
+            pendingUpdates: new Map(state.pendingUpdates).set(updateKey, update),
+            dailyScores: [
+              ...state.dailyScores.filter(
+                score => 
+                  score.metric_type !== update.type || 
+                  score.date !== currentDate
+              ),
+              optimisticScore,
+            ],
+          }));
+
+          // Attempt to sync with server
+          await withRetry(
+            async () => {
+              await metricsService.updateMetric(userId, update);
+              
+              // Remove from pending updates on success
+              set(state => {
+                const pendingUpdates = new Map(state.pendingUpdates);
+                pendingUpdates.delete(updateKey);
+                return { pendingUpdates };
+              });
+
+              // Invalidate cache for this metric type
+              await metricsCache.invalidate(userId, update.type);
+
+              // Sync with server to get actual state
+              await get().syncDailyMetrics(userId, currentDate);
             },
-            error: error instanceof Error ? error : new Error('Failed to update metric')
+            RETRY_CONFIG
+          );
+        } catch (error) {
+          // Handle specific error types
+          let storeError: StoreError;
+          if (error instanceof ValidationError) {
+            storeError = error;
+          } else if (error instanceof Error && error.message.includes('42703')) {
+            storeError = new DatabaseError(
+              'Database schema is out of sync. Please contact support.',
+              error
+            );
+          } else if (error instanceof Error && error.message.includes('network')) {
+            storeError = new NetworkError(
+              'Failed to connect to the server. Please check your connection.',
+              error
+            );
+          } else {
+            storeError = new StoreError(
+              'Failed to update metric',
+              'UNKNOWN_ERROR',
+              error
+            );
+          }
+
+          set(state => ({
+            error: storeError,
+            // Revert optimistic update
+            dailyScores: state.dailyScores.filter(
+              score => 
+                score.metric_type !== update.type || 
+                score.date !== currentDate
+            ),
           }));
         }
       },
 
-      clearError: () => set({ error: null })
+      syncDailyMetrics: (userId: string, date: string) => 
+        debouncedSync(userId, date, set, get),
+
+      retryPendingUpdates: async () => {
+        const { pendingUpdates } = get();
+        const userId = get().dailyScores[0]?.user_id;
+        
+        if (!userId || pendingUpdates.size === 0) return;
+
+        for (const [key, update] of pendingUpdates) {
+          try {
+            await get().updateMetric(userId, update);
+          } catch (error) {
+            console.error(`Failed to retry update ${key}:`, error);
+          }
+        }
+      },
     }),
     {
       name: 'metrics-storage',
-      storage: createJSONStorage(() => AsyncStorage)
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        metrics: state.metrics,
+        dailyScores: state.dailyScores,
+        lastSynced: state.lastSynced,
+        pendingUpdates: Array.from(state.pendingUpdates.entries()),
+        window: state.window,
+      }),
+      onRehydrateStorage: () => (state) => {
+        // Convert pendingUpdates back to Map after rehydration
+        if (state && Array.isArray(state.pendingUpdates)) {
+          state.pendingUpdates = new Map(state.pendingUpdates);
+        }
+        
+        // Retry any pending updates and reload window data
+        if (state?.retryPendingUpdates && state?.loadWindowData) {
+          const userId = state.dailyScores[0]?.user_id;
+          if (userId) {
+            state.retryPendingUpdates();
+            state.loadWindowData(userId);
+          }
+        }
+      },
     }
   )
 );
-
-// Selector hooks for specific metrics data
-export const useMetricsByDate = (userId: string, date: string): DailyMetricScore[] => {
-  return useMetricsStore(state => {
-    const cacheKey = `${userId}-${date}`;
-    return state.dailyMetrics[cacheKey] || [];
-  });
-};
-
-export const useMetricByType = (
-  userId: string,
-  date: string,
-  type: MetricType
-): DailyMetricScore | undefined => {
-  return useMetricsStore(state => {
-    const cacheKey = `${userId}-${date}`;
-    const metrics = state.dailyMetrics[cacheKey] || [];
-    return metrics.find(metric => metric.metric_type === type);
-  });
-};
-
-export const useMetricsLoading = (): boolean => 
-  useMetricsStore(state => state.isLoading);
-
-export const useMetricsError = (): Error | null => 
-  useMetricsStore(state => state.error);

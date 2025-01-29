@@ -6,6 +6,7 @@ import { ErrorView } from '../shared/ErrorView';
 import { PermissionErrorView } from '../shared/PermissionErrorView';
 import { MetricCardList } from './MetricCardList';
 import { useAuth } from '../../providers/AuthProvider';
+import { useMetricsStore } from '../../stores/metricsStore';
 import type { HealthProvider } from '../../providers/health/types/provider';
 import type { HealthMetrics } from '../../providers/health/types/metrics';
 import { HealthProviderPermissionError } from '../../providers/health/types/errors';
@@ -40,12 +41,13 @@ export function Dashboard({
   showAlerts = true
 }: DashboardProps) {
   const { user, healthPermissionStatus, requestHealthPermissions } = useAuth();
-  const {
-    metrics,
-    loading,
-    error,
-    syncHealthData
-  } = useHealthData(provider, userId, date, { autoSync: true });
+  const { metrics, loading, error, syncHealthData } = useHealthData(provider, userId, date, { autoSync: false });
+  const { 
+    setMetrics,
+    syncDailyMetrics,
+    loading: storeLoading,
+    error: storeError
+  } = useMetricsStore();
 
   const handleRetry = useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
@@ -60,10 +62,13 @@ export function Dashboard({
 
   const handleRefresh = useCallback(() => {
     syncHealthData(true);
-  }, [syncHealthData]);
+    if (user) {
+      syncDailyMetrics(user.id, date);
+    }
+  }, [syncHealthData, user, date, syncDailyMetrics]);
 
   // Handle loading state
-  if (loading && !metrics) {
+  if ((loading || storeLoading) && !metrics) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0284c7" />
@@ -81,7 +86,7 @@ export function Dashboard({
   }
 
   // Handle other error states
-  if (error) {
+  if (error || storeError) {
     if (error instanceof HealthProviderPermissionError) {
       return (
         <PermissionErrorView
@@ -92,7 +97,7 @@ export function Dashboard({
     
     return (
       <ErrorView
-        message={error.message}
+        message={(error || storeError)?.message || 'An error occurred'}
         onRetry={handleRetry}
       />
     );
@@ -109,7 +114,7 @@ export function Dashboard({
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={loading || storeLoading}
             onRefresh={handleRefresh}
             tintColor="#0284c7"
           />
@@ -160,7 +165,7 @@ export function Dashboard({
         )}
 
         {/* Metrics Cards */}
-        {metrics && <MetricCardList metrics={metrics} showAlerts={showAlerts} />}
+        <MetricCardList showAlerts={showAlerts} />
       </ScrollView>
     </SafeAreaView>
   );

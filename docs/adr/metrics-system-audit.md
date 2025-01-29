@@ -1,163 +1,170 @@
-# Metrics System Technical Audit
+# Metrics System Architectural Audit
 
-## Context
+## Current State Analysis
 
-A comprehensive technical audit was conducted on the metrics and health data system architecture to identify strengths, weaknesses, and areas for improvement across multiple technical dimensions.
+### 1. State Management (metricsStore.ts)
+- **Issues:**
+  - Monolithic store handling multiple concerns
+  - Direct API calls mixed with state updates
+  - Duplicate retry logic with service layer
+  - Complex error handling scattered throughout
+  - No clear separation between data and presentation layers
 
-## Decision Drivers
+### 2. Service Layer (metricsService.ts)
+- **Issues:**
+  - Duplicate validation logic
+  - Mixed responsibilities (data fetching, scoring, updates)
+  - Tight coupling with Supabase implementation
+  - Inconsistent error handling patterns
 
-* Need for robust type safety and error handling
-* Performance optimization requirements
-* Data integrity and consistency demands
-* Maintainability and scalability concerns
+### 3. Caching (MetricsCache.ts)
+- **Strengths:**
+  - Well-implemented LRU/FIFO strategies
+  - Proper cache invalidation
+- **Issues:**
+  - Tight coupling with store updates
+  - No clear separation from data layer
+  - Limited error recovery strategies
 
-## Detailed Findings
+### 4. Metrics Calculation (useMetricsCalculation.ts)
+- **Issues:**
+  - Business logic mixed with presentation layer
+  - Limited reusability outside React components
+  - Tight coupling with specific metric types
 
-### Type Safety Implementation
+## Proposed Architecture
 
-#### Strengths
-- Strong TypeScript usage with well-defined interfaces
-- Comprehensive type coverage for metric-related data structures
-- Proper use of discriminated unions for MetricType
+### 1. Data Layer
 
-#### Areas for Improvement
-- Consider converting MetricType to enum
-- Add runtime type validation using zod/io-ts
-- Implement explicit type guards
-
-### Error Handling
-
-#### Strengths
-- Custom HealthDataError implementation
-- Consistent error propagation
-- Proper error state management
-
-#### Weaknesses
-- Limited error recovery strategies
-- Missing retry mechanisms
-- Insufficient error categorization
-
-### Performance Optimization
-
-#### Strengths
-- Efficient cache implementation
-- Proper memoization usage
-- Smart sync state management
-
-#### Areas for Improvement
-- Implement debouncing for metric updates
-- Add virtualization for large lists
-- Optimize progress calculations
-
-### State Management
-
-#### Strengths
-- Clean separation of concerns
-- Efficient cache implementation
-- Clear data flow patterns
-
-#### Weaknesses
-- Potential prop drilling
-- Limited state persistence
-- Missing optimistic updates
-
-## Recommendations
-
-### Immediate Actions
-
-1. Implement runtime type validation:
 ```typescript
-import { z } from 'zod';
+interface MetricsDataProvider {
+  fetchDailyMetrics(userId: string, date: string): Promise<DailyMetricScore[]>;
+  updateMetric(userId: string, update: MetricUpdate): Promise<void>;
+  batchUpdateMetrics(updates: MetricUpdate[]): Promise<void>;
+}
 
-const MetricSchema = z.object({
-  value: z.number().min(0),
-  goal: z.number().min(0),
-  type: z.enum(['steps', 'distance', 'calories', 'heart_rate', 'exercise', 'standing'])
-});
-```
-
-2. Add retry mechanism for failed operations:
-```typescript
-const withRetry = async <T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3
-): Promise<T> => {
-  let lastError: Error;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-    }
+class MetricsRepository {
+  constructor(
+    private dataProvider: MetricsDataProvider,
+    private cache: MetricsCache
+  ) {}
+  
+  async getMetrics(userId: string): Promise<MetricsData> {
+    return this.cache.get(userId) ?? await this.dataProvider.fetchDailyMetrics(userId);
   }
-  throw lastError!;
-};
+}
 ```
 
-3. Implement optimistic updates:
+### 2. Error Handling
+
 ```typescript
-const optimisticUpdate = (update: MetricUpdate) => {
-  setMetrics(prev => ({
-    ...prev,
-    [update.type]: update.value
-  }));
-  return metricsService.updateMetric(userId, update).catch(error => {
-    // Rollback on failure
-    setMetrics(prev => ({
-      ...prev,
-      [update.type]: prev[update.type]
-    }));
-    throw error;
-  });
+class MetricsError extends Error {
+  constructor(
+    message: string,
+    public code: ErrorCode,
+    public context: ErrorContext,
+    public timestamp: number = Date.now()
+  ) {
+    super(message);
+  }
+}
+
+const errorHandler = {
+  network: (error: NetworkError) => new MetricsError(error.message, 'NETWORK_ERROR', {retryable: true}),
+  validation: (error: ValidationError) => new MetricsError(error.message, 'VALIDATION_ERROR', {field: error.field}),
+  storage: (error: StorageError) => new MetricsError(error.message, 'STORAGE_ERROR', {persistent: true})
 };
 ```
 
-### Long-term Improvements
+### 3. Business Logic Layer
 
-1. Type Safety
-- Convert string literals to enums where appropriate
-- Add branded types for values with units
-- Implement comprehensive schema validation
+```typescript
+class MetricsCalculator {
+  calculatePoints(value: number, goal: number): number {
+    const progress = Math.min((value / goal) * 100, 100);
+    return Math.floor(progress);
+  }
 
-2. Error Handling
-- Implement proper error boundaries
-- Add error recovery strategies
-- Improve error categorization and logging
+  calculateBonusPoints(value: number, goal: number): number {
+    if (value <= goal) return 0;
+    return Math.floor((value - goal) / goal * 20);
+  }
 
-3. Performance
-- Implement proper virtualization
-- Add performance monitoring
-- Optimize calculations and state updates
+  getTotalScore(metrics: MetricsData): number {
+    return Object.values(metrics)
+      .filter(isValidMetric)
+      .reduce((total, metric) => total + this.calculatePoints(metric.value, metric.goal), 0);
+  }
+}
+```
 
-4. State Management
-- Consider implementing global state management
-- Improve state persistence strategy
-- Add proper transaction boundaries
+### 4. State Management
 
-## Status
+```typescript
+interface MetricsState {
+  data: MetricsData | null;
+  loading: boolean;
+  error: MetricsError | null;
+}
 
-Proposed
+const createMetricsStore = (repository: MetricsRepository) => 
+  create<MetricsState>((set) => ({
+    data: null,
+    loading: false,
+    error: null,
+    
+    fetch: async (userId: string) => {
+      set({ loading: true });
+      try {
+        const data = await repository.getMetrics(userId);
+        set({ data, loading: false });
+      } catch (error) {
+        set({ error: errorHandler.handle(error), loading: false });
+      }
+    }
+  }));
+```
 
-## Consequences
+## Implementation Plan
 
-### Positive
-- Improved type safety and runtime validation
-- Better error handling and recovery
-- Enhanced performance and optimization
-- More robust state management
+1. **Phase 1: Core Infrastructure**
+   - Implement MetricsRepository
+   - Create unified error handling system
+   - Refactor MetricsCache for better separation
 
-### Negative
-- Initial implementation overhead
-- Increased complexity in some areas
-- Learning curve for new patterns
+2. **Phase 2: Business Logic**
+   - Extract calculation logic to MetricsCalculator
+   - Implement proper validation layer
+   - Create type-safe metric definitions
 
-### Neutral
-- Need for team training on new patterns
-- Regular audit and maintenance required
+3. **Phase 3: State Management**
+   - Refactor store to use repository pattern
+   - Implement proper error boundaries
+   - Add retry strategies
 
-## References
+4. **Phase 4: UI Layer**
+   - Update components to use new architecture
+   - Implement proper loading states
+   - Add error recovery UI
 
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
-- [React Query Best Practices](https://react-query.tanstack.com/guides/important-defaults)
-- [Zod Schema Validation](https://github.com/colinhacks/zod)
+## Benefits
+
+1. **Improved Maintainability**
+   - Clear separation of concerns
+   - Easier testing and debugging
+   - Better error handling
+
+2. **Better Performance**
+   - Optimized caching
+   - Reduced unnecessary updates
+   - Better error recovery
+
+3. **Enhanced Reliability**
+   - Proper error handling
+   - Consistent retry strategies
+   - Better offline support
+
+4. **Better Developer Experience**
+   - Clear data flow
+   - Type-safe operations
+   - Better tooling support
