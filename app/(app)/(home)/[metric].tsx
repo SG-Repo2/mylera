@@ -19,37 +19,25 @@ export default function MetricDetailScreen() {
   const metricGoals = React.useMemo(() => metricsService.getMetricGoals(), []);
 
   // Validate metric parameter early
-  if (!metric) {
+  if (!metric || !(metric in healthMetrics)) {
     router.replace('/(app)/(home)');
     return null;
   }
 
-  const isValidMetric = metric in healthMetrics;
-
-  const { metrics, loading, error, syncHealthData } = useHealthData(
+  const { metrics, loading, error } = useHealthData(
     provider,
     user?.id || '',
     new Date().toISOString().split('T')[0],
     { autoSync: true }
   );
 
-  // Handle routing conditions
-  if (!user) {
-    router.replace('/(auth)/login');
-    return null;
-  }
-
+  // Check health permissions
   if (healthPermissionStatus !== 'granted') {
     return (
       <PermissionErrorView
         onRetry={() => router.replace('/(onboarding)/health-setup')}
       />
     );
-  }
-
-  if (!isValidMetric) {
-    router.replace('/(app)/(home)');
-    return null;
   }
 
   // After this point, metric is guaranteed to be valid
@@ -76,7 +64,7 @@ export default function MetricDetailScreen() {
       />
 
       <MetricChart
-        type={metric as MetricType}
+        type={metricKey}
         data={metrics ? [metrics] : []}
         timeframe="daily"
       />

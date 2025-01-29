@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Card, Text, ProgressBar, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -38,6 +38,11 @@ interface MetricDetailCardProps extends BaseMetricProps {
   onRetry?: () => void;
 }
 
+// Memoized progress calculation
+const calculateProgress = (value: number, goal: number): number => {
+  return Math.min(value / goal, 1);
+};
+
 const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
   value,
   goal,
@@ -56,22 +61,39 @@ const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
   style?: any;
 }) {
   const theme = useTheme();
-  const progress = Math.min(value / goal, 1);
+  
+  // Memoize progress calculation
+  const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   
   // Animation values
   const animatedProgress = useSharedValue(0);
 
+  // Memoize animation config
+  const springConfig = useMemo(() => ({
+    damping: 15,
+    stiffness: 100
+  }), []);
+
+  // Update animations with useCallback
+  const updateProgress = useCallback(() => {
+    animatedProgress.value = withSpring(progress, springConfig);
+  }, [progress, springConfig]);
+
   // Update animations
   React.useEffect(() => {
-    animatedProgress.value = withSpring(progress, {
-      damping: 15,
-      stiffness: 100
-    });
-  }, [progress]);
+    updateProgress();
+  }, [updateProgress]);
 
   const progressBarProps = useAnimatedProps(() => ({
     progress: animatedProgress.value
   }));
+
+  // Memoize value display
+  const valueDisplay = useMemo(() => Math.round(value).toLocaleString(), [value]);
+  const progressDisplay = useMemo(() =>
+    `${Math.round(progress * 100)}% of ${goal.toLocaleString()} ${unit}`,
+    [progress, goal, unit]
+  );
 
   return (
     <Card style={[styles.card, style]}>
@@ -80,7 +102,7 @@ const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
         <View style={styles.content}>
           <View style={styles.valueContainer}>
             <Text variant="headlineMedium" style={styles.value}>
-              {Math.round(value).toLocaleString()}
+              {valueDisplay}
             </Text>
             <Text variant="bodySmall" style={styles.unit}>
               {unit}
@@ -95,7 +117,7 @@ const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
           />
 
           <Text variant="bodySmall" style={styles.progressText}>
-            {Math.round(progress * 100)}% of {goal.toLocaleString()} {unit}
+            {progressDisplay}
           </Text>
         </View>
       </Card.Content>
@@ -116,13 +138,22 @@ export const MetricCard = React.memo(function MetricCard({
   const theme = useTheme();
   const animatedPoints = useSharedValue(0);
 
-  React.useEffect(() => {
-    animatedPoints.value = withTiming(points, {
-      duration: 1000
-    });
-  }, [points]);
+  // Memoize animation config
+  const timingConfig = useMemo(() => ({
+    duration: 1000
+  }), []);
 
-  const headerContent = (
+  // Update points animation with useCallback
+  const updatePoints = useCallback(() => {
+    animatedPoints.value = withTiming(points, timingConfig);
+  }, [points, timingConfig]);
+
+  React.useEffect(() => {
+    updatePoints();
+  }, [updatePoints]);
+
+  // Memoize header content
+  const headerContent = useMemo(() => (
     <View style={styles.header}>
       <View>
         <Text variant="titleMedium" style={styles.title}>
@@ -140,6 +171,12 @@ export const MetricCard = React.memo(function MetricCard({
         />
       </View>
     </View>
+  ), [title, color, icon, theme.colors.primary, animatedPoints.value]);
+
+  // Memoize style
+  const cardStyle = useMemo(() =>
+    onPress ? { cursor: 'pointer' } : undefined,
+    [onPress]
   );
 
   return (
@@ -149,7 +186,7 @@ export const MetricCard = React.memo(function MetricCard({
       color={color}
       unit={unit}
       headerContent={headerContent}
-      style={onPress ? { cursor: 'pointer' } : undefined}
+      style={cardStyle}
     />
   );
 }, (prevProps, nextProps) => {
@@ -157,7 +194,11 @@ export const MetricCard = React.memo(function MetricCard({
     prevProps.value === nextProps.value &&
     prevProps.goal === nextProps.goal &&
     prevProps.points === nextProps.points &&
-    prevProps.color === nextProps.color
+    prevProps.color === nextProps.color &&
+    prevProps.title === nextProps.title &&
+    prevProps.icon === nextProps.icon &&
+    prevProps.unit === nextProps.unit &&
+    prevProps.onPress === nextProps.onPress
   );
 });
 
@@ -183,7 +224,8 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
   return (
     prevProps.value === nextProps.value &&
     prevProps.goal === nextProps.goal &&
-    prevProps.color === nextProps.color
+    prevProps.color === nextProps.color &&
+    prevProps.metricType === nextProps.metricType
   );
 });
 
