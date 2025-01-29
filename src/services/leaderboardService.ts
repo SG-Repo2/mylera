@@ -7,6 +7,30 @@ import {
 } from '@/src/types/leaderboard';
 
 export const leaderboardService = {
+  subscribeToLeaderboard(date: string, onUpdate: (entries: LeaderboardEntry[]) => void) {
+    console.log('Setting up leaderboard subscription for date:', date);
+    
+    return supabase
+      .channel(`leaderboard-${date}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'daily_totals',
+          filter: `date=eq.${date}`,
+        },
+        async () => {
+          // Fetch updated data when changes occur
+          const entries = await this.getDailyLeaderboard(date);
+          onUpdate(entries);
+        }
+      )
+      .subscribe((status) => {
+        console.log('Leaderboard subscription status:', status);
+      });
+  },
+
   async getDailyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
     console.log('Fetching daily leaderboard for date:', date);
     

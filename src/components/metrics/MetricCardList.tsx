@@ -38,7 +38,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
       <View style={styles.cardList}>
         {/* Steps Card - Full Width */}
         <MetricCard
-          title="Steps"
+          title={healthMetrics.steps.title}
           value={getMetricValue(metrics, 'steps')}
           points={calculateMetricPoints('steps', getMetricValue(metrics, 'steps'))}
           goal={healthMetrics.steps.defaultGoal}
@@ -53,7 +53,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
         <View style={styles.row}>
           <View style={styles.halfWidth}>
             <MetricCard
-              title="Heart Rate"
+              title={healthMetrics.heart_rate.title}
               value={getMetricValue(metrics, 'heart_rate')}
               points={calculateMetricPoints('heart_rate', getMetricValue(metrics, 'heart_rate'))}
               goal={healthMetrics.heart_rate.defaultGoal}
@@ -66,7 +66,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
           </View>
           <View style={styles.halfWidth}>
             <MetricCard
-              title="Calories"
+              title={healthMetrics.calories.title}
               value={getMetricValue(metrics, 'calories')}
               points={calculateMetricPoints('calories', getMetricValue(metrics, 'calories'))}
               goal={healthMetrics.calories.defaultGoal}
@@ -81,7 +81,7 @@ export function MetricCardList({ metrics, showAlerts = true }: MetricCardListPro
 
         {/* Distance Card - Full Width */}
         <MetricCard
-          title="Distance"
+          title={healthMetrics.distance.title}
           value={getMetricValue(metrics, 'distance')}
           points={calculateMetricPoints('distance', getMetricValue(metrics, 'distance'))}
           goal={healthMetrics.distance.defaultGoal}

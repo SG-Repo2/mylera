@@ -1,38 +1,35 @@
-// Enum-like type for metric types based on your schema's CHECK constraint
-export type MetricType = 'steps' | 'distance' | 'calories' | 'heart_rate' | 'exercise' | 'standing';
+import type {
+  MetricType,
+  MetricUpdate,
+  DailyMetricScore,
+  MetricGoals,
+  MetricValidationError
+} from './schemas';
 
-// Matches your daily_metric_scores table schema
-export interface DailyMetricScore {
-  id: string;              
-  user_id: string;         
-  date: string;           
-  metric_type: MetricType; 
-  goal_reached: boolean;   
-  points: number;         
-  created_at: string;     
-  updated_at: string;     
-}
-
-// For updating metrics
-export interface MetricUpdate {
-  value: number;
-  goal: number;
-  type: MetricType;
-}
-
-// For the UI display
-export interface MetricCardProps {
-  title: string;
-  value: number;
-  goal: number;
-  points: number;
-  unit: string;
-}
-
-// For metric goals configuration (changed to type)
-export type MetricGoals = {
-  [key in MetricType]: {
-    defaultGoal: number;
-    unit: string;
-  };
+// Re-export types from schema definitions
+export type {
+  MetricType,
+  MetricUpdate,
+  DailyMetricScore,
+  MetricGoals,
+  MetricValidationError
 };
+
+// Additional type utilities and constants can be defined here if needed
+export const METRIC_DISPLAY_NAMES: Record<MetricType, string> = {
+  steps: 'Steps',
+  distance: 'Distance',
+  calories: 'Calories',
+  heart_rate: 'Heart Rate',
+  exercise: 'Exercise',
+  standing: 'Standing'
+} as const;
+
+export const METRIC_DESCRIPTIONS: Record<MetricType, string> = {
+  steps: 'Daily step count',
+  distance: 'Distance traveled',
+  calories: 'Active calories burned',
+  heart_rate: 'Average heart rate',
+  exercise: 'Exercise minutes',
+  standing: 'Hours stood'
+} as const;

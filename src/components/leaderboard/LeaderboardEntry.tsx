@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Image, Pressable, StyleSheet, Animated, ImageSourcePropType } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
+
+const ANIMATION_DURATION = 300;
+const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
 
 interface Props {
   entry: LeaderboardEntryType;
@@ -15,6 +18,63 @@ interface Props {
 export function LeaderboardEntry({ entry, highlight }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { display_name, avatar_url, total_points, metrics_completed, rank } = entry;
+  
+  // Animation values
+  const rankAnim = useRef(new Animated.Value(rank)).current;
+  const pointsAnim = useRef(new Animated.Value(total_points)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const prevRankRef = useRef(rank);
+  const prevPointsRef = useRef(total_points);
+
+  // Animate when rank or points change
+  useEffect(() => {
+    const animations = [];
+    
+    // Rank changed
+    if (prevRankRef.current !== rank) {
+      animations.push(
+        Animated.timing(rankAnim, {
+          toValue: rank,
+          duration: ANIMATION_DURATION,
+          useNativeDriver: true,
+        })
+      );
+      prevRankRef.current = rank;
+    }
+    
+    // Points changed
+    if (prevPointsRef.current !== total_points) {
+      animations.push(
+        Animated.timing(pointsAnim, {
+          toValue: total_points,
+          duration: ANIMATION_DURATION,
+          useNativeDriver: true,
+        })
+      );
+      
+      // Add scale pulse animation
+      animations.push(
+        Animated.sequence([
+          Animated.timing(scaleAnim, {
+            toValue: 1.05,
+            duration: ANIMATION_DURATION / 2,
+            useNativeDriver: true,
+          }),
+          Animated.timing(scaleAnim, {
+            toValue: 1,
+            duration: ANIMATION_DURATION / 2,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      
+      prevPointsRef.current = total_points;
+    }
+    
+    if (animations.length > 0) {
+      Animated.parallel(animations).start();
+    }
+  }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
   // Example metrics - replace with real data from your metrics service
   const expandedMetrics = [
@@ -24,52 +84,92 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
     { key: 'calories', label: 'Calories', value: '1,850', unit: '', icon: 'fire' as const, color: '#FB923C' },
   ] as const;
 
+  const renderAvatar = () => {
+    if (avatar_url) {
+      return (
+        <Image 
+          source={{ uri: avatar_url }} 
+          defaultSource={DEFAULT_AVATAR}
+          style={styles.avatar} 
+        />
+      );
+    }
+    
+    return (
+      <View style={styles.avatarPlaceholder}>
+        <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
+          {display_name?.charAt(0).toUpperCase() ?? '?'}
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <Pressable
-        onPress={() => setIsExpanded(!isExpanded)}
-        style={[styles.mainContent, highlight && styles.highlightBackground]}
-      >
-        {/* Rank */}
-        <View style={styles.rankContainer}>
-          <Text style={[styles.rankText, highlight && styles.highlightText]}>
-            {rank}
-          </Text>
-        </View>
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <Pressable
+          onPress={() => setIsExpanded(!isExpanded)}
+          style={[styles.mainContent, highlight && styles.highlightBackground]}
+        >
+          {/* Rank */}
+          <View style={styles.rankContainer}>
+            <Animated.Text 
+              style={[
+                styles.rankText, 
+                highlight && styles.highlightText,
+                {
+                  transform: [{
+                    translateY: rankAnim.interpolate({
+                      inputRange: [rank - 1, rank, rank + 1],
+                      outputRange: [-20, 0, 20]
+                    })
+                  }]
+                }
+              ]}
+            >
+              {rank}
+            </Animated.Text>
+          </View>
 
-        {/* Avatar */}
-        <View style={styles.avatarContainer}>
-          {avatar_url ? (
-            <Image source={{ uri: avatar_url }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
-                {display_name?.charAt(0).toUpperCase() ?? '?'}
-              </Text>
-            </View>
-          )}
-        </View>
+          {/* Avatar */}
+          <View style={styles.avatarContainer}>
+            {renderAvatar()}
+          </View>
 
-        {/* User Info */}
-        <View style={styles.infoContainer}>
-          <Text style={[styles.displayName, highlight && styles.highlightText]}>
-            {display_name}
-          </Text>
-          <Text style={[styles.pointsText, highlight && styles.highlightText]}>
-            {total_points} pts
-          </Text>
-          <Text style={styles.metricsText}>
-            {metrics_completed} metrics
-          </Text>
-        </View>
+          {/* User Info */}
+          <View style={styles.infoContainer}>
+            <Text style={[styles.displayName, highlight && styles.highlightText]}>
+              {display_name}
+            </Text>
+            <Animated.Text 
+              style={[
+                styles.pointsText, 
+                highlight && styles.highlightText,
+                {
+                  transform: [{
+                    translateY: pointsAnim.interpolate({
+                      inputRange: [total_points - 100, total_points, total_points + 100],
+                      outputRange: [-20, 0, 20]
+                    })
+                  }]
+                }
+              ]}
+            >
+              {total_points} pts
+            </Animated.Text>
+            <Text style={styles.metricsText}>
+              {metrics_completed} metrics
+            </Text>
+          </View>
 
-        {/* Expand/Collapse Icon */}
-        <MaterialCommunityIcons
-          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-          size={24}
-          color={highlight ? '#0284c7' : '#9CA3AF'}
-        />
-      </Pressable>
+          {/* Expand/Collapse Icon */}
+          <MaterialCommunityIcons
+            name={isExpanded ? 'chevron-up' : 'chevron-down'}
+            size={24}
+            color={highlight ? '#0284c7' : '#9CA3AF'}
+          />
+        </Pressable>
+      </Animated.View>
 
       {/* Expanded Content */}
       {isExpanded && (

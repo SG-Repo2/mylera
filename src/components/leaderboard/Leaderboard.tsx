@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import { ErrorView } from '../shared/ErrorView';
@@ -18,37 +19,39 @@ export function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  
+  const subscriptionRef = useRef<RealtimeChannel | null>(null);
+  const appStateRef = useRef(AppState.currentState);
+  const autoRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (showLoading = true) => {
     if (!user) {
       console.log('No user found in loadData');
       return;
     }
     
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError(null);
+    
     try {
       const today = DateUtils.getLocalDateString();
       console.log('Attempting to fetch leaderboard for date:', today);
-      console.log('Current user ID:', user.id);
       
       const data = await leaderboardService.getDailyLeaderboard(today);
       console.log('Fetched leaderboard data:', data);
-      
-      // Check if user has a profile - don't block on profile errors
-      try {
-        const userProfile = await leaderboardService.getUserProfile(user.id);
-        console.log('Current user profile:', userProfile);
-      } catch (profileErr) {
-        console.warn('Non-critical error fetching user profile:', profileErr);
-        // Continue execution - profile fetch is not critical for leaderboard display
-      }
-      
       setLeaderboardData(data);
+      
+      // Schedule next auto-refresh (every 30 seconds)
+      if (autoRefreshTimeoutRef.current) {
+        clearTimeout(autoRefreshTimeoutRef.current);
+      }
+      autoRefreshTimeoutRef.current = setTimeout(() => {
+        loadData(false);
+      }, 30000);
+      
     } catch (err) {
       console.error('Error while fetching leaderboard:', err);
       
-      // Handle specific database errors
       if (err instanceof Error) {
         if (err.message.includes('PGRST200')) {
           setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
@@ -61,21 +64,68 @@ export function Leaderboard() {
         setError(new Error('Failed to load leaderboard'));
       }
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [user]);
 
+  const setupRealtimeSubscription = useCallback(() => {
+    if (!user) return;
+    
+    const today = DateUtils.getLocalDateString();
+    
+    // Clean up existing subscription if any
+    if (subscriptionRef.current) {
+      subscriptionRef.current.unsubscribe();
+    }
+    
+    // Set up new subscription
+    subscriptionRef.current = leaderboardService.subscribeToLeaderboard(
+      today,
+      (updatedData) => {
+        console.log('Received real-time leaderboard update');
+        setLeaderboardData(updatedData);
+      }
+    );
+  }, [user]);
+
+  const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
+    if (
+      appStateRef.current.match(/inactive|background/) &&
+      nextAppState === 'active'
+    ) {
+      console.log('App has come to foreground, refreshing leaderboard');
+      loadData(false);
+      setupRealtimeSubscription();
+    }
+    appStateRef.current = nextAppState;
+  }, [loadData, setupRealtimeSubscription]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadData();
+    await loadData(false);
     setRefreshing(false);
   }, [loadData]);
 
   useEffect(() => {
     if (user) {
       loadData();
+      setupRealtimeSubscription();
+      
+      // Set up app state listener
+      const subscription = AppState.addEventListener('change', handleAppStateChange);
+      
+      return () => {
+        // Clean up
+        subscription.remove();
+        if (subscriptionRef.current) {
+          subscriptionRef.current.unsubscribe();
+        }
+        if (autoRefreshTimeoutRef.current) {
+          clearTimeout(autoRefreshTimeoutRef.current);
+        }
+      };
     }
-  }, [user, loadData]);
+  }, [user, loadData, setupRealtimeSubscription, handleAppStateChange]);
 
   if (loading && !leaderboardData.length && !error) {
     return (

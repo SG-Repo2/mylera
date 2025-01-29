@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
-import type { MetricType } from '@/src/types/metrics';
+import { MetricType, METRIC_DISPLAY_NAMES } from '@/src/types/metrics';
 
 interface MetricCardProps {
   title: string;
@@ -11,11 +11,11 @@ interface MetricCardProps {
   goal: number;
   unit: string;
   icon: keyof typeof IconType.glyphMap;
+  color: keyof typeof COLORS;
   progress: number;
-  color: string;
   showAlert?: boolean;
   onPress?: () => void;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
 }
 
 const COLORS = {
@@ -24,7 +24,7 @@ const COLORS = {
   accent: '#A66BFF',
   secondary: '#4B9EFF',
   default: '#6B7280',
-};
+} as const;
 
 export function MetricCard({
   title,
@@ -33,13 +33,13 @@ export function MetricCard({
   goal,
   unit,
   icon,
-  progress,
   color,
-  showAlert,
+  progress,
+  showAlert = false,
   onPress,
   style
 }: MetricCardProps) {
-  const backgroundColor = COLORS[color as keyof typeof COLORS] || COLORS.default;
+  const backgroundColor = COLORS[color] || COLORS.default;
   const progressPercentage = Math.min(progress * 100, 100);
 
   return (
@@ -92,7 +92,7 @@ export function MetricCard({
             />
           </View>
           <Text style={styles.progressText}>
-            {Math.round(progressPercentage)}% of goal
+            {Math.round(progressPercentage)}% of {goal}
           </Text>
         </View>
 
