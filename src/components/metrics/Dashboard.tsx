@@ -1,6 +1,6 @@
 // src/components/metrics/Dashboard.tsx
 import React, { useCallback } from 'react';
-import { View, ScrollView, RefreshControl, Text } from 'react-native';
+import { View, ScrollView, RefreshControl, Text, ActivityIndicator } from 'react-native';
 import { useHealthData } from '../../hooks/useHealthData';
 import { ErrorView } from '../shared/ErrorView';
 import { PermissionErrorView } from '../shared/PermissionErrorView';
@@ -20,7 +20,7 @@ export function Dashboard({
   userId,
   date = new Date().toISOString().split('T')[0],
 }: DashboardProps) {
-  const { user } = useAuth();
+  const { user, requestHealthPermissions } = useAuth();
   const {
     metrics,
     loading,
@@ -29,7 +29,7 @@ export function Dashboard({
   } = useHealthData(provider, userId, date, { autoSync: true });
 
   const handleRetry = useCallback(async () => {
-    if (error instanceof HealthProviderPermissionError) {
+    if (error instanceof HealthProviderPermissionError && requestHealthPermissions) {
       const status = await requestHealthPermissions();
       if (status === 'granted') {
         syncHealthData(true);
@@ -42,7 +42,7 @@ export function Dashboard({
   if (loading && !metrics) {
     return (
       <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" className="text-primary" />
+        <ActivityIndicator size="large" color="#A2D5F2" />
       </View>
     );
   }

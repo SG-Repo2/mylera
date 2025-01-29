@@ -1,9 +1,10 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, Text } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { MetricCard } from './MetricCard';
-import { MetricType } from '../../types/metrics';
+import type { MetricType } from '../../types/metrics';
 import { healthMetrics } from '../../config/healthMetrics';
-import { HealthMetrics } from '../../providers/health/types/metrics';
+import type { HealthMetrics } from '../../providers/health/types/metrics';
 import { getMetricValue, calculateProgress } from '../../utils/metrics/calculations';
 
 interface MetricCardListProps {
@@ -11,11 +12,13 @@ interface MetricCardListProps {
   totalPoints: number;
 }
 
-const backgroundColors = {
-  steps: 'bg-emerald-500',
-  heart_rate: 'bg-red-400',
-  calories: 'bg-purple-500',
-  distance: 'bg-blue-500'
+const backgroundColors: Record<MetricType, string> = {
+  steps: 'bg-metric-green',
+  heart_rate: 'bg-metric-red',
+  calories: 'bg-metric-purple',
+  distance: 'bg-metric-blue',
+  standing: 'bg-metric-yellow',
+  exercise: 'bg-gray-500'
 };
 
 export function MetricCardList({ metrics, totalPoints }: MetricCardListProps) {
@@ -34,7 +37,7 @@ export function MetricCardList({ metrics, totalPoints }: MetricCardListProps) {
         </View>
         <View className="mt-4 bg-gray-100 h-2 rounded-full overflow-hidden">
           <View
-            className="h-full bg-emerald-500 rounded-full"
+            className="h-full bg-metric-green rounded-full"
             style={{ width: `${(totalPoints / 1000) * 100}%` }}
           />
         </View>
@@ -46,16 +49,17 @@ export function MetricCardList({ metrics, totalPoints }: MetricCardListProps) {
           const type = key as MetricType;
           const value = getMetricValue(metrics, type);
           const progress = calculateProgress(value, config);
+          const metricPoints = metrics[type] || 0;
 
           return (
             <MetricCard
               key={type}
               title={config.title}
               value={value}
-              points={metrics[type]?.points || 0}
+              points={metricPoints}
               goal={config.defaultGoal}
               unit={config.displayUnit}
-              icon={config.icon}
+              icon={config.icon as keyof typeof MaterialCommunityIcons.glyphMap}
               progress={progress}
               backgroundColor={backgroundColors[type] || 'bg-gray-500'}
             />

@@ -9,7 +9,7 @@ interface MetricCardProps {
   points: number;
   goal: number;
   unit: string;
-  icon: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
   progress: number;
   backgroundColor: string;
   onPress?: () => void;
