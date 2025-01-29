@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { Leaderboard } from '../../../src/components/leaderboard/Leaderboard';
+import { useAuth } from '../../../src/providers/AuthProvider';
 
 export default function LeaderboardPage() {
-  return (
-    <View>
-      <Text>Leaderboard Page</Text>
-    </View>
-  );
+  const { user } = useAuth();
+  
+  if (!user) return null;
+  
+  return <Leaderboard />;
 }
