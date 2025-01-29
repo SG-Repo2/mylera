@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
@@ -17,22 +17,59 @@ export function Leaderboard() {
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntryType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.log('No user found in loadData');
+      return;
+    }
     
     setLoading(true);
     setError(null);
     try {
       const today = DateUtils.getLocalDateString();
+      console.log('Attempting to fetch leaderboard for date:', today);
+      console.log('Current user ID:', user.id);
+      
       const data = await leaderboardService.getDailyLeaderboard(today);
+      console.log('Fetched leaderboard data:', data);
+      
+      // Check if user has a profile - don't block on profile errors
+      try {
+        const userProfile = await leaderboardService.getUserProfile(user.id);
+        console.log('Current user profile:', userProfile);
+      } catch (profileErr) {
+        console.warn('Non-critical error fetching user profile:', profileErr);
+        // Continue execution - profile fetch is not critical for leaderboard display
+      }
+      
       setLeaderboardData(data);
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to load leaderboard'));
+      console.error('Error while fetching leaderboard:', err);
+      
+      // Handle specific database errors
+      if (err instanceof Error) {
+        if (err.message.includes('PGRST200')) {
+          setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
+        } else if (err.message.includes('42501')) {
+          setError(new Error('You do not have permission to view the leaderboard.'));
+        } else {
+          setError(err);
+        }
+      } else {
+        setError(new Error('Failed to load leaderboard'));
+      }
     } finally {
       setLoading(false);
     }
   }, [user]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData]);
 
   useEffect(() => {
     if (user) {
@@ -42,8 +79,8 @@ export function Leaderboard() {
 
   if (loading && !leaderboardData.length && !error) {
     return (
-      <View className="flex-1 items-center justify-center">
-        <ActivityIndicator size="large" className="text-sky-600" />
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0284c7" />
       </View>
     );
   }
@@ -59,35 +96,36 @@ export function Leaderboard() {
 
   return (
     <ScrollView
-      className="flex-1 bg-gray-50"
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
       refreshControl={
         <RefreshControl 
-          refreshing={loading}
-          onRefresh={loadData}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
           tintColor="#0284c7"
         />
       }
     >
       {/* Header */}
-      <View className="px-5 pt-8 pb-4">
-        <Text className="text-2xl font-bold text-gray-900">
-          Daily Leaderboard
-        </Text>
-        <Text className="text-base text-gray-500 mt-1">
+      <View style={styles.header}>
+        <Text style={styles.title}>Daily Leaderboard</Text>
+        <Text style={styles.subtitle}>
           {DateUtils.formatDateForDisplay(new Date())}
         </Text>
       </View>
 
       {/* Total Points Summary */}
       {leaderboardData.length > 0 && (
-        <View className="mx-4 mb-4 p-4 bg-white rounded-xl shadow-sm">
-          <View className="flex-row justify-between items-center">
-            <Text className="text-lg font-semibold text-gray-800">
-              Total Participants
-            </Text>
-            <View className="flex-row items-center space-x-2">
-              <MaterialCommunityIcons name="account-group" size={24} color="#0284c7" />
-              <Text className="text-xl font-bold text-gray-900">
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Total Participants</Text>
+            <View style={styles.summaryValue}>
+              <MaterialCommunityIcons 
+                name="account-group" 
+                size={24} 
+                color="#0284c7" 
+              />
+              <Text style={styles.participantCount}>
                 {leaderboardData.length}
               </Text>
             </View>
@@ -106,20 +144,97 @@ export function Leaderboard() {
 
       {/* Empty State */}
       {!loading && leaderboardData.length === 0 && (
-        <View className="flex-1 items-center justify-center p-5">
+        <View style={styles.emptyState}>
           <MaterialCommunityIcons 
             name="trophy-outline" 
             size={48} 
             color="#9CA3AF"
           />
-          <Text className="text-base text-gray-500 text-center mt-4">
+          <Text style={styles.emptyStateText}>
             No leaderboard data available for today.
           </Text>
         </View>
       )}
 
       {/* Bottom Padding */}
-      <View className="h-5" />
+      <View style={styles.bottomPadding} />
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  contentContainer: {
+    flexGrow: 1,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 12,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  summaryCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0.5 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  summaryValue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  participantCount: {
+    marginLeft: 4,
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  bottomPadding: {
+    height: 20,
+  },
+});
