@@ -1,14 +1,13 @@
-// src/components/metrics/MetricCard.tsx
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-
 import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
 import type { MetricType } from '@/src/types/metrics';
 
 interface MetricCardProps {
   title: string;
   value: number;
+  points: number;
   goal: number;
   unit: string;
   icon: keyof typeof IconType.glyphMap;
@@ -16,122 +15,94 @@ interface MetricCardProps {
   color: string;
   showAlert?: boolean;
   onPress?: () => void;
+  style?: any;
 }
+
+const COLORS = {
+  primary: '#40C9A2',
+  'metric-red': '#FF7B7B',
+  accent: '#A66BFF',
+  secondary: '#4B9EFF',
+  default: '#6B7280',
+};
 
 export function MetricCard({
   title,
   value,
+  points,
   goal,
   unit,
   icon,
   progress,
   color,
   showAlert,
-  onPress
+  onPress,
+  style
 }: MetricCardProps) {
-  // Color mappings for different states
-  const colors = {
-    primary: {
-      bg: 'bg-primary',
-      text: 'text-white',
-      progressBg: 'bg-white/20',
-      progressFill: 'bg-white',
-      iconColor: '#FFFFFF',
-    },
-    red: {
-      bg: 'bg-red-500',
-      text: 'text-white',
-      progressBg: 'bg-white/20',
-      progressFill: 'bg-white',
-      iconColor: '#FFFFFF',
-    },
-    blue: {
-      bg: 'bg-blue-500',
-      text: 'text-white',
-      progressBg: 'bg-white/20',
-      progressFill: 'bg-white',
-      iconColor: '#FFFFFF',
-    },
-    orange: {
-      bg: 'bg-orange-500',
-      text: 'text-white',
-      progressBg: 'bg-white/20',
-      progressFill: 'bg-white',
-      iconColor: '#FFFFFF',
-    },
-  }[color] ?? {
-    bg: 'bg-gray-500',
-    text: 'text-white',
-    progressBg: 'bg-white/20',
-    progressFill: 'bg-white',
-    iconColor: '#FFFFFF',
-  };
-
+  const backgroundColor = COLORS[color as keyof typeof COLORS] || COLORS.default;
   const progressPercentage = Math.min(progress * 100, 100);
-  const isGoalMet = progressPercentage >= 100;
-
-  // Function to render the appropriate icon based on the icon config
-  const renderIcon = () => {
-    return <MaterialCommunityIcons 
-      name={icon} 
-      size={24} 
-      color={colors.iconColor} 
-    />;
-  };
 
   return (
     <Pressable
       onPress={onPress}
-      className={`${colors.bg} rounded-xl p-4 relative overflow-hidden`}
+      style={[
+        styles.container,
+        { backgroundColor },
+        style
+      ]}
     >
       {/* Header */}
-      <View className="flex-row justify-between items-start mb-3">
+      <View style={styles.header}>
         <View>
-          <Text className={`${colors.text} text-lg font-medium`}>{title}</Text>
-          <Text className={`${colors.text} opacity-80 text-sm`}>
-            {Math.round(progressPercentage)}% of goal
+          <Text style={styles.title}>
+            {title}
+          </Text>
+          <Text style={styles.points}>
+            {points} pts
           </Text>
         </View>
-        <View className={`${colors.progressBg} rounded-full p-2`}>
-          {renderIcon()}
+        <View style={styles.iconContainer}>
+          <MaterialCommunityIcons
+            name={icon}
+            size={28}
+            color="white"
+          />
         </View>
       </View>
 
       {/* Value and Progress */}
-      <View className="space-y-3">
-        <View className="flex-row items-baseline space-x-1">
-          <Text className={`${colors.text} text-3xl font-bold`}>
+      <View style={styles.content}>
+        <View style={styles.valueContainer}>
+          <Text style={styles.value}>
             {Math.round(value).toLocaleString()}
           </Text>
-          <Text className={`${colors.text} text-lg`}>{unit}</Text>
+          <Text style={styles.unit}>
+            {unit}
+          </Text>
         </View>
 
         {/* Progress Bar */}
-        <View className={`w-full h-2 rounded-full ${colors.progressBg}`}>
-          <View
-            className={`h-full rounded-full ${colors.progressFill} transition-all duration-300`}
-            style={{ width: `${progressPercentage}%` }}
-          />
-        </View>
-
-        {/* Goal Met Indicator */}
-        {isGoalMet && (
-          <View className="flex-row items-center space-x-2">
-            <View className={`${colors.progressBg} rounded-full px-2 py-1`}>
-              <Text className={`${colors.text} text-xs font-medium`}>
-                Goal Met! 🎯
-              </Text>
-            </View>
+        <View>
+          <View style={styles.progressBarContainer}>
+            <View
+              style={[
+                styles.progressBar,
+                { width: `${progressPercentage}%` }
+              ]}
+            />
           </View>
-        )}
+          <Text style={styles.progressText}>
+            {Math.round(progressPercentage)}% of goal
+          </Text>
+        </View>
 
         {/* Alert Indicator */}
         {showAlert && (
-          <View className="absolute top-4 right-4">
-            <MaterialCommunityIcons 
-              name="alert-circle" 
-              size={24} 
-              color={colors.iconColor} 
+          <View style={styles.alertContainer}>
+            <MaterialCommunityIcons
+              name="alert-circle"
+              size={24}
+              color="white"
             />
           </View>
         )}
@@ -139,3 +110,71 @@ export function MetricCard({
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    padding: 24,
+    borderRadius: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  points: {
+    fontSize: 16,
+    color: 'white',
+    opacity: 0.7,
+  },
+  iconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 9999,
+    padding: 12,
+  },
+  content: {
+    gap: 16,
+  },
+  valueContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  value: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  unit: {
+    fontSize: 20,
+    color: 'white',
+    opacity: 0.8,
+  },
+  progressBarContainer: {
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 9999,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: 'white',
+    borderRadius: 9999,
+  },
+  progressText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: 'white',
+    opacity: 0.7,
+  },
+  alertContainer: {
+    position: 'absolute',
+    top: 24,
+    right: 24,
+  },
+});
