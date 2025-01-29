@@ -1,37 +1,87 @@
-// src/components/shared/ErrorView.tsx
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { View, StyleSheet } from 'react-native';
+import { Button, Text, useTheme } from 'react-native-paper';
+import LottieView from 'lottie-react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface ErrorViewProps {
-  message: string;
+  error: Error;
   onRetry?: () => void;
 }
 
-export function ErrorView({ message, onRetry }: ErrorViewProps) {
+export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
+  const theme = useTheme();
+  const lottieRef = React.useRef<LottieView>(null);
+
+  React.useEffect(() => {
+    if (lottieRef.current) {
+      lottieRef.current.play();
+    }
+  }, []);
+
   return (
-    <View className="flex-1 items-center justify-center p-4">
-      <MaterialIcons 
-        name="error-outline" 
-        size={48} 
-        color="#EF4444" 
-        style={{ marginBottom: 16 }}
+    <Animated.View 
+      entering={FadeIn.duration(500)} 
+      style={styles.container}
+    >
+      <LottieView
+        ref={lottieRef}
+        source={require('../../../src/assets/animations/error.json')}
+        style={styles.animation}
+        autoPlay
+        loop
       />
-      <Text className="text-gray-900 text-lg font-medium text-center mb-2">
+      
+      <Text 
+        variant="headlineSmall" 
+        style={[styles.title, { color: theme.colors.error }]}
+      >
         Oops! Something went wrong
       </Text>
-      <Text className="text-gray-600 text-center mb-6">
-        {message}
+      
+      <Text 
+        variant="bodyMedium" 
+        style={styles.message}
+      >
+        {error.message}
       </Text>
+
       {onRetry && (
-        <Pressable
+        <Button 
+          mode="contained" 
           onPress={onRetry}
-          className="flex-row items-center space-x-2 bg-primary px-6 py-3 rounded-xl"
+          style={styles.button}
+          buttonColor={theme.colors.primary}
         >
-          <MaterialIcons name="refresh" size={20} color="white" />
-          <Text className="text-white font-medium">Try Again</Text>
-        </Pressable>
+          Try Again
+        </Button>
       )}
-    </View>
+    </Animated.View>
   );
-}
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  animation: {
+    width: 200,
+    height: 200,
+    marginBottom: 24,
+  },
+  title: {
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  message: {
+    textAlign: 'center',
+    marginBottom: 24,
+    opacity: 0.7,
+  },
+  button: {
+    paddingHorizontal: 24,
+  },
+});

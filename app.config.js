@@ -7,6 +7,8 @@ export default {
     icon: "./assets/images/icon.png",
     scheme: "mylera",
     userInterfaceStyle: "automatic",
+    "assets": ["./src/assets/animations"],
+
     plugins: [
       "expo-router",
       [

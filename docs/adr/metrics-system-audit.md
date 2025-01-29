@@ -1,139 +1,125 @@
-# Metrics System Technical Audit
+# Metrics System Architecture Audit
 
 ## Context
 
-A comprehensive technical audit was conducted on the metrics and health data system architecture to identify strengths, weaknesses, and areas for improvement across multiple technical dimensions.
+An architectural review of the metrics system was conducted to identify strengths, weaknesses, and potential improvements in the current implementation. This audit focused on data flow, state management, caching strategies, and component architecture.
 
-## Decision Drivers
+## Current Architecture
 
-* Need for robust type safety and error handling
-* Performance optimization requirements
-* Data integrity and consistency demands
-* Maintainability and scalability concerns
+### Data Flow
+The system follows a multi-layered architecture:
+1. AuthProvider manages user context and health permissions
+2. useHealthData hook orchestrates data fetching and caching
+3. useHealthCache implements TTL-based caching with AsyncStorage
+4. MetricsStore handles data formatting and distribution
+5. Display components (Dashboard, MetricCardList, MetricCard) render the data
 
-## Detailed Findings
+### Key Components
 
-### Type Safety Implementation
+#### Caching Layer
+- Uses AsyncStorage with 5-minute TTL
+- Implements race condition protection via AbortController
+- Handles cache invalidation on logout
+- Missing: Cache size limits and cleanup strategy
 
-#### Strengths
-- Strong TypeScript usage with well-defined interfaces
-- Comprehensive type coverage for metric-related data structures
-- Proper use of discriminated unions for MetricType
+#### State Management
+- Centralized authentication state
+- Integrated health permissions
+- Custom hooks for metrics management
+- Potential improvement: Consider Zustand for global state
 
-#### Areas for Improvement
-- Consider converting MetricType to enum
-- Add runtime type validation using zod/io-ts
-- Implement explicit type guards
+#### Data Synchronization
+- Protection against concurrent syncs
+- Proper initialization and permission handling
+- Potential race condition in simultaneous component mounting
 
-### Error Handling
+## Strengths
 
-#### Strengths
-- Custom HealthDataError implementation
-- Consistent error propagation
-- Proper error state management
+1. **Component Architecture**
+   - Clear separation of concerns
+   - Reusable metric components
+   - Strong typing implementation
+   - Efficient animation integration
 
-#### Weaknesses
-- Limited error recovery strategies
-- Missing retry mechanisms
-- Insufficient error categorization
+2. **Error Handling**
+   - Distinct permission error handling
+   - Isolated health provider errors
+   - Graceful cache error degradation
 
-### Performance Optimization
+3. **Performance Optimizations**
+   - Memoized metrics calculations
+   - Efficient caching implementation
+   - Reanimated for smooth animations
 
-#### Strengths
-- Efficient cache implementation
-- Proper memoization usage
-- Smart sync state management
+## Areas for Improvement
 
-#### Areas for Improvement
-- Implement debouncing for metric updates
-- Add virtualization for large lists
-- Optimize progress calculations
+### Short-term Improvements
 
-### State Management
+1. **Caching Strategy**
+   - Implement cache size limits
+   - Add LRU eviction policy
+   - Introduce batch updates for metrics
+   - Add cache cleanup mechanism
 
-#### Strengths
-- Clean separation of concerns
-- Efficient cache implementation
-- Clear data flow patterns
+2. **Error Handling**
+   - Implement retry mechanisms
+   - Add offline support
+   - Improve error recovery for partial data
+   - Better error messaging
 
-#### Weaknesses
-- Potential prop drilling
-- Limited state persistence
-- Missing optimistic updates
+3. **Performance**
+   - Reduce permission check frequency
+   - Implement batch updates
+   - Optimize JSON parsing
+   - Add request deduplication
 
-## Recommendations
+### Long-term Architectural Changes
 
-### Immediate Actions
+1. **State Management**
+   - Consider migration to Zustand
+   - Split AuthProvider into focused providers
+   - Reduce context dependencies
+   - Implement proper offline support
 
-1. Implement runtime type validation:
-```typescript
-import { z } from 'zod';
+2. **Data Flow**
+   - Implement proper retry mechanisms
+   - Add proper cache invalidation strategy
+   - Improve permission state management
+   - Reduce prop drilling
 
-const MetricSchema = z.object({
-  value: z.number().min(0),
-  goal: z.number().min(0),
-  type: z.enum(['steps', 'distance', 'calories', 'heart_rate', 'exercise', 'standing'])
-});
-```
+## Implementation Priority
 
-2. Add retry mechanism for failed operations:
-```typescript
-const withRetry = async <T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3
-): Promise<T> => {
-  let lastError: Error;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error as Error;
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-    }
-  }
-  throw lastError!;
-};
-```
+1. Critical (Immediate)
+   - Cache size management
+   - Retry mechanisms
+   - Permission check optimization
 
-3. Implement optimistic updates:
-```typescript
-const optimisticUpdate = (update: MetricUpdate) => {
-  setMetrics(prev => ({
-    ...prev,
-    [update.type]: update.value
-  }));
-  return metricsService.updateMetric(userId, update).catch(error => {
-    // Rollback on failure
-    setMetrics(prev => ({
-      ...prev,
-      [update.type]: prev[update.type]
-    }));
-    throw error;
-  });
-};
-```
+2. Important (Next Sprint)
+   - Offline support
+   - Error recovery improvements
+   - Batch updates
 
-### Long-term Improvements
+3. Nice to Have (Future)
+   - State management migration
+   - AuthProvider refactoring
+   - Advanced caching features
 
-1. Type Safety
-- Convert string literals to enums where appropriate
-- Add branded types for values with units
-- Implement comprehensive schema validation
+## Edge Cases to Address
 
-2. Error Handling
-- Implement proper error boundaries
-- Add error recovery strategies
-- Improve error categorization and logging
+1. **Permission Management**
+   - Handle permission revocation during session
+   - Manage permission state transitions
+   - Improve permission check efficiency
 
-3. Performance
-- Implement proper virtualization
-- Add performance monitoring
-- Optimize calculations and state updates
+2. **Data Integrity**
+   - Handle partial data updates
+   - Manage cache invalidation on logout
+   - Handle offline data synchronization
 
-4. State Management
-- Consider implementing global state management
-- Improve state persistence strategy
-- Add proper transaction boundaries
+3. **Error Recovery**
+   - Implement proper retry mechanisms
+   - Handle network failures gracefully
+   - Manage partial cache updates
 
 ## Status
 
@@ -142,22 +128,20 @@ Proposed
 ## Consequences
 
 ### Positive
-- Improved type safety and runtime validation
-- Better error handling and recovery
-- Enhanced performance and optimization
-- More robust state management
+- Improved system reliability
+- Better performance
+- Enhanced user experience
+- More maintainable codebase
 
 ### Negative
-- Initial implementation overhead
-- Increased complexity in some areas
+- Implementation complexity
+- Migration effort
+- Potential temporary instability
 - Learning curve for new patterns
-
-### Neutral
-- Need for team training on new patterns
-- Regular audit and maintenance required
 
 ## References
 
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
-- [React Query Best Practices](https://react-query.tanstack.com/guides/important-defaults)
-- [Zod Schema Validation](https://github.com/colinhacks/zod)
+- Current implementation in src/hooks/useHealthData.ts
+- Cache implementation in src/utils/cache/useHealthCache.ts
+- Auth system in src/providers/AuthProvider.tsx
+- Original metrics architecture in docs/adr/metrics-display-architecture.md

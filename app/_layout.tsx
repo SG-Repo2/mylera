@@ -3,6 +3,8 @@ import React, { useEffect } from 'react';
 import { useRouter, Slot } from 'expo-router';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
+import { PaperProvider } from 'react-native-paper';
+import { theme } from '../src/theme/theme';
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();
@@ -30,7 +32,9 @@ function ProtectedRoutes() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <ProtectedRoutes />
+      <PaperProvider theme={theme}>
+        <ProtectedRoutes />
+      </PaperProvider>
     </AuthProvider>
   );
 }

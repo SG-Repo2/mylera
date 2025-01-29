@@ -1,180 +1,258 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Card, Text, ProgressBar, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { MaterialCommunityIcons as IconType } from '@expo/vector-icons';
-import { MetricType, METRIC_DISPLAY_NAMES } from '@/src/types/metrics';
+import Animated, {
+  useAnimatedProps,
+  withSpring,
+  useSharedValue,
+  withTiming
+} from 'react-native-reanimated';
+import { healthMetrics } from '@/src/config/healthMetrics';
+import { MetricType } from '@/src/types/metrics';
 
-interface MetricCardProps {
-  title: string;
+// Create wrapped ProgressBar component
+const AnimatedProgressBar = Animated.createAnimatedComponent(
+  React.forwardRef<any, any>((props, ref) => <ProgressBar {...props} ref={ref} />)
+);
+
+const AnimatedText = Animated.createAnimatedComponent(Text);
+
+interface BaseMetricProps {
   value: number;
-  points: number;
   goal: number;
-  unit: string;
-  icon: keyof typeof IconType.glyphMap;
-  color: keyof typeof COLORS;
-  progress: number;
+  color: string;
   showAlert?: boolean;
-  onPress?: () => void;
-  style?: StyleProp<ViewStyle>;
 }
 
-const COLORS = {
-  primary: '#40C9A2',
-  'metric-red': '#FF7B7B',
-  accent: '#A66BFF',
-  secondary: '#4B9EFF',
-  default: '#6B7280',
-} as const;
+interface MetricCardProps extends BaseMetricProps {
+  title: string;
+  points: number;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  unit: string;
+  onPress?: () => void;
+}
 
-export function MetricCard({
-  title,
+interface MetricDetailCardProps extends BaseMetricProps {
+  metricType: MetricType;
+  onRetry?: () => void;
+}
+
+const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
   value,
-  points,
   goal,
-  unit,
-  icon,
   color,
-  progress,
-  showAlert = false,
-  onPress,
+  unit,
+  showHeader = true,
+  headerContent,
   style
-}: MetricCardProps) {
-  const backgroundColor = COLORS[color] || COLORS.default;
-  const progressPercentage = Math.min(progress * 100, 100);
+}: {
+  value: number;
+  goal: number;
+  color: string;
+  unit: string;
+  showHeader?: boolean;
+  headerContent?: React.ReactNode;
+  style?: any;
+}) {
+  const theme = useTheme();
+  const progress = Math.min(value / goal, 1);
+  
+  // Animation values
+  const animatedProgress = useSharedValue(0);
+
+  // Update animations
+  React.useEffect(() => {
+    animatedProgress.value = withSpring(progress, {
+      damping: 15,
+      stiffness: 100
+    });
+  }, [progress]);
+
+  const progressBarProps = useAnimatedProps(() => ({
+    progress: animatedProgress.value
+  }));
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={[
-        styles.container,
-        { backgroundColor },
-        style
-      ]}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>
-            {title}
-          </Text>
-          <Text style={styles.points}>
-            {points} pts
-          </Text>
-        </View>
-        <View style={styles.iconContainer}>
-          <MaterialCommunityIcons
-            name={icon}
-            size={28}
-            color="white"
+    <Card style={[styles.card, style]}>
+      <Card.Content style={styles.cardContent}>
+        {showHeader && headerContent}
+        <View style={styles.content}>
+          <View style={styles.valueContainer}>
+            <Text variant="headlineMedium" style={styles.value}>
+              {Math.round(value).toLocaleString()}
+            </Text>
+            <Text variant="bodySmall" style={styles.unit}>
+              {unit}
+            </Text>
+          </View>
+
+          <AnimatedProgressBar
+            progress={progress}
+            animatedProps={progressBarProps}
+            color={color || theme.colors.primary}
+            style={styles.progressBar}
           />
-        </View>
-      </View>
 
-      {/* Value and Progress */}
-      <View style={styles.content}>
-        <View style={styles.valueContainer}>
-          <Text style={styles.value}>
-            {Math.round(value).toLocaleString()}
-          </Text>
-          <Text style={styles.unit}>
-            {unit}
+          <Text variant="bodySmall" style={styles.progressText}>
+            {Math.round(progress * 100)}% of {goal.toLocaleString()} {unit}
           </Text>
         </View>
-
-        {/* Progress Bar */}
-        <View>
-          <View style={styles.progressBarContainer}>
-            <View
-              style={[
-                styles.progressBar,
-                { width: `${progressPercentage}%` }
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>
-            {Math.round(progressPercentage)}% of {goal}
-          </Text>
-        </View>
-
-        {/* Alert Indicator */}
-        {showAlert && (
-          <View style={styles.alertContainer}>
-            <MaterialCommunityIcons
-              name="alert-circle"
-              size={24}
-              color="white"
-            />
-          </View>
-        )}
-      </View>
-    </Pressable>
+      </Card.Content>
+    </Card>
   );
-}
+});
+
+export const MetricCard = React.memo(function MetricCard({
+  title,
+  value,
+  goal,
+  points,
+  icon,
+  unit,
+  color,
+  onPress
+}: MetricCardProps) {
+  const theme = useTheme();
+  const animatedPoints = useSharedValue(0);
+
+  React.useEffect(() => {
+    animatedPoints.value = withTiming(points, {
+      duration: 1000
+    });
+  }, [points]);
+
+  const headerContent = (
+    <View style={styles.header}>
+      <View>
+        <Text variant="titleMedium" style={styles.title}>
+          {title}
+        </Text>
+        <AnimatedText style={styles.points}>
+          {Math.round(animatedPoints.value)} pts
+        </AnimatedText>
+      </View>
+      <View style={[styles.iconContainer, { backgroundColor: color || theme.colors.primary }]}>
+        <MaterialCommunityIcons
+          name={icon}
+          size={24}
+          color="white"
+        />
+      </View>
+    </View>
+  );
+
+  return (
+    <BaseMetricDisplay
+      value={value}
+      goal={goal}
+      color={color}
+      unit={unit}
+      headerContent={headerContent}
+      style={onPress ? { cursor: 'pointer' } : undefined}
+    />
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.goal === nextProps.goal &&
+    prevProps.points === nextProps.points &&
+    prevProps.color === nextProps.color
+  );
+});
+
+export const MetricDetailCard = React.memo(function MetricDetailCard({
+  metricType,
+  value,
+  goal,
+  color,
+}: MetricDetailCardProps) {
+  const config = healthMetrics[metricType];
+  
+  return (
+    <BaseMetricDisplay
+      value={value}
+      goal={goal}
+      color={color}
+      unit={config.displayUnit}
+      showHeader={false}
+      style={styles.detailCard}
+    />
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.goal === nextProps.goal &&
+    prevProps.color === nextProps.color
+  );
+});
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    borderRadius: 24,
+  // Base card styles
+  card: {
+    marginVertical: 8,
+    marginHorizontal: 16,
+    elevation: 4,
   },
+  detailCard: {
+    marginVertical: 16,
+    marginHorizontal: 16,
+    elevation: 4,
+    backgroundColor: 'white',
+    borderRadius: 12,
+  },
+  cardContent: {
+    padding: 16,
+  },
+  
+  // Header styles
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 16,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white',
+    color: '#000',
+    marginBottom: 4,
   },
   points: {
-    fontSize: 16,
-    color: 'white',
-    opacity: 0.7,
+    fontSize: 14,
+    color: '#666',
   },
   iconContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 9999,
-    padding: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  
+  // Content styles
   content: {
-    gap: 16,
+    marginTop: 8,
   },
   valueContainer: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 8,
+    marginBottom: 12,
   },
   value: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: 'white',
+    marginRight: 8,
+    color: '#000',
   },
   unit: {
-    fontSize: 20,
-    color: 'white',
-    opacity: 0.8,
+    color: '#666',
   },
-  progressBarContainer: {
-    height: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 9999,
-    overflow: 'hidden',
-  },
+  
+  // Progress styles
   progressBar: {
-    height: '100%',
-    backgroundColor: 'white',
-    borderRadius: 9999,
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 8,
   },
   progressText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: 'white',
-    opacity: 0.7,
-  },
-  alertContainer: {
-    position: 'absolute',
-    top: 24,
-    right: 24,
+    color: '#666',
+    textAlign: 'right',
   },
 });
