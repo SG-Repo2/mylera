@@ -38,13 +38,25 @@ export default function RegisterScreen() {
       return;
     }
 
-    // If validation passes, call register
-    await register(email, password);
+    try {
+      // If validation passes, call register
+      await register(email, password);
 
-    // If there's no error from AuthProvider, we can navigate.
-    if (!error) {
-      // Navigate to the login screen or anywhere you prefer
-      router.push('/(onboarding)/health-setup');
+      // If registration is successful, always route to health setup
+      if (!error) {
+        router.replace('/(onboarding)/health-setup');
+      }
+    } catch (err) {
+      // Handle any unexpected errors
+      if (err instanceof Error) {
+        if (err.message.includes('42501')) {
+          setLocalError('Unable to create user profile. Please try again later.');
+        } else {
+          setLocalError(err.message);
+        }
+      } else {
+        setLocalError('An unexpected error occurred during registration.');
+      }
     }
   };
 

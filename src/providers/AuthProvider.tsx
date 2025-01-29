@@ -22,6 +22,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   requestHealthPermissions: () => Promise<PermissionStatus>;
+  needsHealthSetup: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -93,11 +94,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const { error: signUpError } = await supabase.auth.signUp({ email, password });
+      // Attempt registration
+      const { error: signUpError, data } = await supabase.auth.signUp({ email, password });
       if (signUpError) throw signUpError;
+
+      // Initialize health provider for new user
+      if (data.user) {
+        try {
+          const provider = HealthProviderFactory.getProvider();
+          await provider.initializePermissions(data.user.id);
+          setHealthPermissionStatus('not_determined');
+        } catch (healthError) {
+          console.error('Health provider initialization error:', healthError);
+          // Don't throw here - we want the registration to succeed even if health init fails
+          setHealthPermissionStatus('not_determined');
+        }
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'An error occurred during registration.';
-      setError(message);
+      console.error('Registration error:', err);
+      if (err instanceof Error) {
+        if (err.message.includes('42501')) {
+          setError('Unable to create user profile. Please contact support.');
+        } else if (err.message.includes('HealthKit')) {
+          setError('Unable to initialize health services. You can set this up later.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('An error occurred during registration.');
+      }
     } finally {
       setLoading(false);
     }
@@ -111,17 +136,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
+      // Attempt login
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       if (signInError) throw signInError;
+
+      // After successful login, check health permissions
+      const provider = HealthProviderFactory.getProvider();
+      const permissionState = await provider.checkPermissionsStatus();
+      setHealthPermissionStatus(permissionState.status);
+
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'An error occurred during login.';
-      setError(message);
+      console.error('Login error:', err);
+      if (err instanceof Error) {
+        if (err.message.includes('42501')) {
+          setError('You do not have permission to access this resource. Please contact support.');
+        } else if (err.message.includes('HealthKit')) {
+          setError('Unable to access health data. Please check your device settings.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('An error occurred during login.');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * Check if the user needs to set up health permissions
+   */
+  const needsHealthSetup = (): boolean => {
+    return !healthPermissionStatus || healthPermissionStatus === 'not_determined';
   };
 
   /**
@@ -132,11 +181,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
+      // Clean up health provider state
+      if (user) {
+        try {
+          const provider = HealthProviderFactory.getProvider();
+          await provider.cleanup?.();
+        } catch (healthError) {
+          console.error('Error cleaning up health provider:', healthError);
+          // Don't block logout on health cleanup error
+        }
+      }
+
+      // Sign out from Supabase
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) throw signOutError;
+
+      // Clear all state
+      setSession(null);
+      setUser(null);
+      setHealthPermissionStatus(null);
+      
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'An error occurred during logout.';
-      setError(message);
+      console.error('Logout error:', err);
+      if (err instanceof Error) {
+        if (err.message.includes('42501')) {
+          // Still clear local state even if there's a permission error
+          setSession(null);
+          setUser(null);
+          setHealthPermissionStatus(null);
+        }
+        setError(err.message);
+      } else {
+        setError('An error occurred during logout.');
+      }
     } finally {
       setLoading(false);
     }
@@ -178,6 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     login,
     logout,
     requestHealthPermissions,
+    needsHealthSetup,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

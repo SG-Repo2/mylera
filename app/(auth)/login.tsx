@@ -10,7 +10,7 @@ import { isValidEmail, isValidPassword } from '@/src/utils/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, error, loading } = useAuth();
+  const { login, error, loading, needsHealthSetup, healthPermissionStatus } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,9 +31,18 @@ export default function LoginScreen() {
 
     await login(email, password);
 
-    // If login is successful (no error from context), navigate to protected route
+    // If login is successful (no error from context), check health permissions
     if (!error) {
-      router.replace('/(app)/(home)'); // Example route for authenticated users
+      if (needsHealthSetup()) {
+        // User needs to set up health permissions
+        router.replace('/(onboarding)/health-setup');
+      } else if (healthPermissionStatus === 'denied') {
+        // User has explicitly denied health permissions
+        setLocalError('Health permissions are required to use this app. Please enable them in your device settings.');
+      } else {
+        // Health permissions are granted, proceed to main app
+        router.replace('/(app)/(home)');
+      }
     }
   };
 
