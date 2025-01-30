@@ -1,37 +1,29 @@
-import type {
-  MetricTypeEnum as MetricType,
-  MetricUpdate,
-  DailyMetricScoreSchema as DailyMetricScore,
-  MetricGoals,
-  MetricValidationError
-} from './schemas';
+// Define the core MetricType type that matches healthMetrics config
+export type MetricType = 
+  | 'steps' 
+  | 'distance' 
+  | 'calories' 
+  | 'heart_rate' 
+  | 'exercise'
+  | 'basal_calories'
+  | 'flights_climbed';
 
-// Re-export types from schema definitions
-export type {
-  MetricType,
-  MetricUpdate,
-  DailyMetricScore,
-  MetricGoals,
-  MetricValidationError
-};
+// Metric value types
+export type MetricValue = number;
 
-// Additional type utilities and constants can be defined here if needed
-export const METRIC_DISPLAY_NAMES: Record<MetricType, string> = {
-  steps: 'Steps',
-  distance: 'Distance',
-  calories: 'Calories',
-  heart_rate: 'Heart Rate',
-  exercise: 'Exercise',
-  standing: 'Standing',
-  sleep: 'Sleep'
-} as const;
+// Metric goal types
+export type MetricGoal = number;
 
-export const METRIC_DESCRIPTIONS: Record<MetricType, string> = {
-  steps: 'Daily step count',
-  distance: 'Distance traveled',
-  calories: 'Active calories burned',
-  heart_rate: 'Average heart rate',
-  exercise: 'Exercise minutes',
-  standing: 'Hours stood',
-  sleep: 'Hours slept'
-} as const;
+// Metric update payload
+export interface MetricUpdate {
+  value: MetricValue;
+  timestamp?: string;
+  unit?: string;
+}
+
+// Validation error type
+export interface MetricValidationError {
+  code: string;
+  message: string;
+  field?: string;
+}

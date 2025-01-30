@@ -12,7 +12,7 @@ import type {
   NormalizedMetric
 } from '../../types/metrics';
 import { METRIC_UNITS } from '../../types/metrics';
-import { MetricType } from '../../../../types/metrics';
+import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
 
@@ -157,6 +157,15 @@ export class AppleHealthProvider extends BaseHealthProvider {
           case 'heart_rate':
             rawData.heart_rate = await this.fetchHeartRateRaw(options);
             break;
+          case 'basal_calories':
+            rawData.basal_calories = await this.fetchBasalCaloriesRaw(options);
+            break;
+          case 'flights_climbed':
+            rawData.flights_climbed = await this.fetchFlightsClimbedRaw(options);
+            break;
+          case 'exercise':
+            rawData.exercise = await this.fetchExerciseRaw(options);
+            break;
         }
       })
     );
@@ -182,7 +191,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         if (rawData.distance) {
           metrics.push(...rawData.distance.map(raw => ({
             timestamp: raw.endDate,
-            value: raw.value * 1000, // Convert km to meters
+            value: Number(raw.value) * 1000, // Convert km to meters
             unit: METRIC_UNITS.DISTANCE,
             type: 'distance'
           } as NormalizedMetric)));
@@ -208,13 +217,33 @@ export class AppleHealthProvider extends BaseHealthProvider {
           } as NormalizedMetric)));
         }
         break;
-      case 'sleep':
-        if (rawData.sleep) {
-          metrics.push(...rawData.sleep.map(raw => ({
+      case 'basal_calories':
+        if (rawData.basal_calories) {
+          metrics.push(...rawData.basal_calories.map(raw => ({
             timestamp: raw.endDate,
             value: raw.value,
-            unit: METRIC_UNITS.SLEEP,
-            type: 'sleep'
+            unit: METRIC_UNITS.CALORIES,
+            type: 'basal_calories'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'flights_climbed':
+        if (rawData.flights_climbed) {
+          metrics.push(...rawData.flights_climbed.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.COUNT,
+            type: 'flights_climbed'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'exercise':
+        if (rawData.exercise) {
+          metrics.push(...rawData.exercise.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.EXERCISE,
+            type: 'exercise'
           } as NormalizedMetric)));
         }
         break;
@@ -230,7 +259,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
     const rawData = await this.fetchRawMetrics(
       startOfDay,
       now,
-      ['steps', 'distance', 'calories', 'heart_rate']
+      ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
     );
 
     // Normalize and aggregate the data
@@ -238,6 +267,9 @@ export class AppleHealthProvider extends BaseHealthProvider {
     const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
     const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
     const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
+    const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
+    const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
+    const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
     return {
       id: '',
@@ -247,9 +279,9 @@ export class AppleHealthProvider extends BaseHealthProvider {
       distance,
       calories,
       heart_rate,
-      sleep: null,
-      exercise: null,  // To be implemented later
-      standing: null,  // To be implemented later
+      basal_calories,
+      flights_climbed,
+      exercise,
       daily_score: 0,
       weekly_score: null,
       streak_days: null,
@@ -302,44 +334,45 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     return new Promise((resolve) => {
-      // Get both active and basal energy burned
-      Promise.all([
-        new Promise<any>((resolveActive) => {
-          AppleHealthKit.getActiveEnergyBurned(
-            options,
-            (err: string, results: any) => {
-              if (err) {
-                console.error('[AppleHealthProvider] Error reading active calories:', err);
-                resolveActive({ value: 0 });
-              } else {
-                resolveActive(results);
-              }
-            }
-          );
-        }),
-        new Promise<any>((resolveBasal) => {
-          AppleHealthKit.getBasalEnergyBurned(
-            options,
-            (err: string, results: any) => {
-              if (err) {
-                console.error('[AppleHealthProvider] Error reading basal calories:', err);
-                resolveBasal({ value: 0 });
-              } else {
-                resolveBasal(results);
-              }
-            }
-          );
-        })
-      ]).then(([activeResults, basalResults]) => {
-        const totalCalories = (activeResults.value || 0) + (basalResults.value || 0);
-        resolve([{
-          startDate: options.startDate || new Date().toISOString(),
-          endDate: options.endDate || new Date().toISOString(),
-          value: Math.round(totalCalories),
-          unit: 'kcal',
-          sourceBundle: 'com.apple.health'
-        }]);
-      });
+      AppleHealthKit.getActiveEnergyBurned(
+        options,
+        (err: string, results: any) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading active calories:', err);
+            resolve([]);
+          } else {
+            resolve([{
+              startDate: options.startDate || new Date().toISOString(),
+              endDate: options.endDate || new Date().toISOString(),
+              value: Math.round(results.value || 0),
+              unit: 'kcal',
+              sourceBundle: 'com.apple.health'
+            }]);
+          }
+        }
+      );
+    });
+  }
+
+  private async fetchBasalCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getBasalEnergyBurned(
+        options,
+        (err: string, results: any) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading basal calories:', err);
+            resolve([]);
+          } else {
+            resolve([{
+              startDate: options.startDate || new Date().toISOString(),
+              endDate: options.endDate || new Date().toISOString(),
+              value: Math.round(results.value || 0),
+              unit: 'kcal',
+              sourceBundle: 'com.apple.health'
+            }]);
+          }
+        }
+      );
     });
   }
 
@@ -389,20 +422,70 @@ export class AppleHealthProvider extends BaseHealthProvider {
     });
   }
 
+  private async fetchFlightsClimbedRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getFlightsClimbed(
+        options,
+        (err: string, results: any) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading flights climbed:', err);
+            resolve([]);
+          } else {
+            resolve([{
+              startDate: options.startDate || new Date().toISOString(),
+              endDate: options.endDate || new Date().toISOString(),
+              value: Math.round(results.value || 0),
+              unit: 'count',
+              sourceBundle: 'com.apple.health'
+            }]);
+          }
+        }
+      );
+    });
+  }
+
+  private async fetchExerciseRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
+    return new Promise((resolve) => {
+      AppleHealthKit.getAppleExerciseTime(
+        options,
+        (err: string, results: any) => {
+          if (err) {
+            console.error('[AppleHealthProvider] Error reading exercise time:', err);
+            resolve([]);
+          } else {
+            resolve([{
+              startDate: options.startDate || new Date().toISOString(),
+              endDate: options.endDate || new Date().toISOString(),
+              value: Math.round(results.value || 0),
+              unit: 'minutes',
+              sourceBundle: 'com.apple.health'
+            }]);
+          }
+        }
+      );
+    });
+  }
+
   private aggregateMetric(metrics: NormalizedMetric[]): number | null {
     if (!metrics.length) return null;
 
-    switch (metrics[0].type) {
-      case 'heart_rate':
-        // Average for heart rate
-        return Math.round(
-          metrics.reduce((sum, m) => sum + m.value, 0) / metrics.length
-        );
-      default:
-        // Sum for other metrics
-        return Math.round(
-          metrics.reduce((sum, m) => sum + m.value, 0)
-        );
+    const metric = metrics[0];
+
+    if (metric.type === 'heart_rate') {
+      // Average for heart rate
+      const sum = metrics.reduce((acc, m) => {
+        const val = typeof m.value === 'number' ? m.value : 0;
+        return acc + val;
+      }, 0);
+      return Math.round(sum / metrics.length);
     }
+    
+    // Sum for other metrics
+    return Math.round(
+      metrics.reduce((acc, m) => {
+        const val = typeof m.value === 'number' ? m.value : 0;
+        return acc + val;
+      }, 0)
+    );
   }
 }

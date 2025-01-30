@@ -1,33 +1,37 @@
 import { z } from 'zod';
 
-// Enum for metric types
+// Core MetricType enum - single source of truth
 export const MetricTypeEnum = z.enum([
   'steps',
-  'distance', 
+  'distance',
   'calories',
   'heart_rate',
   'exercise',
-  'standing',
-  'sleep'
+  'basal_calories',
+  'flights_climbed'
 ]);
 
 // Schema for metric updates
 export const MetricUpdateSchema = z.object({
-  value: z.number()
-    .min(0, 'Value must be non-negative')
-    .finite('Value must be finite'),
-  goal: z.number()
-    .min(1, 'Goal must be at least 1')
-    .finite('Goal must be finite'),
-  type: MetricTypeEnum
+  value: z.number().min(0).finite(),
+  timestamp: z.string().optional(),
+  unit: z.string().optional()
 });
 
 // Schema for daily metric scores
 export const DailyMetricScoreSchema = z.object({
   id: z.string().uuid(),
-  user_id: z.string().uuid(),
+  user_id: z.string().uuid(), 
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
-  metric_type: MetricTypeEnum,
+  metric_type: z.enum([
+    'steps',
+    'distance',
+    'calories',
+    'heart_rate',
+    'exercise',
+    'basal_calories',
+    'flights_climbed'
+  ]),
   goal_reached: z.boolean(),
   points: z.number().int().min(0).max(150),
   value: z.number().min(0),
@@ -38,16 +42,24 @@ export const DailyMetricScoreSchema = z.object({
 
 // Schema for metric goals
 export const MetricGoalSchema = z.object({
-  defaultGoal: z.number().min(1),
+  defaultGoal: z.union([
+    z.number().min(1),
+    z.object({
+      systolic: z.number().min(1),
+      diastolic: z.number().min(1)
+    })
+  ]),
   unit: z.string().min(1)
 });
 
-export const MetricGoalsSchema = z.record(MetricTypeEnum, MetricGoalSchema);
+export const MetricGoalsSchema = z.record(z.string(), MetricGoalSchema);
 
-// Type inference helpers
-export type MetricTypeEnum = z.infer<typeof MetricTypeEnum>;
+// Export types derived from schemas
+export type MetricType = z.infer<typeof MetricTypeEnum>;
+export type MetricValue = z.infer<typeof MetricUpdateSchema>['value'];
+export type MetricGoal = z.infer<typeof MetricGoalSchema>['defaultGoal'];
 export type MetricUpdate = z.infer<typeof MetricUpdateSchema>;
-export type DailyMetricScoreSchema = z.infer<typeof DailyMetricScoreSchema>;
+export type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 export type MetricGoals = z.infer<typeof MetricGoalsSchema>;
 
 // Custom error class for validation errors

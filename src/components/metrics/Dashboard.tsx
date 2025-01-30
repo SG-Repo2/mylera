@@ -11,7 +11,7 @@ import { metricsService } from '@/src/services/metricsService';
 import { useState, useEffect } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
-import { DailyMetricScoreSchema } from '@/src/types/schemas';
+import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
@@ -62,31 +62,33 @@ const transformMetricsToHealthMetrics = (
   date: string
 ): HealthMetrics => {
   const now = new Date().toISOString();
-  type MetricType = 'steps' | 'distance' | 'calories' | 'exercise' | 'standing' | 'heart_rate' | 'sleep';
-
+  
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
     user_id: userId,
     date: date,
-    steps: 0,
-    distance: 0,
-    calories: 0,
-    exercise: 0,
-    standing: 0,
-    heart_rate: 0,
-    sleep: 0,
+    steps: null,
+    distance: null,
+    calories: null,
+    heart_rate: null,
+    exercise: null,
+    basal_calories: null,
+    flights_climbed: null,
     daily_score: dailyTotal?.total_points || 0,
-    weekly_score: 0,
-    streak_days: 0,
+    weekly_score: null,
+    streak_days: null,
     last_updated: now,
     created_at: now,
     updated_at: now
   };
-
   metrics.forEach(metric => {
-    const metricType = metric.metric_type as MetricType;
-    if (metricType in result && typeof result[metricType] === 'number') {
-      result[metricType] += metric.value;
+    const metricType = metric.metric_type;
+    if (metricType in result) {
+      // Handle blood pressure specially since it has systolic/diastolic components
+
+        // For all other metrics, value is a simple number
+        result[metricType] = metric.value as number;
+      
     }
   });
 

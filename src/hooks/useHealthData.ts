@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
-import type { MetricTypeEnum as MetricType } from '../types/schemas';
+import type { MetricType } from '../types/schemas';
 
 export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [loading, setLoading] = useState(true);

@@ -11,12 +11,13 @@ export interface RawHealthMetric {
 
 export interface RawHealthData {
   steps?: RawHealthMetric[];
-  distance?: RawHealthMetric[];  // Usually in meters or miles
+  distance?: RawHealthMetric[];  // In meters
   calories?: RawHealthMetric[];  // Active calories burned
   heart_rate?: RawHealthMetric[];  // BPM readings
-  exercise?: RawHealthMetric[];    // Exercise minutes
-  standing?: RawHealthMetric[];    // Standing hours
-  sleep?: RawHealthMetric[];       // Sleep duration in minutes
+  exercise?: RawHealthMetric[];  // Exercise minutes
+  basal_calories?: RawHealthMetric[];  // Resting calories burned
+  flights_climbed?: RawHealthMetric[];  // Flights of stairs
+
 }
 
 // Normalized metric with standardized units
@@ -35,8 +36,7 @@ export const METRIC_UNITS = {
   CALORIES: 'kcal',
   HEART_RATE: 'bpm',
   EXERCISE: 'minutes',
-  STANDING: 'hours',
-  SLEEP: 'minutes'
+  COUNT: 'count'
 } as const;
 
 // Aggregated health metrics for storage/display
@@ -45,12 +45,12 @@ export interface HealthMetrics {
   user_id: string;
   date: string;
   steps: number | null;
-  distance: number | null;      // Always in meters
-  calories: number | null;      // Always in kcal
-  exercise: number | null;      // Exercise minutes
-  standing: number | null;      // Standing hours
-  heart_rate: number | null;    // Average BPM for the period
-  sleep: number | null;         // Sleep duration in minutes
+  distance: number | null;
+  calories: number | null;
+  heart_rate: number | null;
+  exercise: number | null;
+  basal_calories: number | null;
+  flights_climbed: number | null;
   daily_score: number;
   weekly_score: number | null;
   streak_days: number | null;

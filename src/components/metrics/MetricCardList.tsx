@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
-import { MetricType } from '@/src/types/metrics';
+import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { theme } from '@/src/theme/theme';
@@ -12,17 +12,26 @@ interface MetricCardListProps {
   showAlerts?: boolean;
 }
 
-type DisplayedMetricType = 'steps' | 'heart_rate' | 'calories' | 'distance' | 'sleep';
+type DisplayedMetricType = MetricType;
 
-const calculateMetricPoints = (type: DisplayedMetricType, value: number): number => {
-  const maxPoints = {
+const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
+  const maxPoints: Record<DisplayedMetricType, number> = {
     steps: 165,
     heart_rate: 250,
     calories: 188,
     distance: 160,
-    sleep: 200
+    exercise: 200,
+    basal_calories: 150,
+    flights_climbed: 100,
+
   };
+
   
+  // Handle numeric values only since blood pressure is handled separately
+  if (typeof value !== 'number') {
+    return 0;
+  }
+
   return Math.min(
     Math.round((value / healthMetrics[type].defaultGoal) * maxPoints[type]),
     maxPoints[type]
@@ -36,15 +45,25 @@ export const MetricCardList = React.memo(function MetricCardList({
   const paperTheme = useTheme();
 
   // Define colors using our theme
-  const metricColors = {
-    steps: theme.colors.primary,      // Blue
-    distance: theme.colors.secondary, // Coral
-    calories: theme.colors.tertiary,  // Light blue
-    sleep: theme.colors.success,      // Green
-    heart_rate: '#FF5252'            // Red for heart rate
+  const metricColors: Record<DisplayedMetricType, string> = {
+    steps: theme.colors.primary,
+    distance: theme.colors.secondary,
+    calories: theme.colors.tertiary,
+    exercise: theme.colors.success,
+    heart_rate: '#FF5252',
+    basal_calories: '#9C27B0',
+    flights_climbed: '#FF9800'
   };
 
-  const metricOrder: DisplayedMetricType[] = ['steps', 'distance', 'calories', 'sleep', 'heart_rate'];
+  const metricOrder: DisplayedMetricType[] = [
+    'steps',
+    'distance',
+    'calories',
+    'exercise',
+    'heart_rate',
+    'basal_calories',
+    'flights_climbed'
+  ];
 
   // Create fade-in animations for each card
   const fadeAnims = React.useRef(
@@ -87,9 +106,9 @@ export const MetricCardList = React.memo(function MetricCardList({
           >
             <MetricCard
               title={healthMetrics[metricType].title}
-              value={metrics[metricType] || 0}
+              value={metrics[metricType] as number}
               points={calculateMetricPoints(metricType, metrics[metricType] || 0)}
-              goal={healthMetrics[metricType].defaultGoal}
+              goal={healthMetrics[metricType].defaultGoal as number}
               unit={healthMetrics[metricType].displayUnit}
               icon={healthMetrics[metricType].icon}
               color={metricColors[metricType]}

@@ -38,7 +38,10 @@ export default {
           "HKQuantityTypeIdentifierStepCount",
           "HKQuantityTypeIdentifierDistanceWalkingRunning",
           "HKQuantityTypeIdentifierHeartRate",
-          "HKQuantityTypeIdentifierActiveEnergyBurned"
+          "HKQuantityTypeIdentifierActiveEnergyBurned",
+          "HKQuantityTypeIdentifierFlightsClimbed",
+          "HKQuantityTypeIdentifierBasalEnergyBurned",
+          "HKQuantityTypeIdentifierAppleExerciseTime"
         ]
       }
     },
@@ -48,7 +51,10 @@ export default {
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_HEART_RATE",
-        "android.permission.health.READ_ACTIVE_CALORIES_BURNED"
+        "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.READ_FLIGHTS_CLIMBED",
+        "android.permission.health.READ_BASAL_METABOLIC_RATE",
+        "android.permission.health.READ_EXERCISE"
       ]
     },
     extra: {

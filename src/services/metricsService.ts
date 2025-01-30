@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { MetricTypeEnum } from '../types/schemas';
+import type { MetricType} from '../types/schemas';
 import { healthMetrics } from '../config/healthMetrics';
 
 export const metricsService = {

@@ -6,6 +6,9 @@ export const HEALTH_PERMISSIONS: Record<string, HealthPermission> = {
   DistanceWalkingRunning: 'DistanceWalkingRunning' as HealthPermission,
   ActiveEnergyBurned: 'ActiveEnergyBurned' as HealthPermission,
   HeartRate: 'HeartRate' as HealthPermission,
+  FlightsClimbed: 'FlightsClimbed' as HealthPermission,
+  BasalEnergyBurned: 'BasalEnergyBurned' as HealthPermission,
+  AppleExerciseTime: 'AppleExerciseTime' as HealthPermission,
 };
 
 export const permissions: HealthKitPermissions = {
@@ -15,6 +18,9 @@ export const permissions: HealthKitPermissions = {
       HEALTH_PERMISSIONS.DistanceWalkingRunning,
       HEALTH_PERMISSIONS.ActiveEnergyBurned,
       HEALTH_PERMISSIONS.HeartRate,
+      HEALTH_PERMISSIONS.FlightsClimbed,
+      HEALTH_PERMISSIONS.BasalEnergyBurned,
+      HEALTH_PERMISSIONS.AppleExerciseTime,
     ],
     write: [],
   },
