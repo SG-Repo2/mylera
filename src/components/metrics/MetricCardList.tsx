@@ -5,20 +5,22 @@ import { MetricCard } from './MetricCard';
 import { MetricType } from '@/src/types/metrics';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
+import { theme } from '@/src/theme/theme';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
   showAlerts?: boolean;
 }
 
-type DisplayedMetricType = 'steps' | 'heart_rate' | 'calories' | 'distance';
+type DisplayedMetricType = 'steps' | 'heart_rate' | 'calories' | 'distance' | 'sleep';
 
 const calculateMetricPoints = (type: DisplayedMetricType, value: number): number => {
   const maxPoints = {
     steps: 165,
     heart_rate: 250,
     calories: 188,
-    distance: 160
+    distance: 160,
+    sleep: 200
   };
   
   return Math.min(
@@ -31,74 +33,40 @@ export const MetricCardList = React.memo(function MetricCardList({
   metrics, 
   showAlerts = true 
 }: MetricCardListProps) {
-  const theme = useTheme();
+  const paperTheme = useTheme();
 
-  // Define distinct colors for each metric type
+  // Define colors using our theme
   const metricColors = {
-    steps: theme.colors.primary,
-    heart_rate: theme.colors.error,
-    calories: theme.colors.tertiary,
-    distance: theme.colors.secondary
+    steps: theme.colors.primary,      // Blue
+    distance: theme.colors.secondary, // Coral
+    calories: theme.colors.tertiary,  // Light blue
+    sleep: theme.colors.success,      // Green
+    heart_rate: '#FF5252'            // Red for heart rate
   };
+
+  const metricOrder: DisplayedMetricType[] = ['steps', 'distance', 'calories', 'sleep', 'heart_rate'];
 
   return (
     <View style={styles.container}>
-      <View style={styles.cardList}>
-        {/* Steps Card - Full Width */}
-        <MetricCard
-          title={healthMetrics.steps.title}
-          value={metrics.steps || 0}
-          points={calculateMetricPoints('steps', metrics.steps || 0)}
-          goal={healthMetrics.steps.defaultGoal}
-          unit={healthMetrics.steps.displayUnit}
-          icon={healthMetrics.steps.icon}
-          color={metricColors.steps}
-          showAlert={showAlerts}
-          metricType="steps"
-        />
-
-        {/* Heart Rate and Calories Row */}
-        <View style={styles.row}>
-          <View style={styles.halfWidth}>
+      <View style={styles.grid}>
+        {metricOrder.map((metricType, index) => (
+          <View key={metricType} style={[
+            styles.cell,
+            index === metricOrder.length - 1 && styles.lastCell
+          ]}>
             <MetricCard
-              title={healthMetrics.heart_rate.title}
-              value={metrics.heart_rate || 0}
-              points={calculateMetricPoints('heart_rate', metrics.heart_rate || 0)}
-              goal={healthMetrics.heart_rate.defaultGoal}
-              unit={healthMetrics.heart_rate.displayUnit}
-              icon={healthMetrics.heart_rate.icon}
-              color={metricColors.heart_rate}
+              title={healthMetrics[metricType].title}
+              value={metrics[metricType] || 0}
+              points={calculateMetricPoints(metricType, metrics[metricType] || 0)}
+              goal={healthMetrics[metricType].defaultGoal}
+              unit={healthMetrics[metricType].displayUnit}
+              icon={healthMetrics[metricType].icon}
+              color={metricColors[metricType]}
               showAlert={showAlerts}
-              metricType="heart_rate"
+              metricType={metricType}
             />
           </View>
-          <View style={styles.halfWidth}>
-            <MetricCard
-              title={healthMetrics.calories.title}
-              value={metrics.calories || 0}
-              points={calculateMetricPoints('calories', metrics.calories || 0)}
-              goal={healthMetrics.calories.defaultGoal}
-              unit={healthMetrics.calories.displayUnit}
-              icon={healthMetrics.calories.icon}
-              color={metricColors.calories}
-              showAlert={showAlerts}
-              metricType="calories"
-            />
-          </View>
-        </View>
-
-        {/* Distance Card - Full Width */}
-        <MetricCard
-          title={healthMetrics.distance.title}
-          value={metrics.distance || 0}
-          points={calculateMetricPoints('distance', metrics.distance || 0)}
-          goal={healthMetrics.distance.defaultGoal}
-          unit={healthMetrics.distance.displayUnit}
-          icon={healthMetrics.distance.icon}
-          color={metricColors.distance}
-          showAlert={showAlerts}
-          metricType="distance"
-        />
+        ))}
       </View>
     </View>
   );
@@ -111,16 +79,20 @@ export const MetricCardList = React.memo(function MetricCardList({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
+    padding: 16,
   },
-  cardList: {
-    gap: 16,
-  },
-  row: {
+  grid: {
     flexDirection: 'row',
-    gap: 16,
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  halfWidth: {
-    flex: 1,
+  cell: {
+    width: '48%',  // Just under 50% to account for gap
+    aspectRatio: 1, // Make cells square
   },
+  lastCell: {
+    marginLeft: 'auto',
+    marginRight: 'auto',
+    width: '48%',
+  }
 });

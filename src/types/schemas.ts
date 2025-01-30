@@ -3,11 +3,12 @@ import { z } from 'zod';
 // Enum for metric types
 export const MetricTypeEnum = z.enum([
   'steps',
-  'distance',
+  'distance', 
   'calories',
   'heart_rate',
   'exercise',
-  'standing'
+  'standing',
+  'sleep'
 ]);
 
 // Schema for metric updates
@@ -25,7 +26,7 @@ export const MetricUpdateSchema = z.object({
 export const DailyMetricScoreSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/x, 'Invalid date format'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
   metric_type: MetricTypeEnum,
   goal_reached: z.boolean(),
   points: z.number().int().min(0).max(150),
@@ -44,9 +45,9 @@ export const MetricGoalSchema = z.object({
 export const MetricGoalsSchema = z.record(MetricTypeEnum, MetricGoalSchema);
 
 // Type inference helpers
-export type MetricType = z.infer<typeof MetricTypeEnum>;
+export type MetricTypeEnum = z.infer<typeof MetricTypeEnum>;
 export type MetricUpdate = z.infer<typeof MetricUpdateSchema>;
-export type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
+export type DailyMetricScoreSchema = z.infer<typeof DailyMetricScoreSchema>;
 export type MetricGoals = z.infer<typeof MetricGoalsSchema>;
 
 // Custom error class for validation errors
@@ -58,20 +59,6 @@ export class MetricValidationError extends Error {
     super(message);
     this.name = 'MetricValidationError';
   }
-}
-
-// Basic types that match our database schema
-export type MetricType = 'steps' | 'distance' | 'calories' | 'heart_rate' | 'exercise' | 'standing';
-
-export interface DailyMetricScore {
-  id: string;
-  user_id: string;
-  date: string;
-  metric_type: MetricType;
-  goal_reached: boolean;
-  points: number;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface DailyTotal {

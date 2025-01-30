@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, ScrollView, StyleSheet, SafeAreaView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderFactory } from '@/src/providers/health';
@@ -10,13 +10,17 @@ import { MetricDetailCard } from '@/src/components/metrics/MetricCard';
 import { MetricType } from '@/src/types/metrics';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricsService } from '@/src/services/metricsService';
+import { DailyMetricScoreSchema } from '@/src/types/schemas';
+import type { z } from 'zod';
+import { theme } from '@/src/theme/theme';
+
+type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 
 export default function MetricDetailScreen() {
   const { metric } = useLocalSearchParams<{ metric: MetricType }>();
   const router = useRouter();
   const { user, healthPermissionStatus } = useAuth();
   const provider = React.useMemo(() => HealthProviderFactory.getProvider(), []);
-  const metricGoals = React.useMemo(() => metricsService.getMetricGoals(), []);
 
   // Validate metric parameter early
   if (!metric || !(metric in healthMetrics)) {
@@ -24,11 +28,9 @@ export default function MetricDetailScreen() {
     return null;
   }
 
-  const { metrics, loading, error } = useHealthData(
+  const { loading, error, syncHealthData } = useHealthData(
     provider,
-    user?.id || '',
-    new Date().toISOString().split('T')[0],
-    { autoSync: true }
+    user?.id || ''
   );
 
   // Check health permissions
@@ -41,69 +43,94 @@ export default function MetricDetailScreen() {
   }
 
   // After this point, metric is guaranteed to be valid
-  const metricKey = metric as MetricType; // Safe assertion since we validated above
+  const metricKey = metric as MetricType;
   const config = healthMetrics[metricKey];
-  const currentValue = metrics && typeof metrics[metricKey] === 'number'
-    ? metrics[metricKey] as number
-    : 0;
-  const goal = typeof metricGoals[metricKey]?.defaultGoal === 'number'
-    ? metricGoals[metricKey].defaultGoal
-    : 0;
+  const [metrics, setMetrics] = React.useState<Record<MetricType, number> | null>(null);
+
+  React.useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const dailyMetrics = await metricsService.getDailyMetrics(
+          user?.id || '',
+          new Date().toISOString().split('T')[0]
+        ) as DailyMetricScoreSchema[];
+        const metricsRecord = dailyMetrics.reduce((acc, metric) => ({
+          ...acc,
+          [metric.metric_type as keyof typeof acc]: metric.value
+        }), {} as Record<MetricType, number>);
+        setMetrics(metricsRecord);
+      } catch (err) {
+        console.error('Error fetching metrics:', err);
+      }
+    };
+    fetchMetrics();
+  }, [user?.id]);
+
+  const currentValue = metrics?.[metricKey] ?? 0;
+  const goal = healthMetrics[metricKey].defaultGoal;
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>{config.title}</Text>
-      </View>
-
-      <MetricDetailCard
-        metricType={metricKey}
-        value={currentValue}
-        goal={goal}
-        color={config.color}
-      />
-
-      <MetricChart
-        type={metricKey}
-        data={metrics ? [metrics] : []}
-        timeframe="daily"
-      />
-
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>
-            Error loading metrics: {error.message}
-          </Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.header}>
+          <MetricDetailCard
+            metricType={metricKey}
+            value={currentValue}
+            goal={goal}
+            color={config.color}
+          />
         </View>
-      )}
-    </ScrollView>
+
+        <View style={styles.chartContainer}>
+          <MetricChart
+            type={metricKey}
+            data={metrics ? [{
+              id: '',
+              user_id: user?.id || '',
+              date: new Date().toISOString().split('T')[0],
+              ...metrics,
+              daily_score: 0,
+              weekly_score: null,
+              streak_days: null,
+              last_updated: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }] : []}
+            timeframe="daily"
+          />
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     padding: 16,
-    backgroundColor: 'white',
+    backgroundColor: theme.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: 'rgba(24, 62, 159, 0.08)',
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  errorContainer: {
-    margin: 16,
+  chartContainer: {
     padding: 16,
-    backgroundColor: '#FEE2E2',
-    borderRadius: 8,
-  },
-  errorText: {
-    color: '#DC2626',
-    fontSize: 14,
-  },
+    backgroundColor: theme.colors.surface,
+    margin: 16,
+    borderRadius: 12,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  }
 });

@@ -16,6 +16,7 @@ export interface RawHealthData {
   heart_rate?: RawHealthMetric[];  // BPM readings
   exercise?: RawHealthMetric[];    // Exercise minutes
   standing?: RawHealthMetric[];    // Standing hours
+  sleep?: RawHealthMetric[];       // Sleep duration in minutes
 }
 
 // Normalized metric with standardized units
@@ -34,7 +35,8 @@ export const METRIC_UNITS = {
   CALORIES: 'kcal',
   HEART_RATE: 'bpm',
   EXERCISE: 'minutes',
-  STANDING: 'hours'
+  STANDING: 'hours',
+  SLEEP: 'minutes'
 } as const;
 
 // Aggregated health metrics for storage/display
@@ -48,6 +50,7 @@ export interface HealthMetrics {
   exercise: number | null;      // Exercise minutes
   standing: number | null;      // Standing hours
   heart_rate: number | null;    // Average BPM for the period
+  sleep: number | null;         // Sleep duration in minutes
   daily_score: number;
   weekly_score: number | null;
   streak_days: number | null;

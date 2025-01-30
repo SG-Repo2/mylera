@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, ActivityIndicator, SafeAreaView, StyleSheet } from 'react-native';
+import { View, ScrollView, RefreshControl, ActivityIndicator, SafeAreaView, StyleSheet, Image } from 'react-native';
 import { Card, Text, useTheme } from 'react-native-paper';
 import { useHealthData } from '@/src/hooks/useHealthData';
 import { ErrorView } from '@/src/components/shared/ErrorView';
@@ -10,7 +10,10 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
 import { useState, useEffect } from 'react';
-import type { DailyTotal, DailyMetricScore } from '@/src/types/schemas';
+import type { DailyTotal } from '@/src/types/schemas';
+import type { z } from 'zod';
+import { DailyMetricScoreSchema } from '@/src/types/schemas';
+type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
 interface DashboardProps {
@@ -36,7 +39,8 @@ const transformMetricsToHealthMetrics = (
   date: string
 ): HealthMetrics => {
   const now = new Date().toISOString();
-  
+  type MetricType = 'steps' | 'distance' | 'calories' | 'exercise' | 'standing' | 'heart_rate' | 'sleep';
+
   // Create base health metrics object
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
@@ -48,6 +52,7 @@ const transformMetricsToHealthMetrics = (
     exercise: 0,
     standing: 0,
     heart_rate: 0,
+    sleep: 0,
     daily_score: dailyTotal?.total_points || 0,
     weekly_score: 0,
     streak_days: 0,
@@ -56,10 +61,10 @@ const transformMetricsToHealthMetrics = (
     updated_at: now
   };
 
-  // Populate values from metrics
   metrics.forEach(metric => {
-    if (metric.metric_type in result) {
-      result[metric.metric_type] = metric.value;
+    const metricType = metric.metric_type as MetricType;
+    if (metricType in result && typeof result[metricType] === 'number') {
+      result[metricType] += metric.value;
     }
   });
 
@@ -139,33 +144,37 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.tertiary }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.neutral }]}>
+      {dailyTotal && (
+        <View style={styles.headerContainer}>
+          <Image 
+            source={require('@/assets/images/mylera-logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <View style={styles.pointsContainer}>
+            <Text variant="labelLarge" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+              Total Points
+            </Text>
+            <Text variant="headlineSmall" style={styles.pointsValue}>
+              {dailyTotal.total_points}
+            </Text>
+          </View>
+        </View>
+      )}
+
       <ScrollView
-        style={styles.scrollView}
+        style={[styles.scrollView]}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={loading}
             onRefresh={handleRefresh}
             colors={[paperTheme.colors.primary]}
+            progressBackgroundColor={paperTheme.colors.surface}
           />
         }
       >
-        {dailyTotal && (
-          <Card style={[styles.totalPointsCard, { backgroundColor: paperTheme.colors.surface }]}>
-            <Card.Content>
-              <View style={styles.totalPointsHeader}>
-                <Text variant="titleLarge" style={[styles.totalPointsTitle, { color: paperTheme.colors.onSurface }]}>
-                  Total Points
-                </Text>
-                <Text variant="headlineMedium" style={[styles.totalPointsValue, { color: paperTheme.colors.primary }]}>
-                  {dailyTotal.total_points}
-                </Text>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
-        
         {healthMetrics && (
           <MetricCardList 
             metrics={healthMetrics} 
@@ -181,32 +190,50 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(24, 62, 159, 0.08)',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#183E9F',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  logo: {
+    height: 32,
+    width: 120,
+  },
+  pointsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(24, 62, 159, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+  pointsValue: {
+    fontWeight: '700',
+    fontSize: 20,
+    color: '#183E9F',
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: '#F5E8C7',
+  },
+  scrollContent: {
+    padding: 16,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingVertical: 16,
-  },
-  totalPointsCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    elevation: 2,
-    borderRadius: 8,
-  },
-  totalPointsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  totalPointsTitle: {
-    fontWeight: '500',
-  },
-  totalPointsValue: {
-    fontWeight: 'bold',
-  },
+    backgroundColor: '#F5E8C7',
+  }
 });

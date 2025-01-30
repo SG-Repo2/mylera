@@ -1,7 +1,7 @@
 // app/_layout.tsx
 import React, { useEffect } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, SafeAreaView } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
@@ -25,9 +25,9 @@ function ProtectedRoutes() {
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" />
-      </View>
+      <SafeAreaView style={[styles.loaderContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </SafeAreaView>
     );
   }
 
@@ -39,13 +39,18 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <PaperProvider theme={theme}>
-        <ProtectedRoutes />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+          <ProtectedRoutes />
+        </SafeAreaView>
       </PaperProvider>
     </AuthProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',

@@ -1,7 +1,7 @@
 import type {
-  MetricType,
+  MetricTypeEnum as MetricType,
   MetricUpdate,
-  DailyMetricScore,
+  DailyMetricScoreSchema as DailyMetricScore,
   MetricGoals,
   MetricValidationError
 } from './schemas';
@@ -22,7 +22,8 @@ export const METRIC_DISPLAY_NAMES: Record<MetricType, string> = {
   calories: 'Calories',
   heart_rate: 'Heart Rate',
   exercise: 'Exercise',
-  standing: 'Standing'
+  standing: 'Standing',
+  sleep: 'Sleep'
 } as const;
 
 export const METRIC_DESCRIPTIONS: Record<MetricType, string> = {
@@ -31,5 +32,6 @@ export const METRIC_DESCRIPTIONS: Record<MetricType, string> = {
   calories: 'Active calories burned',
   heart_rate: 'Average heart rate',
   exercise: 'Exercise minutes',
-  standing: 'Hours stood'
+  standing: 'Hours stood',
+  sleep: 'Hours slept'
 } as const;

@@ -13,6 +13,11 @@ const formatters = {
   heart_rate: (value: number) => Math.round(value).toString(),
   exercise: (value: number) => Math.round(value).toString(),
   standing: (value: number) => Math.round(value).toString(),
+  sleep: (value: number) => {
+    const hours = Math.floor(value / 60);
+    const minutes = Math.round(value % 60);
+    return `${hours}h ${minutes}m`;
+  }
 };
 
 // Helper functions for calculating progress (0-1)
@@ -29,6 +34,7 @@ const progressCalculators = {
   },
   exercise: (value: number, goal: number) => Math.min(value / goal, 1),
   standing: (value: number, goal: number) => Math.min(value / goal, 1),
+  sleep: (value: number, goal: number) => Math.min(value / goal, 1)
 };
 
 export interface MetricConfig {
@@ -108,6 +114,17 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#5856D6',
     formatValue: formatters.standing,
     calculateProgress: progressCalculators.standing,
+    displayUnit: 'hrs'
+  },
+  sleep: {
+    id: 'sleep',
+    title: 'Sleep',
+    icon: 'sleep',
+    defaultGoal: 8 * 60, // 8 hours in minutes
+    unit: METRIC_UNITS.SLEEP,
+    color: '#8E44AD', // Purple shade as specified in ADR
+    formatValue: formatters.sleep,
+    calculateProgress: progressCalculators.sleep,
     displayUnit: 'hrs'
   }
 };

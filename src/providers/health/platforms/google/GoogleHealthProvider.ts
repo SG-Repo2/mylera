@@ -354,6 +354,17 @@ export class GoogleHealthProvider extends BaseHealthProvider {
           } as NormalizedMetric)));
         }
         break;
+
+      case 'sleep':
+        if (rawData.sleep) {
+          metrics.push(...rawData.sleep.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.SLEEP,
+            type: 'sleep'
+          } as NormalizedMetric)));
+        }
+        break;
     }
 
     return metrics;
@@ -367,7 +378,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       const rawData = await this.fetchRawMetrics(
         startOfDay,
         now,
-        ['steps', 'distance', 'calories', 'heart_rate']
+        ['steps', 'distance', 'calories', 'heart_rate', 'sleep']
       );
 
       // Normalize and aggregate the data
@@ -375,6 +386,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
       const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
       const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
+      const sleep = this.aggregateMetric(this.normalizeMetrics(rawData, 'sleep'));
 
       return {
         id: '',
@@ -386,6 +398,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         heart_rate,
         exercise: null,  // To be implemented later
         standing: null,  // To be implemented later
+        sleep,
         daily_score: 0,
         weekly_score: null,
         streak_days: null,

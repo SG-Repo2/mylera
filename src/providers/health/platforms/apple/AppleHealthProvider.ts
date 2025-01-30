@@ -208,6 +208,16 @@ export class AppleHealthProvider extends BaseHealthProvider {
           } as NormalizedMetric)));
         }
         break;
+      case 'sleep':
+        if (rawData.sleep) {
+          metrics.push(...rawData.sleep.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.SLEEP,
+            type: 'sleep'
+          } as NormalizedMetric)));
+        }
+        break;
     }
 
     return metrics;
@@ -237,6 +247,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
       distance,
       calories,
       heart_rate,
+      sleep: null,
       exercise: null,  // To be implemented later
       standing: null,  // To be implemented later
       daily_score: 0,
