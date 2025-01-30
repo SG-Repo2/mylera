@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, ActivityIndicator, SafeAreaView, StyleSheet, Image } from 'react-native';
-import { Card, Text, useTheme } from 'react-native-paper';
+import { View, ScrollView, RefreshControl, SafeAreaView, StyleSheet, Image, Animated } from 'react-native';
+import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { useHealthData } from '@/src/hooks/useHealthData';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { PermissionErrorView } from '@/src/components/shared/PermissionErrorView';
@@ -25,10 +25,34 @@ interface DashboardProps {
 
 const LoadingView = React.memo(() => {
   const paperTheme = useTheme();
+  const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
+
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.8,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
   return (
-    <View style={[styles.loadingContainer, { backgroundColor: paperTheme.colors.surface }]}>
-      <ActivityIndicator size="large" color={paperTheme.colors.primary} />
-    </View>
+    <Surface style={[styles.loadingContainer, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
+      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+        <ActivityIndicator size={48} color={paperTheme.colors.primary} />
+      </Animated.View>
+      <Text variant="titleMedium" style={[styles.loadingText, { color: paperTheme.colors.onSurfaceVariant }]}>
+        Loading your health data...
+      </Text>
+    </Surface>
   );
 });
 
@@ -41,7 +65,6 @@ const transformMetricsToHealthMetrics = (
   const now = new Date().toISOString();
   type MetricType = 'steps' | 'distance' | 'calories' | 'exercise' | 'standing' | 'heart_rate' | 'sleep';
 
-  // Create base health metrics object
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
     user_id: userId,
@@ -82,12 +105,23 @@ export const Dashboard = React.memo(function Dashboard({
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
+  const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   
   const {
     loading,
     error,
     syncHealthData
   } = useHealthData(provider, userId);
+
+  const headerOpacity = React.useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(headerOpacity, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [dailyTotal]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -111,6 +145,7 @@ export const Dashboard = React.memo(function Dashboard({
       } catch (err) {
         console.error('Error fetching metrics:', err);
         setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+        setErrorDialogVisible(true);
       }
     };
     
@@ -126,6 +161,7 @@ export const Dashboard = React.memo(function Dashboard({
     } else {
       syncHealthData();
     }
+    setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
   const handleRefresh = React.useCallback(() => {
@@ -144,27 +180,29 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.neutral }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       {dailyTotal && (
-        <View style={styles.headerContainer}>
-          <Image 
-            source={require('@/assets/images/mylera-logo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <View style={styles.pointsContainer}>
-            <Text variant="labelLarge" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-              Total Points
-            </Text>
-            <Text variant="headlineSmall" style={styles.pointsValue}>
-              {dailyTotal.total_points}
-            </Text>
-          </View>
-        </View>
+        <Surface style={styles.headerContainer} elevation={2}>
+          <Animated.View style={[styles.headerContent, { opacity: headerOpacity }]}>
+            <Image 
+              source={require('@/assets/images/mylera-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Surface style={[styles.pointsContainer, { backgroundColor: paperTheme.colors.primaryContainer }]} elevation={1}>
+              <Text variant="labelLarge" style={{ color: paperTheme.colors.onPrimaryContainer }}>
+                Total Points
+              </Text>
+              <Text variant="headlineSmall" style={[styles.pointsValue, { color: paperTheme.colors.primary }]}>
+                {dailyTotal.total_points}
+              </Text>
+            </Surface>
+          </Animated.View>
+        </Surface>
       )}
 
       <ScrollView
-        style={[styles.scrollView]}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
@@ -191,19 +229,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerContainer: {
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    overflow: 'hidden',
+  },
+  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(24, 62, 159, 0.08)',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#183E9F',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
   logo: {
     height: 32,
@@ -212,28 +247,28 @@ const styles = StyleSheet.create({
   pointsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(24, 62, 159, 0.05)',
-    paddingHorizontal: 12,
+    gap: 12,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 12,
   },
   pointsValue: {
     fontWeight: '700',
-    fontSize: 20,
-    color: '#183E9F',
   },
   scrollView: {
     flex: 1,
-    backgroundColor: '#F5E8C7',
   },
   scrollContent: {
-    padding: 16,
+    paddingBottom: 16,
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5E8C7',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 16,
+    textAlign: 'center',
   }
 });

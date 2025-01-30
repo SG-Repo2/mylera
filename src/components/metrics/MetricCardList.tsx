@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
 import { MetricType } from '@/src/types/metrics';
@@ -46,14 +46,45 @@ export const MetricCardList = React.memo(function MetricCardList({
 
   const metricOrder: DisplayedMetricType[] = ['steps', 'distance', 'calories', 'sleep', 'heart_rate'];
 
+  // Create fade-in animations for each card
+  const fadeAnims = React.useRef(
+    metricOrder.map(() => new Animated.Value(0))
+  ).current;
+
+  React.useEffect(() => {
+    // Stagger the animations
+    const animations = fadeAnims.map((anim, index) =>
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 500,
+        delay: index * 100, // Stagger by 100ms
+        useNativeDriver: true,
+      })
+    );
+
+    Animated.parallel(animations).start();
+  }, []);
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       <View style={styles.grid}>
         {metricOrder.map((metricType, index) => (
-          <View key={metricType} style={[
-            styles.cell,
-            index === metricOrder.length - 1 && styles.lastCell
-          ]}>
+          <Animated.View 
+            key={metricType} 
+            style={[
+              styles.cell,
+              {
+                opacity: fadeAnims[index],
+                transform: [{
+                  translateY: fadeAnims[index].interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0],
+                  }),
+                }],
+              },
+              index === metricOrder.length - 1 && styles.lastCell
+            ]}
+          >
             <MetricCard
               title={healthMetrics[metricType].title}
               value={metrics[metricType] || 0}
@@ -65,7 +96,7 @@ export const MetricCardList = React.memo(function MetricCardList({
               showAlert={showAlerts}
               metricType={metricType}
             />
-          </View>
+          </Animated.View>
         ))}
       </View>
     </View>
@@ -79,20 +110,23 @@ export const MetricCardList = React.memo(function MetricCardList({
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
+    flex: 1,
+    padding: 8,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   cell: {
-    width: '48%',  // Just under 50% to account for gap
-    aspectRatio: 1, // Make cells square
+    width: '46%', // Slightly less than 50% to account for gap
+    minWidth: 160,
+    maxWidth: 200,
   },
   lastCell: {
     marginLeft: 'auto',
     marginRight: 'auto',
-    width: '48%',
   }
 });
