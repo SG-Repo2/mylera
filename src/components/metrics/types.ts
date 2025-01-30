@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { StyleProp, ViewStyle } from 'react-native';
-import { MetricType, MetricTypeEnum } from '@/src/types/schemas';
+import { MetricTypeEnum } from '@/src/types/schemas';
 
 // Zod schema for metric data
 export const MetricDataSchema = z.object({

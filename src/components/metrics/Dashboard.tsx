@@ -3,7 +3,6 @@ import { View, ScrollView, RefreshControl, SafeAreaView, StyleSheet, Image, Anim
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { useHealthData } from '@/src/hooks/useHealthData';
 import { ErrorView } from '@/src/components/shared/ErrorView';
-import { PermissionErrorView } from '@/src/components/shared/PermissionErrorView';
 import { MetricCardList } from './MetricCardList';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
@@ -173,9 +172,11 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   if (error || healthPermissionStatus === 'denied' || fetchError) {
-    if (error instanceof HealthProviderPermissionError || healthPermissionStatus === 'denied') {
-      return <PermissionErrorView onRetry={handleRetry} />;
-    }
+    return (
+      <View style={styles.container}>
+      <Text>Unable to access health data. Please check your permissions.</Text>
+      </View>
+    );
     return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
   }
 
