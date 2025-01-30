@@ -1,22 +1,9 @@
-import React, { useCallback, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { StyleSheet, View, Animated } from 'react-native';
 import { Card, Text, ProgressBar, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Animated, {
-  useAnimatedProps,
-  withSpring,
-  useSharedValue,
-  withTiming
-} from 'react-native-reanimated';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
-
-// Create wrapped ProgressBar component
-const AnimatedProgressBar = Animated.createAnimatedComponent(
-  React.forwardRef<any, any>((props, ref) => <ProgressBar {...props} ref={ref} />)
-);
-
-const AnimatedText = Animated.createAnimatedComponent(Text);
 
 interface BaseMetricProps {
   value: number;
@@ -65,28 +52,18 @@ const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
   // Memoize progress calculation
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   
-  // Animation values
-  const animatedProgress = useSharedValue(0);
+  // Animation value
+  const progressAnim = React.useRef(new Animated.Value(0)).current;
 
-  // Memoize animation config
-  const springConfig = useMemo(() => ({
-    damping: 15,
-    stiffness: 100
-  }), []);
-
-  // Update animations with useCallback
-  const updateProgress = useCallback(() => {
-    animatedProgress.value = withSpring(progress, springConfig);
-  }, [progress, springConfig]);
-
-  // Update animations
+  // Update animation
   React.useEffect(() => {
-    updateProgress();
-  }, [updateProgress]);
-
-  const progressBarProps = useAnimatedProps(() => ({
-    progress: animatedProgress.value
-  }));
+    Animated.spring(progressAnim, {
+      toValue: progress,
+      useNativeDriver: false,
+      damping: 15,
+      stiffness: 100
+    }).start();
+  }, [progress]);
 
   // Memoize value display
   const valueDisplay = useMemo(() => Math.round(value).toLocaleString(), [value]);
@@ -109,9 +86,8 @@ const BaseMetricDisplay = React.memo(function BaseMetricDisplay({
             </Text>
           </View>
 
-          <AnimatedProgressBar
+          <ProgressBar
             progress={progress}
-            animatedProps={progressBarProps}
             color={color || theme.colors.primary}
             style={styles.progressBar}
           />
@@ -136,21 +112,22 @@ export const MetricCard = React.memo(function MetricCard({
   onPress
 }: MetricCardProps) {
   const theme = useTheme();
-  const animatedPoints = useSharedValue(0);
+  const pointsAnim = React.useRef(new Animated.Value(0)).current;
 
-  // Memoize animation config
-  const timingConfig = useMemo(() => ({
-    duration: 1000
-  }), []);
-
-  // Update points animation with useCallback
-  const updatePoints = useCallback(() => {
-    animatedPoints.value = withTiming(points, timingConfig);
-  }, [points, timingConfig]);
-
+  // Update points animation
   React.useEffect(() => {
-    updatePoints();
-  }, [updatePoints]);
+    Animated.timing(pointsAnim, {
+      toValue: points,
+      duration: 1000,
+      useNativeDriver: false
+    }).start();
+  }, [points]);
+
+  // Interpolate points for display
+  const animatedPoints = pointsAnim.interpolate({
+    inputRange: [0, points],
+    outputRange: [0, points]
+  });
 
   // Memoize header content
   const headerContent = useMemo(() => (
@@ -159,9 +136,12 @@ export const MetricCard = React.memo(function MetricCard({
         <Text variant="titleMedium" style={styles.title}>
           {title}
         </Text>
-        <AnimatedText style={styles.points}>
-          {Math.round(animatedPoints.value)} pts
-        </AnimatedText>
+        <Animated.Text style={styles.points}>
+          {animatedPoints.interpolate({
+            inputRange: [0, points],
+            outputRange: [`0 pts`, `${Math.round(points)} pts`]
+          })}
+        </Animated.Text>
       </View>
       <View style={[styles.iconContainer, { backgroundColor: color || theme.colors.primary }]}>
         <MaterialCommunityIcons
@@ -171,7 +151,7 @@ export const MetricCard = React.memo(function MetricCard({
         />
       </View>
     </View>
-  ), [title, color, icon, theme.colors.primary, animatedPoints.value]);
+  ), [title, color, icon, theme.colors.primary, animatedPoints, points]);
 
   // Memoize style
   const cardStyle = useMemo(() =>
@@ -189,7 +169,7 @@ export const MetricCard = React.memo(function MetricCard({
       style={cardStyle}
     />
   );
-}, (prevProps, nextProps) => {
+}, (prevProps: MetricCardProps, nextProps: MetricCardProps) => {
   return (
     prevProps.value === nextProps.value &&
     prevProps.goal === nextProps.goal &&
@@ -220,7 +200,7 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
       style={styles.detailCard}
     />
   );
-}, (prevProps, nextProps) => {
+}, (prevProps: MetricDetailCardProps, nextProps: MetricDetailCardProps) => {
   return (
     prevProps.value === nextProps.value &&
     prevProps.goal === nextProps.goal &&
