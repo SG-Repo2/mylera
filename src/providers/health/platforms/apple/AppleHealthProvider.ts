@@ -291,23 +291,44 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     return new Promise((resolve) => {
-      AppleHealthKit.getActiveEnergyBurned(
-        options,
-        (err: string, results: Array<{ value: number; startDate: string; endDate: string }>) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading calories:', err);
-            resolve([]);
-          } else {
-            resolve(results.map(result => ({
-              startDate: result.startDate,
-              endDate: result.endDate,
-              value: result.value || 0,
-              unit: 'kcal',
-              sourceBundle: 'com.apple.health'
-            })));
-          }
-        }
-      );
+      // Get both active and basal energy burned
+      Promise.all([
+        new Promise<any>((resolveActive) => {
+          AppleHealthKit.getActiveEnergyBurned(
+            options,
+            (err: string, results: any) => {
+              if (err) {
+                console.error('[AppleHealthProvider] Error reading active calories:', err);
+                resolveActive({ value: 0 });
+              } else {
+                resolveActive(results);
+              }
+            }
+          );
+        }),
+        new Promise<any>((resolveBasal) => {
+          AppleHealthKit.getBasalEnergyBurned(
+            options,
+            (err: string, results: any) => {
+              if (err) {
+                console.error('[AppleHealthProvider] Error reading basal calories:', err);
+                resolveBasal({ value: 0 });
+              } else {
+                resolveBasal(results);
+              }
+            }
+          );
+        })
+      ]).then(([activeResults, basalResults]) => {
+        const totalCalories = (activeResults.value || 0) + (basalResults.value || 0);
+        resolve([{
+          startDate: options.startDate || new Date().toISOString(),
+          endDate: options.endDate || new Date().toISOString(),
+          value: Math.round(totalCalories),
+          unit: 'kcal',
+          sourceBundle: 'com.apple.health'
+        }]);
+      });
     });
   }
 
@@ -316,28 +337,41 @@ export class AppleHealthProvider extends BaseHealthProvider {
       AppleHealthKit.getHeartRateSamples(
         {
           ...options,
-          ascending: true,
+          ascending: false,
+          limit: 100, // Get more samples for better accuracy
         },
         (err: string, results: Array<{ value: number; startDate: string; endDate: string }>) => {
           if (err) {
             console.error('[AppleHealthProvider] Error reading heart rate:', err);
             resolve([]);
           } else {
+            // Filter out invalid readings and calculate average
             const validSamples = results
               .filter(sample =>
                 typeof sample.value === 'number' &&
                 !isNaN(sample.value) &&
-                sample.value > 0 &&
-                sample.value < 300
+                sample.value > 30 && // More realistic minimum heart rate
+                sample.value < 220 // Maximum realistic heart rate
               )
               .map(sample => ({
                 startDate: sample.startDate,
                 endDate: sample.endDate,
-                value: sample.value,
+                value: Math.round(sample.value),
                 unit: 'bpm',
                 sourceBundle: 'com.apple.health'
               }));
-            resolve(validSamples);
+
+            if (validSamples.length === 0) {
+              resolve([{
+                startDate: options.startDate || new Date().toISOString(),
+                endDate: options.endDate || new Date().toISOString(),
+                value: 0,
+                unit: 'bpm',
+                sourceBundle: 'com.apple.health'
+              }]);
+            } else {
+              resolve(validSamples);
+            }
           }
         }
       );

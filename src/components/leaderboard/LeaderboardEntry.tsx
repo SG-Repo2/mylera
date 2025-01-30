@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Image, Pressable, StyleSheet, Animated, ImageSourcePropType } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
-
+import { theme } from '@/src/theme/theme';
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
 
@@ -76,13 +76,6 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
     }
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
-  // Example metrics - replace with real data from your metrics service
-  const expandedMetrics = [
-    { key: 'heart_rate', label: 'Heart Rate', value: '72', unit: 'BPM', icon: 'heart-pulse' as const, color: '#A855F7' },
-    { key: 'steps', label: 'Steps', value: '8,547', unit: '', icon: 'walk' as const, color: '#0284c7' },
-    { key: 'distance', label: 'Distance', value: '3.2', unit: 'mi', icon: 'map-marker-distance' as const, color: '#8B5CF6' },
-    { key: 'calories', label: 'Calories', value: '1,850', unit: '', icon: 'fire' as const, color: '#FB923C' },
-  ] as const;
 
   const renderAvatar = () => {
     if (avatar_url) {
@@ -107,10 +100,6 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
   return (
     <View style={styles.container}>
       <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-        <Pressable
-          onPress={() => setIsExpanded(!isExpanded)}
-          style={[styles.mainContent, highlight && styles.highlightBackground]}
-        >
           {/* Rank */}
           <View style={styles.rankContainer}>
             <Animated.Text 
@@ -157,43 +146,11 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
             >
               {total_points} pts
             </Animated.Text>
-            <Text style={styles.metricsText}>
-              {metrics_completed} metrics
-            </Text>
+          
           </View>
 
-          {/* Expand/Collapse Icon */}
-          <MaterialCommunityIcons
-            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-            size={24}
-            color={highlight ? '#0284c7' : '#9CA3AF'}
-          />
-        </Pressable>
       </Animated.View>
 
-      {/* Expanded Content */}
-      {isExpanded && (
-        <View style={styles.expandedContent}>
-          <Text style={styles.expandedTitle}>Today's Metrics</Text>
-          <View style={styles.metricsGrid}>
-            {expandedMetrics.map((metric) => (
-              <View key={metric.key} style={styles.metricCard}>
-                <MaterialCommunityIcons
-                  name={metric.icon}
-                  size={24}
-                  color={metric.color}
-                  style={styles.metricIcon}
-                />
-                <Text style={styles.metricValue}>
-                  {metric.value}
-                  {metric.unit && <Text style={styles.metricUnit}> {metric.unit}</Text>}
-                </Text>
-                <Text style={styles.metricLabel}>{metric.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -202,10 +159,10 @@ const styles = StyleSheet.create({
   container: {
     marginHorizontal: 16,
     marginBottom: 8,
-    borderRadius: 12,
-    backgroundColor: 'white',
+    borderRadius: theme.roundness,
+    backgroundColor: theme.colors.surface,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: theme.colors.onSurface,
     shadowOffset: { width: 0, height: 0.5 },
     shadowOpacity: 0.05,
     shadowRadius: 1,
@@ -216,7 +173,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   highlightBackground: {
-    backgroundColor: '#E0F2FE',
+    backgroundColor: theme.colors.primaryContainer,
   },
   rankContainer: {
     marginRight: 12,
@@ -224,12 +181,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   rankText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#374151',
+    ...theme.fonts.titleLarge,
+    color: theme.colors.onSurface,
   },
   highlightText: {
-    color: '#0284c7',
+    color: theme.colors.primary,
   },
   avatarContainer: {
     marginRight: 12,
@@ -243,42 +199,39 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#D1D5DB',
+    backgroundColor: theme.colors.surfaceVariant,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarLetter: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
+    ...theme.fonts.titleLarge,
+    color: theme.colors.onSurfaceVariant,
   },
   infoContainer: {
     flex: 1,
   },
   displayName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+    ...theme.fonts.titleMedium,
+    color: theme.colors.onSurface,
   },
   pointsText: {
-    fontSize: 14,
-    color: '#1E293B',
+    ...theme.fonts.bodyMedium,
+    color: theme.colors.onSurfaceVariant,
   },
   metricsText: {
-    fontSize: 12,
-    color: '#6B7280',
+    ...theme.fonts.bodySmall,
+    color: theme.colors.onSurfaceVariant,
   },
   expandedContent: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.colors.surfaceVariant,
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
   expandedTitle: {
+    ...theme.fonts.titleSmall,
+    color: theme.colors.onSurfaceVariant,
     marginTop: 4,
     marginBottom: 8,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
   },
   metricsGrid: {
     flexDirection: 'row',
@@ -287,12 +240,12 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness,
     padding: 12,
     marginBottom: 8,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: theme.colors.onSurface,
     shadowOffset: { width: 0, height: 0.5 },
     shadowOpacity: 0.05,
     shadowRadius: 1,
@@ -302,17 +255,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   metricValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
+    ...theme.fonts.titleLarge,
+    color: theme.colors.onSurface,
   },
   metricUnit: {
-    fontSize: 14,
-    color: '#6B7280',
+    ...theme.fonts.bodyMedium,
+    color: theme.colors.onSurfaceVariant,
   },
   metricLabel: {
-    fontSize: 12,
-    color: '#6B7280',
+    ...theme.fonts.bodySmall,
+    color: theme.colors.onSurfaceVariant,
     marginTop: 2,
   },
 });

@@ -8,6 +8,10 @@ import { MetricCardList } from './MetricCardList';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
+import { metricsService } from '@/src/services/metricsService';
+import { useState, useEffect } from 'react';
+import type { DailyTotal, DailyMetricScore } from '@/src/types/schemas';
+import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
 interface DashboardProps {
   provider: HealthProvider;
@@ -17,13 +21,50 @@ interface DashboardProps {
 }
 
 const LoadingView = React.memo(() => {
-  const theme = useTheme();
+  const paperTheme = useTheme();
   return (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color={theme.colors.primary} />
+    <View style={[styles.loadingContainer, { backgroundColor: paperTheme.colors.surface }]}>
+      <ActivityIndicator size="large" color={paperTheme.colors.primary} />
     </View>
   );
 });
+
+const transformMetricsToHealthMetrics = (
+  metrics: DailyMetricScore[],
+  dailyTotal: DailyTotal | null,
+  userId: string,
+  date: string
+): HealthMetrics => {
+  const now = new Date().toISOString();
+  
+  // Create base health metrics object
+  const result: HealthMetrics = {
+    id: `${userId}-${date}`,
+    user_id: userId,
+    date: date,
+    steps: 0,
+    distance: 0,
+    calories: 0,
+    exercise: 0,
+    standing: 0,
+    heart_rate: 0,
+    daily_score: dailyTotal?.total_points || 0,
+    weekly_score: 0,
+    streak_days: 0,
+    last_updated: now,
+    created_at: now,
+    updated_at: now
+  };
+
+  // Populate values from metrics
+  metrics.forEach(metric => {
+    if (metric.metric_type in result) {
+      result[metric.metric_type] = metric.value;
+    }
+  });
+
+  return result;
+};
 
 export const Dashboard = React.memo(function Dashboard({
   provider,
@@ -31,48 +72,74 @@ export const Dashboard = React.memo(function Dashboard({
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
-  const theme = useTheme();
+  const paperTheme = useTheme();
   const { healthPermissionStatus, requestHealthPermissions } = useAuth();
+  const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
+  const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
   
   const {
-    metrics,
     loading,
     error,
     syncHealthData
-  } = useHealthData(provider, userId, date, { autoSync: true });
+  } = useHealthData(provider, userId);
 
-  // Memoize callbacks
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [totals, metricScores] = await Promise.all([
+          metricsService.getDailyTotals(date),
+          metricsService.getDailyMetrics(userId, date)
+        ]);
+        
+        const userTotal = totals.find(total => total.user_id === userId) || null;
+        setDailyTotal(userTotal);
+        
+        const transformedMetrics = transformMetricsToHealthMetrics(
+          metricScores,
+          userTotal,
+          userId,
+          date
+        );
+        setHealthMetrics(transformedMetrics);
+        setFetchError(null);
+      } catch (err) {
+        console.error('Error fetching metrics:', err);
+        setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+      }
+    };
+    
+    fetchData();
+  }, [userId, date]);
+
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
       const status = await requestHealthPermissions();
       if (status === 'granted') {
-        syncHealthData(true);
+        syncHealthData();
       }
     } else {
-      syncHealthData(true);
+      syncHealthData();
     }
   }, [error, requestHealthPermissions, syncHealthData]);
 
   const handleRefresh = React.useCallback(() => {
-    syncHealthData(true);
+    syncHealthData();
   }, [syncHealthData]);
 
-  // Handle error and loading states
-  if (loading && !metrics) {
+  if (loading) {
     return <LoadingView />;
   }
 
-  if (error || healthPermissionStatus === 'denied') {
+  if (error || healthPermissionStatus === 'denied' || fetchError) {
     if (error instanceof HealthProviderPermissionError || healthPermissionStatus === 'denied') {
       return <PermissionErrorView onRetry={handleRetry} />;
     }
-    if (error) {
-      return <ErrorView error={error} onRetry={handleRetry} />;
-    }
+    return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.tertiary }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -80,44 +147,39 @@ export const Dashboard = React.memo(function Dashboard({
           <RefreshControl
             refreshing={loading}
             onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
+            colors={[paperTheme.colors.primary]}
           />
         }
       >
-        {metrics && (
-          <>
-            <Card style={styles.totalPointsCard}>
-              <Card.Content>
-                <View style={styles.totalPointsHeader}>
-                  <Text variant="titleLarge">Total Points</Text>
-                  <Text variant="headlineMedium" style={{ color: theme.colors.primary }}>
-                    {Math.round(metrics.daily_score || 0)}
-                  </Text>
-                </View>
-              </Card.Content>
-            </Card>
-            
-            <MetricCardList 
-              metrics={metrics} 
-              showAlerts={showAlerts} 
-            />
-          </>
+        {dailyTotal && (
+          <Card style={[styles.totalPointsCard, { backgroundColor: paperTheme.colors.surface }]}>
+            <Card.Content>
+              <View style={styles.totalPointsHeader}>
+                <Text variant="titleLarge" style={[styles.totalPointsTitle, { color: paperTheme.colors.onSurface }]}>
+                  Total Points
+                </Text>
+                <Text variant="headlineMedium" style={[styles.totalPointsValue, { color: paperTheme.colors.primary }]}>
+                  {dailyTotal.total_points}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
+        )}
+        
+        {healthMetrics && (
+          <MetricCardList 
+            metrics={healthMetrics} 
+            showAlerts={showAlerts} 
+          />
         )}
       </ScrollView>
     </SafeAreaView>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.userId === nextProps.userId &&
-    prevProps.date === nextProps.date &&
-    prevProps.showAlerts === nextProps.showAlerts
   );
 });
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
     flex: 1,
@@ -133,10 +195,18 @@ const styles = StyleSheet.create({
   totalPointsCard: {
     marginHorizontal: 16,
     marginBottom: 16,
+    elevation: 2,
+    borderRadius: 8,
   },
   totalPointsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  totalPointsTitle: {
+    fontWeight: '500',
+  },
+  totalPointsValue: {
+    fontWeight: 'bold',
   },
 });

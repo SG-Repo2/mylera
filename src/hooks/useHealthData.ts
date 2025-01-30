@@ -1,118 +1,52 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useHealthCache } from '../utils/cache/useHealthCache';
-import type { HealthMetrics } from '../providers/health/types/metrics';
+import { useState, useCallback, useEffect } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
-import { HealthDataError } from '../providers/health/types/errors';
+import { metricsService } from '../services/metricsService';
+import type { MetricType } from '../types/schemas';
 
-interface UseHealthDataOptions {
-  ttl?: number;
-  autoSync?: boolean;
-}
-
-interface UseHealthDataResult {
-  metrics: HealthMetrics | null;
-  loading: boolean;
-  error: Error | null;
-  syncHealthData: (forceRefresh?: boolean) => Promise<void>;
-}
-
-export const useHealthData = (
-  provider: HealthProvider,
-  userId: string,
-  date: string,
-  options: UseHealthDataOptions = {}
-): UseHealthDataResult => {
-  const { ttl, autoSync = true } = options;
-  const [metrics, setMetrics] = useState<HealthMetrics | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+export const useHealthData = (provider: HealthProvider, userId: string) => {
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const syncInProgress = useRef(false);
-  
-  const { getCache, setCache, cleanup: cleanupCache } = useHealthCache();
 
-  const initializeProvider = useCallback(async () => {
-    if (!isInitialized) {
-      await provider.initialize();
-      setIsInitialized(true);
-    }
-  }, [provider, isInitialized]);
-
-  const syncHealthData = useCallback(async (forceRefresh: boolean = false) => {
-    // Prevent multiple simultaneous syncs
-    if (syncInProgress.current) {
-      return;
-    }
-    syncInProgress.current = true;
-
-    setLoading(true);
-    setError(null);
-
+  const syncHealthData = useCallback(async () => {
     try {
-      // Check cache first if not forcing refresh
-      if (!forceRefresh) {
-        const cachedData = await getCache(userId, date, { ttl });
-        if (cachedData) {
-          setMetrics(cachedData);
-          syncInProgress.current = false;
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Initialize provider if needed
-      await initializeProvider();
+      setLoading(true);
+      setError(null);
 
       // Check permissions
       const hasPermissions = await provider.checkPermissionsStatus();
       if (!hasPermissions) {
         const granted = await provider.requestPermissions();
         if (!granted) {
-          throw new HealthDataError('health_permissions_denied', 
-            'Health data access permissions were denied');
+          throw new Error('Health permissions denied');
         }
       }
 
-      // Fetch fresh data
-      const freshMetrics = await provider.getMetrics();
+      // Get health data and update scores
+      const healthData = await provider.getMetrics();
       
-      // Cache the fresh data
-      await setCache(userId, date, freshMetrics);
-      
-      setMetrics(freshMetrics);
+      // Update each metric that has a value
+      const updates = Object.entries(healthData).map(async ([metric, value]) => {
+        if (typeof value === 'number') {
+          await metricsService.updateMetric(userId, metric as MetricType, value);
+        }
+      });
+
+      await Promise.all(updates);
+
     } catch (err) {
-      const error = err instanceof Error ? err : new Error('Unknown error occurred');
-      setError(error);
-      console.error('Error syncing health data:', error);
+      setError(err instanceof Error ? err : new Error('Failed to sync health data'));
+      console.error('Health sync error:', err);
     } finally {
       setLoading(false);
-      syncInProgress.current = false;
     }
-  }, [provider, userId, date, ttl, getCache, setCache, initializeProvider]);
+  }, [provider, userId]);
 
-  // Initial sync on mount if autoSync is enabled
+  // Sync on mount and every 5 minutes
   useEffect(() => {
-    if (autoSync) {
-      syncHealthData();
-    }
-  }, [autoSync, syncHealthData]);
+    syncHealthData();
+    const interval = setInterval(syncHealthData, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [syncHealthData]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      cleanupCache();
-      
-      if (isInitialized) {
-        provider.cleanup().catch(console.error);
-      }
-      syncInProgress.current = false;
-    };
-  }, [provider, isInitialized, cleanupCache]);
-
-  return {
-    metrics,
-    loading,
-    error,
-    syncHealthData
-  };
+  return { loading, error, syncHealthData };
 };

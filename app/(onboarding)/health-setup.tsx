@@ -3,6 +3,7 @@ import { View, Text, Button, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 import { useAuth } from '@/src/providers/AuthProvider';
+import { theme } from '@/src/theme/theme';
 
 export default function HealthSetupScreen() {
     const router = useRouter();
@@ -113,12 +114,11 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingHorizontal: 20,
         paddingTop: 40,
-        backgroundColor: '#F9FAFB',
+        backgroundColor: theme.colors.background,
     },
     title: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#111827',
+        ...theme.fonts.headlineLarge,
+        color: theme.colors.onBackground,
         marginBottom: 24,
         textAlign: 'center',
     },
@@ -126,20 +126,21 @@ const styles = StyleSheet.create({
         marginBottom: 32,
     },
     description: {
-        fontSize: 16,
-        color: '#4B5563',
+        ...theme.fonts.bodyLarge,
+        color: theme.colors.onSurfaceVariant,
         marginBottom: 16,
         textAlign: 'center',
         lineHeight: 24,
     },
     status: {
-        fontSize: 16,
-        color: '#4B5563',
+        ...theme.fonts.bodyMedium,
+        color: theme.colors.onSurfaceVariant,
         marginVertical: 12,
         textAlign: 'center',
     },
     errorText: {
-        color: '#DC2626',
+        ...theme.fonts.bodyMedium,
+        color: theme.colors.error,
         textAlign: 'center',
         marginTop: 8,
     },

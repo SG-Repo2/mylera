@@ -32,12 +32,14 @@ export const MetricCardList = React.memo(function MetricCardList({
   showAlerts = true 
 }: MetricCardListProps) {
   const theme = useTheme();
-  const colors = React.useMemo(() => ({
-    primary: theme.colors.primary,
-    'metric-red': '#FF5252',
-    accent: theme.colors.secondary,
-    secondary: '#F7A072'
-  }), [theme.colors.primary, theme.colors.secondary]);
+
+  // Define distinct colors for each metric type
+  const metricColors = {
+    steps: theme.colors.primary,
+    heart_rate: theme.colors.error,
+    calories: theme.colors.tertiary,
+    distance: theme.colors.secondary
+  };
 
   return (
     <View style={styles.container}>
@@ -50,8 +52,9 @@ export const MetricCardList = React.memo(function MetricCardList({
           goal={healthMetrics.steps.defaultGoal}
           unit={healthMetrics.steps.displayUnit}
           icon={healthMetrics.steps.icon}
-          color={colors[healthMetrics.steps.color as keyof typeof colors]}
+          color={metricColors.steps}
           showAlert={showAlerts}
+          metricType="steps"
         />
 
         {/* Heart Rate and Calories Row */}
@@ -64,8 +67,9 @@ export const MetricCardList = React.memo(function MetricCardList({
               goal={healthMetrics.heart_rate.defaultGoal}
               unit={healthMetrics.heart_rate.displayUnit}
               icon={healthMetrics.heart_rate.icon}
-              color={colors[healthMetrics.heart_rate.color as keyof typeof colors]}
+              color={metricColors.heart_rate}
               showAlert={showAlerts}
+              metricType="heart_rate"
             />
           </View>
           <View style={styles.halfWidth}>
@@ -76,8 +80,9 @@ export const MetricCardList = React.memo(function MetricCardList({
               goal={healthMetrics.calories.defaultGoal}
               unit={healthMetrics.calories.displayUnit}
               icon={healthMetrics.calories.icon}
-              color={colors[healthMetrics.calories.color as keyof typeof colors]}
+              color={metricColors.calories}
               showAlert={showAlerts}
+              metricType="calories"
             />
           </View>
         </View>
@@ -90,8 +95,9 @@ export const MetricCardList = React.memo(function MetricCardList({
           goal={healthMetrics.distance.defaultGoal}
           unit={healthMetrics.distance.displayUnit}
           icon={healthMetrics.distance.icon}
-          color={colors[healthMetrics.distance.color as keyof typeof colors]}
+          color={metricColors.distance}
           showAlert={showAlerts}
+          metricType="distance"
         />
       </View>
     </View>

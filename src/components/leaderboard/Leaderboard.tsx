@@ -138,7 +138,7 @@ export function Leaderboard() {
   if (error) {
     return (
       <ErrorView 
-        message={error.message} 
+        error={error} 
         onRetry={loadData}
       />
     );

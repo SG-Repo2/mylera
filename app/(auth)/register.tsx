@@ -10,6 +10,7 @@ import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator } from 're
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
+import { theme } from '@/src/theme/theme';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -109,20 +110,26 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 40,
+    backgroundColor: theme.colors.background,
   },
   title: {
-    fontSize: 24,
+    ...theme.fonts.headlineMedium,
+    color: theme.colors.onBackground,
     marginBottom: 16,
   },
   input: {
     height: 40,
-    borderColor: '#ccc',
+    borderColor: theme.colors.outline,
     borderWidth: 1,
     marginBottom: 12,
     paddingHorizontal: 8,
+    borderRadius: theme.roundness,
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.onSurface,
   },
   errorText: {
-    color: 'red',
+    ...theme.fonts.bodySmall,
+    color: theme.colors.error,
     marginBottom: 8,
   },
 });

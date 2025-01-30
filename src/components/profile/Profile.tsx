@@ -147,7 +147,7 @@ export function Profile() {
   }
 
   if (error) {
-    return <ErrorView message={error.message} onRetry={loadProfile} />;
+    return <ErrorView error={error} onRetry={loadProfile} />;
   }
 
   return (

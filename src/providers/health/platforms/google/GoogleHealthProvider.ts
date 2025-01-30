@@ -34,7 +34,15 @@ interface DistanceRecord {
 interface CaloriesRecord {
   startTime: string;
   endTime: string;
-  energy: {
+  energy?: {
+    inKilocalories: number;
+  };
+}
+
+interface BasalRecord {
+  startTime: string;
+  endTime: string;
+  energy?: {
     inKilocalories: number;
   };
 }
@@ -239,27 +247,58 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             break;
 
           case 'calories':
-            const caloriesResponse = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
-            rawData.calories = (caloriesResponse.records as CaloriesRecord[]).map(record => ({
-              startDate: record.startTime,
-              endDate: record.endTime,
-              value: record.energy.inKilocalories,
+            const [activeCalories, basalCalories] = await Promise.all([
+              readRecords('ActiveCaloriesBurned', { timeRangeFilter }),
+              readRecords('BasalMetabolicRate', { timeRangeFilter })
+            ]);
+            
+            const totalCalories = (
+              (activeCalories.records as unknown as CaloriesRecord[]).reduce((sum, record) => 
+                sum + (record.energy?.inKilocalories || 0), 0) +
+              (basalCalories.records as unknown as BasalRecord[]).reduce((sum, record) =>
+                sum + (record.energy?.inKilocalories || 0), 0)
+            );
+
+            rawData.calories = [{
+              startDate: timeRangeFilter.startTime,
+              endDate: timeRangeFilter.endTime,
+              value: Math.round(totalCalories),
               unit: 'kcal',
               sourceBundle: 'com.google.android.apps.fitness'
-            }));
+            }];
             break;
 
           case 'heart_rate':
-            const heartRateResponse = await readRecords('HeartRate', { timeRangeFilter });
-            rawData.heart_rate = (heartRateResponse.records as HeartRateRecord[]).flatMap(record =>
-              record.samples.map(sample => ({
-                startDate: record.startTime,
-                endDate: record.endTime,
-                value: sample.beatsPerMinute,
-                unit: 'bpm',
-                sourceBundle: 'com.google.android.apps.fitness'
-              }))
-            );
+            const heartRateResponse = await readRecords('HeartRate', { 
+              timeRangeFilter,
+              ascendingOrder: false,
+              pageSize: 100 // Use pageSize instead of limit
+            });
+            
+            const validHeartRates = (heartRateResponse.records as HeartRateRecord[])
+              .flatMap(record => record.samples
+                .filter(sample => 
+                  typeof sample.beatsPerMinute === 'number' &&
+                  !isNaN(sample.beatsPerMinute) &&
+                  sample.beatsPerMinute > 30 && // More realistic minimum heart rate
+                  sample.beatsPerMinute < 220 // Maximum realistic heart rate
+                )
+                .map(sample => ({
+                  startDate: record.startTime,
+                  endDate: record.endTime,
+                  value: Math.round(sample.beatsPerMinute),
+                  unit: 'bpm',
+                  sourceBundle: 'com.google.android.apps.fitness'
+                }))
+              );
+
+            rawData.heart_rate = validHeartRates.length > 0 ? validHeartRates : [{
+              startDate: timeRangeFilter.startTime,
+              endDate: timeRangeFilter.endTime,
+              value: 0,
+              unit: 'bpm',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }];
             break;
         }
       })

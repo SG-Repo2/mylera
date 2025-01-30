@@ -25,7 +25,7 @@ export const MetricUpdateSchema = z.object({
 export const DailyMetricScoreSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/x, 'Invalid date format'),
   metric_type: MetricTypeEnum,
   goal_reached: z.boolean(),
   points: z.number().int().min(0).max(150),
@@ -58,4 +58,37 @@ export class MetricValidationError extends Error {
     super(message);
     this.name = 'MetricValidationError';
   }
+}
+
+// Basic types that match our database schema
+export type MetricType = 'steps' | 'distance' | 'calories' | 'heart_rate' | 'exercise' | 'standing';
+
+export interface DailyMetricScore {
+  id: string;
+  user_id: string;
+  date: string;
+  metric_type: MetricType;
+  goal_reached: boolean;
+  points: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DailyTotal {
+  id: string;
+  user_id: string;
+  date: string;
+  total_points: number;
+  metrics_completed: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserProfile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  show_profile: boolean;
+  created_at: string;
+  updated_at: string;
 }
