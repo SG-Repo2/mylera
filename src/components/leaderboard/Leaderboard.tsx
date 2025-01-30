@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import { ErrorView } from '../shared/ErrorView';
@@ -20,7 +19,6 @@ export function Leaderboard() {
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   
-  const subscriptionRef = useRef<RealtimeChannel | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const autoRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -68,26 +66,6 @@ export function Leaderboard() {
     }
   }, [user]);
 
-  const setupRealtimeSubscription = useCallback(() => {
-    if (!user) return;
-    
-    const today = DateUtils.getLocalDateString();
-    
-    // Clean up existing subscription if any
-    if (subscriptionRef.current) {
-      subscriptionRef.current.unsubscribe();
-    }
-    
-    // Set up new subscription
-    subscriptionRef.current = leaderboardService.subscribeToLeaderboard(
-      today,
-      (updatedData) => {
-        console.log('Received real-time leaderboard update');
-        setLeaderboardData(updatedData);
-      }
-    );
-  }, [user]);
-
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     if (
       appStateRef.current.match(/inactive|background/) &&
@@ -95,10 +73,9 @@ export function Leaderboard() {
     ) {
       console.log('App has come to foreground, refreshing leaderboard');
       loadData(false);
-      setupRealtimeSubscription();
     }
     appStateRef.current = nextAppState;
-  }, [loadData, setupRealtimeSubscription]);
+  }, [loadData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -109,7 +86,6 @@ export function Leaderboard() {
   useEffect(() => {
     if (user) {
       loadData();
-      setupRealtimeSubscription();
       
       // Set up app state listener
       const subscription = AppState.addEventListener('change', handleAppStateChange);
@@ -117,15 +93,12 @@ export function Leaderboard() {
       return () => {
         // Clean up
         subscription.remove();
-        if (subscriptionRef.current) {
-          subscriptionRef.current.unsubscribe();
-        }
         if (autoRefreshTimeoutRef.current) {
           clearTimeout(autoRefreshTimeoutRef.current);
         }
       };
     }
-  }, [user, loadData, setupRealtimeSubscription, handleAppStateChange]);
+  }, [user, loadData, handleAppStateChange]);
 
   if (loading && !leaderboardData.length && !error) {
     return (

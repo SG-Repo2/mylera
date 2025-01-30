@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
-import type { MetricType } from '../types/schemas';
+import type { MetricTypeEnum as MetricType } from '../types/schemas';
 
 export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [loading, setLoading] = useState(true);
@@ -41,11 +41,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     }
   }, [provider, userId]);
 
-  // Sync on mount and every 5 minutes
+  // Sync only on mount
   useEffect(() => {
     syncHealthData();
-    const interval = setInterval(syncHealthData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
   }, [syncHealthData]);
 
   return { loading, error, syncHealthData };
