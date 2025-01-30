@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Animated, StyleSheet } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
 import LottieView from 'lottie-react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
 
 interface ErrorViewProps {
   error: Error;
@@ -12,17 +11,23 @@ interface ErrorViewProps {
 export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
   const theme = useTheme();
   const lottieRef = React.useRef<LottieView>(null);
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     if (lottieRef.current) {
       lottieRef.current.play();
     }
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true
+    }).start();
   }, []);
 
   return (
     <Animated.View 
-      entering={FadeIn.duration(500)} 
-      style={styles.container}
+      style={[styles.container, { opacity: fadeAnim }]}
     >
       <LottieView
         ref={lottieRef}

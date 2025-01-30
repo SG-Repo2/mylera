@@ -5,10 +5,15 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
 
+// Helper function to get metric color
+const getMetricColor = (metricType: MetricType, fallbackColor: string): string => {
+  return healthMetrics[metricType]?.color || fallbackColor;
+};
+
 interface BaseMetricProps {
   value: number;
   goal: number;
-  color: string;
+  color?: string;
   showAlert?: boolean;
 }
 
@@ -17,6 +22,7 @@ interface MetricCardProps extends BaseMetricProps {
   points: number;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   unit: string;
+  metricType: MetricType;
   onPress?: () => void;
 }
 
@@ -108,10 +114,12 @@ export const MetricCard = React.memo(function MetricCard({
   points,
   icon,
   unit,
+  metricType,
   color,
   onPress
 }: MetricCardProps) {
   const theme = useTheme();
+  const metricColor = getMetricColor(metricType, theme.colors.primary);
   const pointsAnim = React.useRef(new Animated.Value(0)).current;
 
   // Update points animation
