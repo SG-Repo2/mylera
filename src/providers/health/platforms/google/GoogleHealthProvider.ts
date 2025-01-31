@@ -247,32 +247,21 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             break;
 
           case 'calories':
-            const [activeCalories, basalCalories] = await Promise.all([
-              readRecords('ActiveCaloriesBurned', { timeRangeFilter }),
-              readRecords('BasalMetabolicRate', { timeRangeFilter })
-            ]);
-            
-            const totalCalories = (
-              (activeCalories.records as unknown as CaloriesRecord[]).reduce((sum, record) => 
-                sum + (record.energy?.inKilocalories || 0), 0) +
-              (basalCalories.records as unknown as BasalRecord[]).reduce((sum, record) =>
-                sum + (record.energy?.inKilocalories || 0), 0)
-            );
-
-            rawData.calories = [{
-              startDate: timeRangeFilter.startTime,
-              endDate: timeRangeFilter.endTime,
-              value: Math.round(totalCalories),
+            const activeCalories = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
+            rawData.calories = (activeCalories.records as CaloriesRecord[]).map(record => ({
+              startDate: record.startTime,
+              endDate: record.endTime,
+              value: Math.round(record.energy?.inKilocalories || 0),
               unit: 'kcal',
               sourceBundle: 'com.google.android.apps.fitness'
-            }];
+            }));
             break;
 
           case 'heart_rate':
             const heartRateResponse = await readRecords('HeartRate', { 
               timeRangeFilter,
               ascendingOrder: false,
-              pageSize: 100 // Use pageSize instead of limit
+              pageSize: 100
             });
             
             const validHeartRates = (heartRateResponse.records as HeartRateRecord[])
@@ -280,8 +269,8 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                 .filter(sample => 
                   typeof sample.beatsPerMinute === 'number' &&
                   !isNaN(sample.beatsPerMinute) &&
-                  sample.beatsPerMinute > 30 && // More realistic minimum heart rate
-                  sample.beatsPerMinute < 220 // Maximum realistic heart rate
+                  sample.beatsPerMinute > 30 &&
+                  sample.beatsPerMinute < 220
                 )
                 .map(sample => ({
                   startDate: record.startTime,
@@ -297,6 +286,41 @@ export class GoogleHealthProvider extends BaseHealthProvider {
               endDate: timeRangeFilter.endTime,
               value: 0,
               unit: 'bpm',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }];
+            break;
+
+          case 'basal_calories':
+            const basalCalories = await readRecords('BasalMetabolicRate', { timeRangeFilter });
+            rawData.basal_calories = (basalCalories.records as BasalRecord[]).map(record => ({
+              startDate: record.startTime,
+              endDate: record.endTime,
+              value: Math.round(record.energy?.inKilocalories || 0),
+              unit: 'kcal',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }));
+            break;
+
+          case 'flights_climbed':
+            // Note: Google Health Connect doesn't directly support flights climbed
+            // You might want to use a different metric or leave this empty
+            rawData.flights_climbed = [{
+              startDate: timeRangeFilter.startTime,
+              endDate: timeRangeFilter.endTime,
+              value: 0,
+              unit: 'count',
+              sourceBundle: 'com.google.android.apps.fitness'
+            }];
+            break;
+
+          case 'exercise':
+            // Note: You'll need to determine the appropriate Google Health Connect
+            // exercise time equivalent here
+            rawData.exercise = [{
+              startDate: timeRangeFilter.startTime,
+              endDate: timeRangeFilter.endTime,
+              value: 0,
+              unit: 'minutes',
               sourceBundle: 'com.google.android.apps.fitness'
             }];
             break;
@@ -355,13 +379,35 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         }
         break;
 
-      case 'sleep':
-        if (rawData.sleep) {
-          metrics.push(...rawData.sleep.map(raw => ({
+      case 'basal_calories':
+        if (rawData.basal_calories) {
+          metrics.push(...rawData.basal_calories.map(raw => ({
             timestamp: raw.endDate,
             value: raw.value,
-            unit: METRIC_UNITS.SLEEP,
-            type: 'sleep'
+            unit: METRIC_UNITS.CALORIES,
+            type: 'basal_calories'
+          } as NormalizedMetric)));
+        }
+        break;
+
+      case 'flights_climbed':
+        if (rawData.flights_climbed) {
+          metrics.push(...rawData.flights_climbed.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.FLIGHTS_CLIMBED,
+            type: 'flights_climbed'
+          } as NormalizedMetric)));
+        }
+        break;
+
+      case 'exercise':
+        if (rawData.exercise) {
+          metrics.push(...rawData.exercise.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.EXERCISE,
+            type: 'exercise'
           } as NormalizedMetric)));
         }
         break;
@@ -378,7 +424,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       const rawData = await this.fetchRawMetrics(
         startOfDay,
         now,
-        ['steps', 'distance', 'calories', 'heart_rate', 'sleep']
+        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
       );
 
       // Normalize and aggregate the data
@@ -386,7 +432,9 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
       const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
       const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
-      const sleep = this.aggregateMetric(this.normalizeMetrics(rawData, 'sleep'));
+      const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
+      const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
+      const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
       return {
         id: '',
@@ -396,9 +444,9 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         distance,
         calories,
         heart_rate,
-        exercise: null,  // To be implemented later
-        standing: null,  // To be implemented later
-        sleep,
+        basal_calories,
+        flights_climbed,
+        exercise,
         daily_score: 0,
         weekly_score: null,
         streak_days: null,
