@@ -130,22 +130,21 @@ export const MetricCardList = React.memo(function MetricCardList({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 8,
+    padding: 12,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    justifyContent: 'center',
+    gap: 16,
+    justifyContent: 'space-evenly',
     alignItems: 'flex-start',
   },
   cell: {
-    width: '46%', // Slightly less than 50% to account for gap
-    minWidth: 160,
-    maxWidth: 200,
+    width: '45%',
+    maxWidth: 180,
   },
   lastCell: {
-    marginLeft: 'auto',
-    marginRight: 'auto',
+    width: '45%',
+    maxWidth: 180,
   }
 });
