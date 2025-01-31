@@ -52,6 +52,7 @@ export const metricsService = {
         user_id: userId,
         date: today,
         metric_type: metricType,
+        value,
         points,
         goal_reached: goalReached,
         updated_at: new Date().toISOString()

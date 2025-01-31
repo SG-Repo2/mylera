@@ -9,7 +9,7 @@ import { theme as appTheme } from '@/src/theme/theme';
 // Individual Metric Card Component Props
 interface MetricCardProps {
   title: string;
-  value: number;
+  value: number | null;
   goal: number;
   points: number;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -22,13 +22,13 @@ interface MetricCardProps {
 
 interface MetricDetailCardProps {
   metricType: MetricType;
-  value: number;
+  value: number | null;
   goal: number;
   color?: string;
 }
 
-const calculateProgress = (value: number, goal: number): number => {
-  return Math.min(value / goal, 1);
+const calculateProgress = (value: number | null, goal: number): number => {
+  return Math.min((value ?? 0) / goal, 1);
 };
 
 const AnimatedSurface = Animated.createAnimatedComponent(Surface);
@@ -46,7 +46,7 @@ export const MetricCard = React.memo(function MetricCard({
 }: MetricCardProps) {
   const paperTheme = useTheme();
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = healthMetrics[metricType].formatValue(value);
+  const formattedValue = (value ?? 0).toLocaleString();
   const percentage = Math.round(progress * 100);
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -120,7 +120,7 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
   const paperTheme = useTheme();
   const config = healthMetrics[metricType];
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = config.formatValue(value);
+  const formattedValue = (value ?? 0).toLocaleString();
   const percentage = Math.round(progress * 100);
   
   return (
