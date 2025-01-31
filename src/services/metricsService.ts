@@ -9,7 +9,8 @@ export const metricsService = {
       .from('daily_metric_scores')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', date);
+      .eq('date', date)
+      .eq('is_test_data', false);
 
     if (error) throw error;
     return data || [];
@@ -28,6 +29,7 @@ export const metricsService = {
         )
       `)
       .eq('date', date)
+      .eq('is_test_data', false)
       .order('total_points', { ascending: false });
 
     if (error) throw error;
@@ -55,7 +57,8 @@ export const metricsService = {
         value,
         points,
         goal_reached: goalReached,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        is_test_data: false
       }, {
         onConflict: 'user_id,date,metric_type'
       });
@@ -79,7 +82,8 @@ export const metricsService = {
         date: today,
         total_points: totalPoints,
         metrics_completed: metricsCompleted,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        is_test_data: false
       }, {
         onConflict: 'user_id,date'
       });
