@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, Image, Pressable, StyleSheet, Animated, ImageSourcePropType } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Image, StyleSheet, Animated } from 'react-native';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
-import { theme } from '@/src/theme/theme';
+import { theme } from '../../theme/theme';
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
 
@@ -98,56 +97,70 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
   };
 
   return (
-    <View style={styles.container}>
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          {/* Rank */}
-          <View style={styles.rankContainer}>
-            <Animated.Text 
-              style={[
-                styles.rankText, 
-                highlight && styles.highlightText,
-                {
-                  transform: [{
-                    translateY: rankAnim.interpolate({
-                      inputRange: [rank - 1, rank, rank + 1],
-                      outputRange: [-20, 0, 20]
-                    })
-                  }]
-                }
-              ]}
-            >
-              {rank}
-            </Animated.Text>
-          </View>
+    <View 
+      style={[styles.container, highlight && styles.highlightBackground]}
+      accessibilityRole="text"
+      accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
+      accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
+    >
+      <Animated.View 
+        style={[
+          styles.mainContent,
+          { transform: [{ scale: scaleAnim }] }
+        ]}
+      >
+        {/* Rank */}
+        <View style={styles.rankContainer}>
+          <Animated.Text 
+            style={[
+              styles.rankText, 
+              highlight && styles.highlightText,
+              {
+                transform: [{
+                  translateY: rankAnim.interpolate({
+                    inputRange: [rank - 1, rank, rank + 1],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            accessibilityLabel={`Rank ${rank}`}
+          >
+            {rank}
+          </Animated.Text>
+        </View>
 
-          {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            {renderAvatar()}
-          </View>
+        {/* Avatar */}
+        <View style={styles.avatarContainer}>
+          {renderAvatar()}
+        </View>
 
-          {/* User Info */}
-          <View style={styles.infoContainer}>
-            <Text style={[styles.displayName, highlight && styles.highlightText]}>
-              {display_name}
-            </Text>
-            <Animated.Text 
-              style={[
-                styles.pointsText, 
-                highlight && styles.highlightText,
-                {
-                  transform: [{
-                    translateY: pointsAnim.interpolate({
-                      inputRange: [total_points - 100, total_points, total_points + 100],
-                      outputRange: [-20, 0, 20]
-                    })
-                  }]
-                }
-              ]}
-            >
-              {total_points} pts
-            </Animated.Text>
-          
-          </View>
+        {/* User Info */}
+        <View style={styles.infoContainer}>
+          <Text 
+            style={[styles.displayName, highlight && styles.highlightText]}
+            accessibilityLabel={display_name}
+          >
+            {display_name}
+          </Text>
+          <Animated.Text 
+            style={[
+              styles.pointsText, 
+              highlight && styles.highlightText,
+              {
+                transform: [{
+                  translateY: pointsAnim.interpolate({
+                    inputRange: [total_points - 100, total_points, total_points + 100],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            accessibilityLabel={`${total_points} points`}
+          >
+            {total_points} pts
+          </Animated.Text>
+        </View>
 
       </Animated.View>
 

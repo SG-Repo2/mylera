@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { theme } from '../../theme/theme';
 import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import { ErrorView } from '../shared/ErrorView';
@@ -18,9 +19,7 @@ export function Leaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  
   const appStateRef = useRef(AppState.currentState);
-  const autoRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = useCallback(async (showLoading = true) => {
     if (!user) {
@@ -38,15 +37,6 @@ export function Leaderboard() {
       const data = await leaderboardService.getDailyLeaderboard(today);
       console.log('Fetched leaderboard data:', data);
       setLeaderboardData(data);
-      
-      // Schedule next auto-refresh (every 30 seconds)
-      if (autoRefreshTimeoutRef.current) {
-        clearTimeout(autoRefreshTimeoutRef.current);
-      }
-      autoRefreshTimeoutRef.current = setTimeout(() => {
-        loadData(false);
-      }, 30000);
-      
     } catch (err) {
       console.error('Error while fetching leaderboard:', err);
       
@@ -91,11 +81,8 @@ export function Leaderboard() {
       const subscription = AppState.addEventListener('change', handleAppStateChange);
       
       return () => {
-        // Clean up
-        subscription.remove();
-        if (autoRefreshTimeoutRef.current) {
-          clearTimeout(autoRefreshTimeoutRef.current);
-        }
+      // Clean up
+      subscription.remove();
       };
     }
   }, [user, loadData, handleAppStateChange]);
@@ -103,7 +90,7 @@ export function Leaderboard() {
   if (loading && !leaderboardData.length && !error) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0284c7" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
@@ -125,14 +112,21 @@ export function Leaderboard() {
         <RefreshControl 
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#0284c7"
+          tintColor={theme.colors.primary}
         />
       }
     >
       {/* Header */}
-      <View style={styles.header}>
+      <View 
+        style={styles.header}
+        accessibilityRole="header"
+        accessibilityLabel="Daily Leaderboard"
+      >
         <Text style={styles.title}>Daily Leaderboard</Text>
-        <Text style={styles.subtitle}>
+        <Text 
+          style={styles.subtitle}
+          accessibilityLabel={`For ${DateUtils.formatDateForDisplay(new Date())}`}
+        >
           {DateUtils.formatDateForDisplay(new Date())}
         </Text>
       </View>
@@ -146,7 +140,7 @@ export function Leaderboard() {
               <MaterialCommunityIcons 
                 name="account-group" 
                 size={24} 
-                color="#0284c7" 
+                color={theme.colors.primary}
               />
               <Text style={styles.participantCount}>
                 {leaderboardData.length}
@@ -171,7 +165,7 @@ export function Leaderboard() {
           <MaterialCommunityIcons 
             name="trophy-outline" 
             size={48} 
-            color="#9CA3AF"
+            color={theme.colors.onSurfaceVariant}
           />
           <Text style={styles.emptyStateText}>
             No leaderboard data available for today.
@@ -188,7 +182,7 @@ export function Leaderboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.colors.background,
   },
   contentContainer: {
     flexGrow: 1,
@@ -200,30 +194,40 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 12,
+    paddingTop: 32,
+    paddingBottom: 20,
+    backgroundColor: theme.colors.surface,
+    borderBottomLeftRadius: theme.roundness * 3,
+    borderBottomRightRadius: theme.roundness * 3,
+    elevation: 2,
+    shadowColor: theme.colors.onSurface,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
+    ...theme.fonts.headlineMedium,
+    color: theme.colors.onSurface,
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+    ...theme.fonts.bodyLarge,
+    color: theme.colors.onSurfaceVariant,
     marginTop: 4,
+    textAlign: 'center',
   },
   summaryCard: {
     marginHorizontal: 16,
+    marginTop: -16,
     marginBottom: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness * 2,
     padding: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0.5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
+    elevation: 3,
+    shadowColor: theme.colors.onSurface,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -231,19 +235,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
+    ...theme.fonts.titleMedium,
+    color: theme.colors.onSurface,
   },
   summaryValue: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   participantCount: {
-    marginLeft: 4,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#111827',
+    marginLeft: 8,
+    ...theme.fonts.headlineSmall,
+    color: theme.colors.primary,
   },
   emptyState: {
     flex: 1,
@@ -253,8 +255,8 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     marginTop: 8,
-    fontSize: 14,
-    color: '#6B7280',
+    ...theme.fonts.bodyMedium,
+    color: theme.colors.onSurfaceVariant,
     textAlign: 'center',
   },
   bottomPadding: {
