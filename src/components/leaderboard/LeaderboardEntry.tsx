@@ -82,13 +82,14 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
         <Image 
           source={{ uri: avatar_url }} 
           defaultSource={DEFAULT_AVATAR}
-          style={styles.avatar} 
+          style={styles.avatar}
+          testID="avatar-image"
         />
       );
     }
     
     return (
-      <View style={styles.avatarPlaceholder}>
+      <View style={styles.avatarPlaceholder} testID="avatar-placeholder">
         <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
           {display_name?.charAt(0).toUpperCase() ?? '?'}
         </Text>
@@ -102,6 +103,7 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
       accessibilityRole="text"
       accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
       accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
+      testID="leaderboard-entry"
     >
       <Animated.View 
         style={[
@@ -125,6 +127,7 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
               }
             ]}
             accessibilityLabel={`Rank ${rank}`}
+            testID="rank-text"
           >
             {rank}
           </Animated.Text>
@@ -140,6 +143,7 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
           <Text 
             style={[styles.displayName, highlight && styles.highlightText]}
             accessibilityLabel={display_name}
+            testID="display-name"
           >
             {display_name}
           </Text>
@@ -157,6 +161,7 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
               }
             ]}
             accessibilityLabel={`${total_points} points`}
+            testID="points-text"
           >
             {total_points} pts
           </Animated.Text>

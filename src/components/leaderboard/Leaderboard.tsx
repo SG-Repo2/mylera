@@ -89,7 +89,7 @@ export function Leaderboard() {
 
   if (loading && !leaderboardData.length && !error) {
     return (
-      <View style={styles.centered}>
+      <View style={styles.centered} testID="leaderboard-loading">
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
