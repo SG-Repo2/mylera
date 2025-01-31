@@ -22,11 +22,14 @@ const progressCalculators = {
   distance: (value: number, goal: number) => Math.min(value / goal, 1),
   calories: (value: number, goal: number) => Math.min(value / goal, 1),
   heart_rate: (value: number, goal: number) => {
-    // For heart rate, assume goal is the target range (e.g., 60-100 BPM)
-    const [min, max] = goal.toString().split('-').map(Number);
-    if (value < min) return 0;
-    if (value > max) return 0;
-    return 1;
+    // For heart rate, allow within 15 BPM above or below goal
+    const targetValue = Number(goal);
+    const minAcceptable = targetValue - 15;
+    const maxAcceptable = targetValue + 15;
+    if (value < minAcceptable || value > maxAcceptable) return 0;
+    // Calculate progress based on how close to target
+    const deviation = Math.abs(value - targetValue);
+    return Math.max(0, 1 - deviation / 15);
   },
   exercise: (value: number, goal: number) => Math.min(value / goal, 1),
   basal_calories: (value: number, goal: number) => Math.min(value / goal, 1),
@@ -83,7 +86,7 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     id: 'heart_rate',
     title: 'Heart Rate',
     icon: 'heart-pulse',
-    defaultGoal: 60-100, // Range
+    defaultGoal: 75, // Range
     unit: METRIC_UNITS.HEART_RATE,
     color: '#FC3D39',
     formatValue: formatters.heart_rate,
