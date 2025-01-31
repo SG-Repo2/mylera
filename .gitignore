@@ -53,3 +53,4 @@ ios/*.xcuserstate
 app-example
 docs/*.md
 **/repomix-output.txt
+backup.sql
