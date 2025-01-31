@@ -9,8 +9,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
-import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { PermissionStatus } from './health/types/permissions';
+import { initializeHealthProviderForUser, mapAuthError } from '../utils/healthProviderUtils';
+import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 
 interface AuthContextType {
   session: Session | null;
@@ -42,15 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Initialize health provider if user is logged in
       if (session?.user) {
-        try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.initializePermissions(session.user.id);
-          const permissionState = await provider.checkPermissionsStatus();
-          setHealthPermissionStatus(permissionState.status);
-        } catch (error) {
-          console.error('Error initializing health provider:', error);
-          setHealthPermissionStatus('not_determined');
-        }
+        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       }
       
       setLoading(false);
@@ -65,15 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Handle health permissions on auth state change
       if (session?.user) {
-        try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.initializePermissions(session.user.id);
-          const permissionState = await provider.checkPermissionsStatus();
-          setHealthPermissionStatus(permissionState.status);
-        } catch (error) {
-          console.error('Error checking health permissions:', error);
-          setHealthPermissionStatus('not_determined');
-        }
+        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       } else {
         setHealthPermissionStatus(null);
       }
@@ -100,29 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Initialize health provider for new user
       if (data.user) {
-        try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.initializePermissions(data.user.id);
-          setHealthPermissionStatus('not_determined');
-        } catch (healthError) {
-          console.error('Health provider initialization error:', healthError);
-          // Don't throw here - we want the registration to succeed even if health init fails
-          setHealthPermissionStatus('not_determined');
-        }
+        await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {
       console.error('Registration error:', err);
-      if (err instanceof Error) {
-        if (err.message.includes('42501')) {
-          setError('Unable to create user profile. Please contact support.');
-        } else if (err.message.includes('HealthKit')) {
-          setError('Unable to initialize health services. You can set this up later.');
-        } else {
-          setError(err.message);
-        }
-      } else {
-        setError('An error occurred during registration.');
-      }
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -150,17 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     } catch (err) {
       console.error('Login error:', err);
-      if (err instanceof Error) {
-        if (err.message.includes('42501')) {
-          setError('You do not have permission to access this resource. Please contact support.');
-        } else if (err.message.includes('HealthKit')) {
-          setError('Unable to access health data. Please check your device settings.');
-        } else {
-          setError(err.message);
-        }
-      } else {
-        setError('An error occurred during login.');
-      }
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -203,17 +160,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
     } catch (err) {
       console.error('Logout error:', err);
-      if (err instanceof Error) {
-        if (err.message.includes('42501')) {
-          // Still clear local state even if there's a permission error
-          setSession(null);
-          setUser(null);
-          setHealthPermissionStatus(null);
-        }
-        setError(err.message);
-      } else {
-        setError('An error occurred during logout.');
+      if (err instanceof Error && err.message.includes('42501')) {
+        // Still clear local state even if there's a permission error
+        setSession(null);
+        setUser(null);
+        setHealthPermissionStatus(null);
       }
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }

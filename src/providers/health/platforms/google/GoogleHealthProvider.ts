@@ -4,6 +4,7 @@ import {
   requestPermission,
   readRecords,
 } from 'react-native-health-connect';
+import { aggregateMetrics, mapHealthProviderError } from '../../../../utils/healthProviderUtils';
 import { BaseHealthProvider } from '../../types/provider';
 import { 
   HealthMetrics, 
@@ -42,7 +43,10 @@ interface CaloriesRecord {
 interface BasalRecord {
   startTime: string;
   endTime: string;
-  energy?: {
+  metadata: {
+    id: string;
+  };
+  energy: {
     inKilocalories: number;
   };
 }
@@ -116,10 +120,9 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       await this.permissionManager.updatePermissionState(status);
       return status;
     } catch (error) {
-      await this.permissionManager.handlePermissionError(
-        'HealthConnect',
-        error
-      );
+      const errorMessage = mapHealthProviderError(error, 'google');
+      console.error('[GoogleHealthProvider]', errorMessage);
+      await this.permissionManager.handlePermissionError('HealthConnect', error);
       return 'denied';
     }
   }
@@ -292,7 +295,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
           case 'basal_calories':
             const basalCalories = await readRecords('BasalMetabolicRate', { timeRangeFilter });
-            rawData.basal_calories = (basalCalories.records as BasalRecord[]).map(record => ({
+            rawData.basal_calories = (basalCalories.records as unknown as BasalRecord[]).map(record => ({
               startDate: record.startTime,
               endDate: record.endTime,
               value: Math.round(record.energy?.inKilocalories || 0),
@@ -395,7 +398,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
           metrics.push(...rawData.flights_climbed.map(raw => ({
             timestamp: raw.endDate,
             value: raw.value,
-            unit: METRIC_UNITS.FLIGHTS_CLIMBED,
+            unit: METRIC_UNITS.COUNT,
             type: 'flights_climbed'
           } as NormalizedMetric)));
         }
@@ -461,19 +464,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
   }
 
   private aggregateMetric(metrics: NormalizedMetric[]): number | null {
-    if (!metrics.length) return null;
-
-    switch (metrics[0].type) {
-      case 'heart_rate':
-        // Average for heart rate
-        return Math.round(
-          metrics.reduce((sum, m) => sum + m.value, 0) / metrics.length
-        );
-      default:
-        // Sum for other metrics
-        return Math.round(
-          metrics.reduce((sum, m) => sum + m.value, 0)
-        );
-    }
+    return aggregateMetrics(metrics);
   }
 }

@@ -3,6 +3,8 @@ import AppleHealthKit, {
   HealthKitPermissions,
   HealthInputOptions,
 } from 'react-native-health';
+import { promisify } from '../../../../utils/promiseWrapper';
+import { aggregateMetrics } from '../../../../utils/healthProviderUtils';
 import { permissions, HEALTH_PERMISSIONS } from './permissions';
 import { BaseHealthProvider } from '../../types/provider';
 import type { 
@@ -103,15 +105,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
   }
 
   private async checkAvailability(): Promise<boolean> {
-    return new Promise((resolve) => {
-      AppleHealthKit.isAvailable((error: Object, available: boolean) => {
-        if (error || !available) {
-          resolve(false);
-          return;
-        }
-        resolve(true);
-      });
-    });
+    try {
+      const available = await promisify<boolean>(AppleHealthKit.isAvailable);
+      return available;
+    } catch (error) {
+      return false;
+    }
   }
 
   async handlePermissionDenial(): Promise<void> {
@@ -292,200 +291,161 @@ export class AppleHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getStepCount(options, (error: string, results: any) => {
-        if (error) {
-          console.error('[AppleHealthProvider] Error reading steps:', error);
-          resolve([]);
-        } else {
-          resolve([{
-            startDate: options.startDate || new Date().toISOString(),
-            endDate: options.endDate || new Date().toISOString(),
-            value: results.value || 0,
-            unit: 'count',
-            sourceBundle: 'com.apple.health'
-          }]);
-        }
-      });
-    });
+    try {
+      const results = await promisify<{ value: number }>(AppleHealthKit.getStepCount, options);
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: results.value || 0,
+        unit: 'count',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading steps:', error);
+      return [];
+    }
   }
 
   private async fetchDistanceRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getDistanceWalkingRunning(
-        options,
-        (err: string, results: { value: number }) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading distance:', err);
-            resolve([]);
-          } else {
-            resolve([{
-              startDate: options.startDate || new Date().toISOString(),
-              endDate: options.endDate || new Date().toISOString(),
-              value: results.value || 0, // Keep in meters
-              unit: 'meters',
-              sourceBundle: 'com.apple.health'
-            }]);
-          }
-        }
+    try {
+      const results = await promisify<{ value: number }>(
+        AppleHealthKit.getDistanceWalkingRunning,
+        options
       );
-    });
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: results.value || 0, // Keep in meters
+        unit: 'meters',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading distance:', error);
+      return [];
+    }
   }
 
   private async fetchCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getActiveEnergyBurned(
-        options,
-        (err: string, results: any) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading active calories:', err);
-            resolve([]);
-          } else {
-            resolve([{
-              startDate: options.startDate || new Date().toISOString(),
-              endDate: options.endDate || new Date().toISOString(),
-              value: Math.round(results.value || 0),
-              unit: 'kcal',
-              sourceBundle: 'com.apple.health'
-            }]);
-          }
-        }
+    try {
+      const results = await promisify<{ value: number }>(
+        AppleHealthKit.getActiveEnergyBurned,
+        options
       );
-    });
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: Math.round(results.value || 0),
+        unit: 'kcal',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading active calories:', error);
+      return [];
+    }
   }
 
   private async fetchBasalCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getBasalEnergyBurned(
-        options,
-        (err: string, results: any) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading basal calories:', err);
-            resolve([]);
-          } else {
-            resolve([{
-              startDate: options.startDate || new Date().toISOString(),
-              endDate: options.endDate || new Date().toISOString(),
-              value: Math.round(results.value || 0),
-              unit: 'kcal',
-              sourceBundle: 'com.apple.health'
-            }]);
-          }
-        }
+    try {
+      const results = await promisify<{ value: number }>(
+        AppleHealthKit.getBasalEnergyBurned,
+        options
       );
-    });
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: Math.round(results.value || 0),
+        unit: 'kcal',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading basal calories:', error);
+      return [];
+    }
   }
 
   private async fetchHeartRateRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getHeartRateSamples(
+    try {
+      const results = await promisify<Array<{ value: number; startDate: string; endDate: string }>>(
+        AppleHealthKit.getHeartRateSamples,
         {
           ...options,
           ascending: false,
           limit: 100, // Get more samples for better accuracy
-        },
-        (err: string, results: Array<{ value: number; startDate: string; endDate: string }>) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading heart rate:', err);
-            resolve([]);
-          } else {
-            // Filter out invalid readings and calculate average
-            const validSamples = results
-              .filter(sample =>
-                typeof sample.value === 'number' &&
-                !isNaN(sample.value) &&
-                sample.value > 30 && // More realistic minimum heart rate
-                sample.value < 220 // Maximum realistic heart rate
-              )
-              .map(sample => ({
-                startDate: sample.startDate,
-                endDate: sample.endDate,
-                value: Math.round(sample.value),
-                unit: 'bpm',
-                sourceBundle: 'com.apple.health'
-              }));
-
-            if (validSamples.length === 0) {
-              resolve([{
-                startDate: options.startDate || new Date().toISOString(),
-                endDate: options.endDate || new Date().toISOString(),
-                value: 0,
-                unit: 'bpm',
-                sourceBundle: 'com.apple.health'
-              }]);
-            } else {
-              resolve(validSamples);
-            }
-          }
         }
       );
-    });
+
+      // Filter out invalid readings
+      const validSamples = results
+        .filter(sample =>
+          typeof sample.value === 'number' &&
+          !isNaN(sample.value) &&
+          sample.value > 30 && // More realistic minimum heart rate
+          sample.value < 220 // Maximum realistic heart rate
+        )
+        .map(sample => ({
+          startDate: sample.startDate,
+          endDate: sample.endDate,
+          value: Math.round(sample.value),
+          unit: 'bpm',
+          sourceBundle: 'com.apple.health'
+        }));
+
+      if (validSamples.length === 0) {
+        return [{
+          startDate: options.startDate || new Date().toISOString(),
+          endDate: options.endDate || new Date().toISOString(),
+          value: 0,
+          unit: 'bpm',
+          sourceBundle: 'com.apple.health'
+        }];
+      }
+
+      return validSamples;
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading heart rate:', error);
+      return [];
+    }
   }
 
   private async fetchFlightsClimbedRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getFlightsClimbed(
-        options,
-        (err: string, results: any) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading flights climbed:', err);
-            resolve([]);
-          } else {
-            resolve([{
-              startDate: options.startDate || new Date().toISOString(),
-              endDate: options.endDate || new Date().toISOString(),
-              value: Math.round(results.value || 0),
-              unit: 'count',
-              sourceBundle: 'com.apple.health'
-            }]);
-          }
-        }
+    try {
+      const results = await promisify<{ value: number }>(
+        AppleHealthKit.getFlightsClimbed,
+        options
       );
-    });
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: Math.round(results.value || 0),
+        unit: 'count',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading flights climbed:', error);
+      return [];
+    }
   }
 
   private async fetchExerciseRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
-    return new Promise((resolve) => {
-      AppleHealthKit.getAppleExerciseTime(
-        options,
-        (err: string, results: any) => {
-          if (err) {
-            console.error('[AppleHealthProvider] Error reading exercise time:', err);
-            resolve([]);
-          } else {
-            resolve([{
-              startDate: options.startDate || new Date().toISOString(),
-              endDate: options.endDate || new Date().toISOString(),
-              value: Math.round(results.value || 0),
-              unit: 'minutes',
-              sourceBundle: 'com.apple.health'
-            }]);
-          }
-        }
+    try {
+      const results = await promisify<{ value: number }>(
+        AppleHealthKit.getAppleExerciseTime,
+        options
       );
-    });
+      return [{
+        startDate: options.startDate || new Date().toISOString(),
+        endDate: options.endDate || new Date().toISOString(),
+        value: Math.round(results.value || 0),
+        unit: 'minutes',
+        sourceBundle: 'com.apple.health'
+      }];
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error reading exercise time:', error);
+      return [];
+    }
   }
 
   private aggregateMetric(metrics: NormalizedMetric[]): number | null {
-    if (!metrics.length) return null;
-
-    const metric = metrics[0];
-
-    if (metric.type === 'heart_rate') {
-      // Average for heart rate
-      const sum = metrics.reduce((acc, m) => {
-        const val = typeof m.value === 'number' ? m.value : 0;
-        return acc + val;
-      }, 0);
-      return Math.round(sum / metrics.length);
-    }
-    
-    // Sum for other metrics
-    return Math.round(
-      metrics.reduce((acc, m) => {
-        const val = typeof m.value === 'number' ? m.value : 0;
-        return acc + val;
-      }, 0)
-    );
+    return aggregateMetrics(metrics);
   }
 }
