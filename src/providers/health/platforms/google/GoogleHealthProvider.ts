@@ -4,7 +4,9 @@ import {
   requestPermission,
   readRecords,
 } from 'react-native-health-connect';
-import { aggregateMetrics, mapHealthProviderError } from '../../../../utils/healthProviderUtils';
+import { mapHealthProviderError } from '../../../../utils/errorUtils';
+import { aggregateMetrics, isValidMetricValue } from '../../../../utils/healthMetricUtils';
+import { verifyHealthPermission } from '../../../../utils/healthInitUtils';
 import { BaseHealthProvider } from '../../types/provider';
 import { 
   HealthMetrics, 
@@ -182,15 +184,27 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
         endTime: now.toISOString(),
       };
-      
-      await Promise.all([
+
+      // First verify basic permissions
+      const basicPermissionsResult = await Promise.all([
         readRecords('Steps', { timeRangeFilter: testRange }),
         readRecords('Distance', { timeRangeFilter: testRange }),
         readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
         readRecords('HeartRate', { timeRangeFilter: testRange })
       ]);
-      return true;
+
+      // Separately verify BasalMetabolicRate permission
+      try {
+        await readRecords('BasalMetabolicRate', { timeRangeFilter: testRange });
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
+        // Don't fail the entire verification for BasalMetabolicRate
+        // Other permissions might still be valid
+      }
+
+      return basicPermissionsResult.every(result => result !== null);
     } catch (error) {
+      console.error('[GoogleHealthProvider] Permission verification failed:', error);
       return false;
     }
   }
@@ -294,14 +308,66 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             break;
 
           case 'basal_calories':
-            const basalCalories = await readRecords('BasalMetabolicRate', { timeRangeFilter });
-            rawData.basal_calories = (basalCalories.records as unknown as BasalRecord[]).map(record => ({
-              startDate: record.startTime,
-              endDate: record.endTime,
-              value: Math.round(record.energy?.inKilocalories || 0),
-              unit: 'kcal',
-              sourceBundle: 'com.google.android.apps.fitness'
-            }));
+            const MAX_BMR_RETRIES = 3;
+            const BMR_RETRY_DELAY = 1000;
+            let bmrRetries = 0;
+            let bmrLastError: Error | null = null;
+
+            while (bmrRetries < MAX_BMR_RETRIES) {
+              try {
+                // Verify BasalMetabolicRate permission specifically
+                const hasBmrPermission = await verifyHealthPermission('BasalMetabolicRate');
+                if (!hasBmrPermission) {
+                  console.warn('[GoogleHealthProvider] BasalMetabolicRate permission not granted');
+                  break;
+                }
+
+                const basalCalories = await readRecords('BasalMetabolicRate', { timeRangeFilter });
+                const validRecords = (basalCalories.records as unknown as BasalRecord[])
+                  .filter(record => record.energy?.inKilocalories && 
+                    isValidMetricValue(record.energy.inKilocalories, 'basal_calories'))
+                  .map(record => ({
+                    startDate: record.startTime,
+                    endDate: record.endTime,
+                    value: Math.round(record.energy?.inKilocalories || 0),
+                    unit: 'kcal',
+                    sourceBundle: 'com.google.android.apps.fitness'
+                  }));
+
+                if (validRecords.length > 0) {
+                  rawData.basal_calories = validRecords;
+                  break;
+                }
+
+                throw new Error('No valid BasalMetabolicRate records found');
+              } catch (error) {
+                bmrLastError = error instanceof Error ? error : new Error('Unknown error reading BasalMetabolicRate');
+                console.warn(
+                  `[GoogleHealthProvider] BasalMetabolicRate read attempt ${bmrRetries + 1}/${MAX_BMR_RETRIES} failed:`,
+                  bmrLastError.message
+                );
+                
+                if (bmrRetries < MAX_BMR_RETRIES - 1) {
+                  await new Promise(resolve => setTimeout(resolve, BMR_RETRY_DELAY));
+                }
+                bmrRetries++;
+              }
+            }
+
+            // If all retries failed or no permission, use fallback
+            if (!rawData.basal_calories) {
+              console.error(
+                '[GoogleHealthProvider] Failed to read BasalMetabolicRate after all retries:',
+                bmrLastError?.message
+              );
+              rawData.basal_calories = [{
+                startDate: timeRangeFilter.startTime,
+                endDate: timeRangeFilter.endTime,
+                value: 0,
+                unit: 'kcal',
+                sourceBundle: 'com.google.android.apps.fitness'
+              }];
+            }
             break;
 
           case 'flights_climbed':
