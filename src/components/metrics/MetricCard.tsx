@@ -46,7 +46,7 @@ export const MetricCard = React.memo(function MetricCard({
 }: MetricCardProps) {
   const paperTheme = useTheme();
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = (value ?? 0).toLocaleString();
+  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
   const percentage = Math.round(progress * 100);
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -120,7 +120,7 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
   const paperTheme = useTheme();
   const config = healthMetrics[metricType];
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = (value ?? 0).toLocaleString();
+  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
   const percentage = Math.round(progress * 100);
   
   return (

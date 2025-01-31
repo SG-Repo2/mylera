@@ -6,8 +6,9 @@ import type { MaterialCommunityIcons } from '@expo/vector-icons';
 const formatters = {
   steps: (value: number) => Math.round(value).toLocaleString(),
   distance: (value: number) => {
+    // Value is already in meters, convert to km for display
     const km = value / 1000;
-    return `${km.toFixed(2)}`;
+    return km.toFixed(2);
   },
   calories: (value: number) => Math.round(value).toLocaleString(),
   heart_rate: (value: number) => Math.round(value).toString(),
@@ -64,7 +65,7 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     id: 'distance',
     title: 'Distance',
     icon: 'map-marker-distance',
-    defaultGoal: 5000, // 5km in meters
+    defaultGoal: 5000, // 5km = 5000 meters
     unit: METRIC_UNITS.DISTANCE,
     color: '#AF52DE',
     formatValue: formatters.distance,

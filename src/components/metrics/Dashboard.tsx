@@ -63,6 +63,7 @@ const transformMetricsToHealthMetrics = (
 ): HealthMetrics => {
   const now = new Date().toISOString();
   
+  // Initialize with null values as per HealthMetrics interface
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
     user_id: userId,
@@ -81,14 +82,17 @@ const transformMetricsToHealthMetrics = (
     created_at: now,
     updated_at: now
   };
-  metrics.forEach(metric => {
-    const metricType = metric.metric_type;
-    if (metricType in result) {
-      // Handle blood pressure specially since it has systolic/diastolic components
 
-        // For all other metrics, value is a simple number
-        result[metricType] = metric.value as number;
-      
+  // Map metric values from the database scores
+  metrics.forEach(metric => {
+    const metricType = metric.metric_type as MetricType;
+    if (metricType in result && typeof metric.value === 'number') {
+      // Handle distance conversion (from meters to kilometers)
+      if (metricType === 'distance' && metric.value) {
+        result[metricType] = metric.value / 1000; // Convert meters to kilometers
+      } else {
+        result[metricType] = metric.value;
+      }
     }
   });
 
@@ -174,11 +178,6 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   if (error || healthPermissionStatus === 'denied' || fetchError) {
-    return (
-      <View style={styles.container}>
-      <Text>Unable to access health data. Please check your permissions.</Text>
-      </View>
-    );
     return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
   }
 
@@ -223,6 +222,20 @@ export const Dashboard = React.memo(function Dashboard({
           />
         )}
       </ScrollView>
+
+      <Portal>
+        <Dialog visible={errorDialogVisible} onDismiss={() => setErrorDialogVisible(false)}>
+          <Dialog.Title>Error</Dialog.Title>
+          <Dialog.Content>
+            <Text>Failed to fetch health metrics. Please try again.</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Text onPress={() => setErrorDialogVisible(false)} style={{ color: paperTheme.colors.primary, padding: 8 }}>
+              OK
+            </Text>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </SafeAreaView>
   );
 });

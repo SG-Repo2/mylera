@@ -191,7 +191,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         if (rawData.distance) {
           metrics.push(...rawData.distance.map(raw => ({
             timestamp: raw.endDate,
-            value: Number(raw.value) * 1000, // Convert km to meters
+            value: Number(raw.value), // Keep in meters
             unit: METRIC_UNITS.DISTANCE,
             type: 'distance'
           } as NormalizedMetric)));
@@ -322,8 +322,8 @@ export class AppleHealthProvider extends BaseHealthProvider {
             resolve([{
               startDate: options.startDate || new Date().toISOString(),
               endDate: options.endDate || new Date().toISOString(),
-              value: (results.value || 0) / 1000, // Convert to kilometers
-              unit: 'kilometers',
+              value: results.value || 0, // Keep in meters
+              unit: 'meters',
               sourceBundle: 'com.apple.health'
             }]);
           }

@@ -12,6 +12,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       setLoading(true);
       setError(null);
 
+      // Initialize permissions first
+      await provider.initializePermissions(userId);
+
       // Check permissions
       const hasPermissions = await provider.checkPermissionsStatus();
       if (!hasPermissions) {
@@ -41,9 +44,13 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     }
   }, [provider, userId]);
 
-  // Sync only on mount
+  // Sync on mount and cleanup on unmount
   useEffect(() => {
     syncHealthData();
+    
+    return () => {
+      provider.cleanup();
+    };
   }, [syncHealthData]);
 
   return { loading, error, syncHealthData };
