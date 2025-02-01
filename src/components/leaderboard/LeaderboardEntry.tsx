@@ -1,22 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, StyleSheet, Animated } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Image, StyleSheet, Animated, Platform } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
 import { theme } from '../../theme/theme';
+
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
 
 interface Props {
   entry: LeaderboardEntryType;
   highlight?: boolean;
+  variant?: 'standard' | 'podium';
+  position?: number;
 }
 
 /**
- * Displays individual leaderboard row with expandable details.
- * When expanded, shows additional metrics in a grid layout.
+ * Displays individual leaderboard entry in either standard or podium layout.
  */
-export function LeaderboardEntry({ entry, highlight }: Props) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const { display_name, avatar_url, total_points, metrics_completed, rank } = entry;
+export function LeaderboardEntry({ 
+  entry, 
+  highlight = false, 
+  variant = 'standard',
+  position 
+}: Props) {
+  const { display_name, avatar_url, total_points, rank } = entry;
   
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
@@ -75,27 +82,96 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
     }
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
-
-  const renderAvatar = () => {
+  const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
       return (
         <Image 
           source={{ uri: avatar_url }} 
           defaultSource={DEFAULT_AVATAR}
-          style={styles.avatar}
+          style={[
+            styles.avatar,
+            isPodium && position === 1 && styles.firstPlaceAvatar,
+            isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+          ]}
           testID="avatar-image"
         />
       );
     }
     
     return (
-      <View style={styles.avatarPlaceholder} testID="avatar-placeholder">
+      <View 
+        style={[
+          styles.avatarPlaceholder,
+          isPodium && position === 1 && styles.firstPlaceAvatar,
+          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+        ]} 
+        testID="avatar-placeholder"
+      >
         <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
           {display_name?.charAt(0).toUpperCase() ?? '?'}
         </Text>
       </View>
     );
   };
+
+  if (variant === 'podium') {
+    return (
+      <View
+        style={[styles.podiumContainer, highlight && styles.highlightBackground]}
+        testID="leaderboard-entry-podium"
+      >
+        {position === 1 && (
+          <MaterialCommunityIcons
+            name="crown"
+            size={32}
+            color="#FFD700"
+            style={styles.crown}
+          />
+        )}
+        <Animated.View 
+          style={[
+            styles.podiumContent,
+            { transform: [{ scale: scaleAnim }] }
+          ]}
+        >
+          <View style={styles.podiumAvatarContainer}>
+            {renderAvatar(true)}
+          </View>
+          <Text 
+            style={[
+              styles.podiumDisplayName, 
+              highlight && styles.highlightText,
+              position === 1 && styles.firstPlaceText
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
+          >
+            {display_name}
+          </Text>
+          <Animated.Text 
+            style={[
+              styles.podiumPoints,
+              highlight && styles.highlightText,
+              position === 1 && styles.firstPlacePoints,
+              {
+                transform: [{
+                  translateY: pointsAnim.interpolate({
+                    inputRange: [total_points - 100, total_points, total_points + 100],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {total_points} pts
+          </Animated.Text>
+        </Animated.View>
+      </View>
+    );
+  }
 
   return (
     <View 
@@ -126,7 +202,6 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
                 }]
               }
             ]}
-            accessibilityLabel={`Rank ${rank}`}
             testID="rank-text"
           >
             {rank}
@@ -142,8 +217,10 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
         <View style={styles.infoContainer}>
           <Text 
             style={[styles.displayName, highlight && styles.highlightText]}
-            accessibilityLabel={display_name}
             testID="display-name"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
           >
             {display_name}
           </Text>
@@ -160,15 +237,14 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
                 }]
               }
             ]}
-            accessibilityLabel={`${total_points} points`}
             testID="points-text"
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
           >
             {total_points} pts
           </Animated.Text>
         </View>
-
       </Animated.View>
-
     </View>
   );
 }
@@ -176,14 +252,14 @@ export function LeaderboardEntry({ entry, highlight }: Props) {
 const styles = StyleSheet.create({
   container: {
     marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: theme.roundness,
-    backgroundColor: theme.colors.surface,
-    elevation: 1,
-    shadowColor: theme.colors.onSurface,
-    shadowOffset: { width: 0, height: 0.5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
+    marginBottom: 12,
+    borderRadius: theme.roundness * 1.5,
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   mainContent: {
     flexDirection: 'row',
@@ -191,7 +267,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   highlightBackground: {
-    backgroundColor: theme.colors.primaryContainer,
+    backgroundColor: '#BFDBFE',
   },
   rankContainer: {
     marginRight: 12,
@@ -200,89 +276,139 @@ const styles = StyleSheet.create({
   },
   rankText: {
     ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
+    color: '#1E293B',
+    fontWeight: '700',
+    fontSize: 24,
   },
   highlightText: {
-    color: theme.colors.primary,
+    color: '#1E3A8A',
   },
   avatarContainer: {
-    marginRight: 12,
+    width: 56,
+    marginVertical: 8,
+  },
+  podiumAvatarContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 8,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.surfaceVariant,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarLetter: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurfaceVariant,
+    ...theme.fonts.titleMedium,
+    color: '#64748B',
   },
   infoContainer: {
     flex: 1,
+    marginLeft: 16,
   },
   displayName: {
     ...theme.fonts.titleMedium,
-    color: theme.colors.onSurface,
+    color: '#1E293B',
+    fontWeight: '600',
+    fontSize: 18,
   },
   pointsText: {
-    ...theme.fonts.bodyMedium,
-    color: theme.colors.onSurfaceVariant,
-  },
-  metricsText: {
-    ...theme.fonts.bodySmall,
-    color: theme.colors.onSurfaceVariant,
-  },
-  expandedContent: {
-    backgroundColor: theme.colors.surfaceVariant,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
-  expandedTitle: {
-    ...theme.fonts.titleSmall,
-    color: theme.colors.onSurfaceVariant,
+    ...theme.fonts.bodyLarge,
+    color: '#64748B',
     marginTop: 4,
-    marginBottom: 8,
+    fontSize: 16,
   },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  // Podium-specific styles
+  crown: {
+    position: 'absolute',
+    top: -16,
+    alignSelf: 'center',
+    zIndex: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
-  metricCard: {
-    width: '48%',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: 12,
-    marginBottom: 8,
-    elevation: 1,
-    shadowColor: theme.colors.onSurface,
-    shadowOffset: { width: 0, height: 0.5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
+  podiumContainer: {
     alignItems: 'center',
+    padding: 12,
+    borderRadius: theme.roundness * 1.5,
+    backgroundColor: '#FFFFFF',
+    height: '100%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
-  metricIcon: {
-    marginBottom: 8,
+  podiumContent: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+    paddingBottom: 8,
+    width: '100%',
   },
-  metricValue: {
+  podiumDisplayName: {
+    ...theme.fonts.titleMedium,
+    color: '#1E293B',
+    textAlign: 'center',
+    fontWeight: '600',
+    fontSize: 16,
+    paddingHorizontal: 4,
+    marginTop: 25,
+  },
+  firstPlaceText: {
     ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
+    color: '#1E3A8A',
+    fontWeight: '700',
+    fontSize: 20,
   },
-  metricUnit: {
-    ...theme.fonts.bodyMedium,
-    color: theme.colors.onSurfaceVariant,
+  podiumPoints: {
+    ...theme.fonts.titleMedium,
+    color: '#64748B',
+    textAlign: 'center',
+    fontSize: 14,
+    marginTop: 4,
   },
-  metricLabel: {
-    ...theme.fonts.bodySmall,
-    color: theme.colors.onSurfaceVariant,
-    marginTop: 2,
+  firstPlacePoints: {
+    ...theme.fonts.titleLarge,
+    color: '#1E3A8A',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  firstPlaceAvatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    borderColor: '#FFD700',
+  },
+  podiumAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
   },
 });

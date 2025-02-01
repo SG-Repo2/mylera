@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
+import { PodiumView } from './PodiumView';
 import { ErrorView } from '../shared/ErrorView';
 import { useAuth } from '../../providers/AuthProvider';
 import { DateUtils } from '../../utils/DateUtils';
@@ -11,7 +12,7 @@ import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leade
 
 /**
  * Displays the daily leaderboard with pull-to-refresh functionality.
- * Highlights the current user's entry if present.
+ * Top 3 entries are shown in a podium layout when available.
  */
 export function Leaderboard() {
   const { user } = useAuth();
@@ -81,8 +82,8 @@ export function Leaderboard() {
       const subscription = AppState.addEventListener('change', handleAppStateChange);
       
       return () => {
-      // Clean up
-      subscription.remove();
+        // Clean up
+        subscription.remove();
       };
     }
   }, [user, loadData, handleAppStateChange]);
@@ -90,7 +91,7 @@ export function Leaderboard() {
   if (loading && !leaderboardData.length && !error) {
     return (
       <View style={styles.centered} testID="leaderboard-loading">
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <ActivityIndicator size="large" color="#1E3A8A" />
       </View>
     );
   }
@@ -112,7 +113,7 @@ export function Leaderboard() {
         <RefreshControl 
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor={theme.colors.primary}
+          tintColor="#1E3A8A"
         />
       }
     >
@@ -122,7 +123,21 @@ export function Leaderboard() {
         accessibilityRole="header"
         accessibilityLabel="Daily Leaderboard"
       >
-        <Text style={styles.title}>Daily Leaderboard</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.title}>Daily Leaderboard</Text>
+          {leaderboardData.length > 0 && (
+            <View style={styles.participantsContainer}>
+              <MaterialCommunityIcons 
+                name="account-group" 
+                size={24} 
+                color="#1E3A8A"
+              />
+              <Text style={styles.participantCount}>
+                {leaderboardData.length}
+              </Text>
+            </View>
+          )}
+        </View>
         <Text 
           style={styles.subtitle}
           accessibilityLabel={`For ${DateUtils.formatDateForDisplay(new Date())}`}
@@ -131,31 +146,21 @@ export function Leaderboard() {
         </Text>
       </View>
 
-      {/* Total Points Summary */}
-      {leaderboardData.length > 0 && (
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Participants</Text>
-            <View style={styles.summaryValue}>
-              <MaterialCommunityIcons 
-                name="account-group" 
-                size={24} 
-                color={theme.colors.primary}
-              />
-              <Text style={styles.participantCount}>
-                {leaderboardData.length}
-              </Text>
-            </View>
-          </View>
-        </View>
+      {/* Podium View for Top 3 */}
+      {leaderboardData.length >= 3 && (
+        <PodiumView 
+          topThree={leaderboardData.slice(0, 3)}
+          currentUserId={user?.id || ''}
+        />
       )}
 
-      {/* Leaderboard Entries */}
-      {leaderboardData.map((entry) => (
+      {/* Standard List for Remaining Entries */}
+      {leaderboardData.length > 3 && leaderboardData.slice(3).map((entry) => (
         <LeaderboardEntry 
           key={entry.user_id} 
           entry={entry}
           highlight={entry.user_id === user?.id}
+          variant="standard"
         />
       ))}
 
@@ -165,7 +170,7 @@ export function Leaderboard() {
           <MaterialCommunityIcons 
             name="trophy-outline" 
             size={48} 
-            color={theme.colors.onSurfaceVariant}
+            color="#64748B"
           />
           <Text style={styles.emptyStateText}>
             No leaderboard data available for today.
@@ -182,10 +187,11 @@ export function Leaderboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: theme.colors.background,
+    backgroundColor: '#F0F9FF',
   },
   contentContainer: {
     flexGrow: 1,
+    paddingBottom: 16,
   },
   centered: {
     flex: 1,
@@ -194,72 +200,61 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 32,
-    paddingBottom: 20,
-    backgroundColor: theme.colors.surface,
-    borderBottomLeftRadius: theme.roundness * 3,
-    borderBottomRightRadius: theme.roundness * 3,
-    elevation: 2,
-    shadowColor: theme.colors.onSurface,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    paddingTop: 20,
+    paddingBottom: 16,
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   title: {
-    ...theme.fonts.headlineMedium,
-    color: theme.colors.onSurface,
+    ...theme.fonts.titleLarge,
+    color: '#1E3A8A',
     textAlign: 'center',
+    fontWeight: '700',
+    fontSize: 28,
   },
   subtitle: {
     ...theme.fonts.bodyLarge,
-    color: theme.colors.onSurfaceVariant,
+    color: '#64748B',
     marginTop: 4,
     textAlign: 'center',
+    fontSize: 16,
   },
-  summaryCard: {
-    marginHorizontal: 16,
-    marginTop: -16,
-    marginBottom: 16,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness * 2,
-    padding: 16,
-    elevation: 3,
-    shadowColor: theme.colors.onSurface,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-  },
-  summaryRow: {
+  headerTop: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 4,
   },
-  summaryLabel: {
-    ...theme.fonts.titleMedium,
-    color: theme.colors.onSurface,
-  },
-  summaryValue: {
+  participantsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginLeft: 12,
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16,
   },
   participantCount: {
-    marginLeft: 8,
-    ...theme.fonts.headlineSmall,
-    color: theme.colors.primary,
+    marginLeft: 6,
+    ...theme.fonts.bodyLarge,
+    color: '#1E3A8A',
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   emptyStateText: {
-    marginTop: 8,
-    ...theme.fonts.bodyMedium,
-    color: theme.colors.onSurfaceVariant,
+    marginTop: 12,
+    ...theme.fonts.bodyLarge,
+    color: '#64748B',
     textAlign: 'center',
+    fontSize: 16,
   },
   bottomPadding: {
-    height: 20,
+    height: 32,
   },
 });
