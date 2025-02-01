@@ -10,7 +10,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from './health/types/permissions';
-import { initializeHealthProviderForUser, mapAuthError } from '../utils/healthProviderUtils';
+import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
+import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 
 interface AuthContextType {

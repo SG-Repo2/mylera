@@ -6,7 +6,7 @@ import {
 } from 'react-native-health-connect';
 import { mapHealthProviderError } from '../../../../utils/errorUtils';
 import { aggregateMetrics, isValidMetricValue } from '../../../../utils/healthMetricUtils';
-import { verifyHealthPermission } from '../../../../utils/healthInitUtils';
+import { verifyHealthPermission } from '../../../../utils/healthPermissionUtils';
 import { BaseHealthProvider } from '../../types/provider';
 import { 
   HealthMetrics, 
@@ -315,8 +315,8 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
             while (bmrRetries < MAX_BMR_RETRIES) {
               try {
-                // Verify BasalMetabolicRate permission specifically
-                const hasBmrPermission = await verifyHealthPermission('BasalMetabolicRate');
+                // Use the new verifyHealthPermission helper passing "this" as provider
+                const hasBmrPermission = await verifyHealthPermission(this, 'BasalMetabolicRate');
                 if (!hasBmrPermission) {
                   console.warn('[GoogleHealthProvider] BasalMetabolicRate permission not granted');
                   break;

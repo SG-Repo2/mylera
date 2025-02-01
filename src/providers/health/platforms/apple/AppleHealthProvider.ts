@@ -4,7 +4,7 @@ import AppleHealthKit, {
   HealthInputOptions,
 } from 'react-native-health';
 import { promisify } from '../../../../utils/promiseWrapper';
-import { aggregateMetrics } from '../../../../utils/healthProviderUtils';
+import { aggregateMetrics } from '../../../../utils/healthMetricUtils';
 import { permissions, HEALTH_PERMISSIONS } from './permissions';
 import { BaseHealthProvider } from '../../types/provider';
 import type { 
