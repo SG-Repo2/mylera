@@ -31,8 +31,6 @@ const calculateProgress = (value: number | null, goal: number): number => {
   return Math.min((value ?? 0) / goal, 1);
 };
 
-const AnimatedSurface = Animated.createAnimatedComponent(Surface);
-
 export const MetricCard = React.memo(function MetricCard({
   title,
   value,
@@ -66,15 +64,29 @@ export const MetricCard = React.memo(function MetricCard({
   };
 
   return (
-    <Animated.View style={[styles.cardWrapper, { transform: [{ scale: scaleAnim }] }]}>
-      <Surface style={[styles.card, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
-        <TouchableRipple
-          onPress={onPress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          style={styles.ripple}
-          borderless
-        >
+    <Animated.View 
+      style={[
+        styles.cardWrapper, 
+        { transform: [{ scale: scaleAnim }] }
+      ]}
+    >
+      {/* Outer surface for shadow */}
+      <Surface 
+        style={[
+          styles.cardShadowWrapper, 
+          { backgroundColor: paperTheme.colors.surface }
+        ]} 
+        elevation={2}
+      >
+        {/* Inner view for content with overflow handling */}
+        <View style={styles.cardContentWrapper}>
+          <TouchableRipple
+            onPress={onPress}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            style={styles.ripple}
+            borderless
+          >
           <View style={styles.cardContent}>
             <View style={styles.headerRow}>
               <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
@@ -106,6 +118,7 @@ export const MetricCard = React.memo(function MetricCard({
             </View>
           </View>
         </TouchableRipple>
+        </View>
       </Surface>
     </Animated.View>
   );
@@ -124,27 +137,35 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
   const percentage = Math.round(progress * 100);
   
   return (
-    <Surface style={[styles.detailCard, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
-      <Card.Content style={styles.cardContent}>
-        <View style={styles.valueContainer}>
-          <Text variant="headlineLarge" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
-            {formattedValue}
-          </Text>
-          <Text variant="titleSmall" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
-            {config.displayUnit}
-          </Text>
-        </View>
+    <Surface 
+      style={[
+        styles.detailCardShadow, 
+        { backgroundColor: paperTheme.colors.surface }
+      ]} 
+      elevation={2}
+    >
+      <View style={styles.detailCardContent}>
+        <Card.Content style={styles.cardContent}>
+          <View style={styles.valueContainer}>
+            <Text variant="headlineLarge" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
+              {formattedValue}
+            </Text>
+            <Text variant="titleSmall" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
+              {config.displayUnit}
+            </Text>
+          </View>
 
-        <ProgressBar
-          progress={progress}
-          color={color || paperTheme.colors.primary}
-          style={styles.progressBar}
-        />
+          <ProgressBar
+            progress={progress}
+            color={color || paperTheme.colors.primary}
+            style={styles.progressBar}
+          />
 
-        <Text variant="bodySmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
-          {percentage}% of {goal} {config.displayUnit}
-        </Text>
-      </Card.Content>
+          <Text variant="bodySmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
+            {percentage}% of {goal} {config.displayUnit}
+          </Text>
+        </Card.Content>
+      </View>
     </Surface>
   );
 });
@@ -154,16 +175,25 @@ const styles = StyleSheet.create({
     minHeight: 160,
     aspectRatio: 1,
   },
-  card: {
+  cardShadowWrapper: {
+    borderRadius: 16,
+    height: '100%',
+  },
+  cardContentWrapper: {
     borderRadius: 16,
     overflow: 'hidden',
     height: '100%',
+    backgroundColor: 'transparent',
   },
-  detailCard: {
+  detailCardShadow: {
     borderRadius: 16,
-    overflow: 'hidden',
     marginHorizontal: 16,
     marginVertical: 8,
+  },
+  detailCardContent: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   ripple: {
     borderRadius: 16,
@@ -186,6 +216,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'transparent', // Color is passed as prop
   },
   title: {
     flex: 1,

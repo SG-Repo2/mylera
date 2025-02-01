@@ -44,13 +44,21 @@ const LoadingView = React.memo(() => {
   }, []);
 
   return (
-    <Surface style={[styles.loadingContainer, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
-      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-        <ActivityIndicator size={48} color={paperTheme.colors.primary} />
-      </Animated.View>
-      <Text variant="titleMedium" style={[styles.loadingText, { color: paperTheme.colors.onSurfaceVariant }]}>
-        Loading your health data...
-      </Text>
+    <Surface 
+      style={[
+        styles.loadingShadowContainer, 
+        { backgroundColor: paperTheme.colors.surface }
+      ]} 
+      elevation={2}
+    >
+      <View style={styles.loadingContainer}>
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <ActivityIndicator size={48} color={paperTheme.colors.primary} />
+        </Animated.View>
+        <Text variant="titleMedium" style={[styles.loadingText, { color: paperTheme.colors.onSurfaceVariant }]}>
+          Loading your health data...
+        </Text>
+      </View>
     </Surface>
   );
 });
@@ -184,22 +192,38 @@ export const Dashboard = React.memo(function Dashboard({
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       {dailyTotal && (
-        <Surface style={styles.headerContainer} elevation={2}>
-          <Animated.View style={[styles.headerContent, { opacity: headerOpacity }]}>
-            <Image 
-              source={require('@/assets/images/mylera-logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-            <Surface style={[styles.pointsContainer, { backgroundColor: paperTheme.colors.primaryContainer }]} elevation={1}>
-              <Text variant="labelLarge" style={{ color: paperTheme.colors.onPrimaryContainer }}>
-                Total Points
-              </Text>
-              <Text variant="headlineSmall" style={[styles.pointsValue, { color: paperTheme.colors.primary }]}>
-                {dailyTotal.total_points}
-              </Text>
-            </Surface>
-          </Animated.View>
+        <Surface 
+          style={[
+            styles.headerShadowContainer, 
+            { backgroundColor: paperTheme.colors.surface }
+          ]} 
+          elevation={2}
+        >
+          <View style={styles.headerContainer}>
+            <Animated.View style={[styles.headerContent, { opacity: headerOpacity }]}>
+              <Image 
+                source={require('@/assets/images/mylera-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+              <Surface 
+                style={[
+                  styles.pointsShadowContainer, 
+                  { backgroundColor: paperTheme.colors.primaryContainer }
+                ]} 
+                elevation={1}
+              >
+                <View style={styles.pointsContainer}>
+                  <Text variant="labelLarge" style={{ color: paperTheme.colors.onPrimaryContainer }}>
+                    Total Points
+                  </Text>
+                  <Text variant="headlineSmall" style={[styles.pointsValue, { color: paperTheme.colors.primary }]}>
+                    {dailyTotal.total_points}
+                  </Text>
+                </View>
+              </Surface>
+            </Animated.View>
+          </View>
         </Surface>
       )}
 
@@ -244,10 +268,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  loadingShadowContainer: {
+    flex: 1,
+    borderRadius: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: 'transparent',
+  },
+  headerShadowContainer: {
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
   headerContainer: {
     borderBottomLeftRadius: 16,
     borderBottomRightRadius: 16,
     overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   headerContent: {
     flexDirection: 'row',
@@ -260,6 +300,9 @@ const styles = StyleSheet.create({
     height: 32,
     width: 120,
   },
+  pointsShadowContainer: {
+    borderRadius: 12,
+  },
   pointsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -267,6 +310,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 12,
+    backgroundColor: 'transparent',
   },
   pointsValue: {
     fontWeight: '700',
@@ -276,12 +320,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 24,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
   },
   loadingText: {
     marginTop: 16,

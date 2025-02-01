@@ -41,13 +41,20 @@ export const metricsService = {
     const today = new Date().toISOString().split('T')[0];
     const config = healthMetrics[metricType];
     
-    if (!config) return;
-
-    // Calculate if goal was reached and points
-    const goalReached = value >= config.defaultGoal;
-    const points = Math.min(Math.floor((value / config.defaultGoal) * 100), 100);
-
-    // Update metric score
+    let goalReached = false;
+    let points = 0;
+    
+    if (__DEV__) {
+      // Development scoring: flat score for any positive value
+      goalReached = value > 0;
+      points = goalReached ? 50 : 0;
+    } else {
+      // Production scoring
+      goalReached = value >= config.defaultGoal;
+      points = Math.min(Math.floor((value / config.defaultGoal) * 100), 100);
+    }
+    
+    // Update metric score with development flag for test data
     const { error: metricError } = await supabase
       .from('daily_metric_scores')
       .upsert({
@@ -58,11 +65,11 @@ export const metricsService = {
         points,
         goal_reached: goalReached,
         updated_at: new Date().toISOString(),
-        is_test_data: false
+        is_test_data: __DEV__
       }, {
         onConflict: 'user_id,date,metric_type'
       });
-
+  
     if (metricError) throw metricError;
 
     // Update daily total
