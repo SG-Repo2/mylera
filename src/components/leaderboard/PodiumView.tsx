@@ -52,7 +52,7 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
 const styles = StyleSheet.create({
   outerContainer: {
     marginHorizontal: 16,
-    marginVertical: 8,
+    marginVertical: 20,
     backgroundColor: '#1E3A8A',
     borderRadius: theme.roundness * 2,
     ...Platform.select({

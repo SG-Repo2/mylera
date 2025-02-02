@@ -25,40 +25,80 @@ interface DashboardProps {
 const LoadingView = React.memo(() => {
   const paperTheme = useTheme();
   const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.8,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+    Animated.parallel([
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0.8,
+            duration: 1200,
+            useNativeDriver: true,
+          }),
+        ])
+      ),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      })
+    ]).start();
   }, []);
 
   return (
     <Surface 
       style={[
         styles.loadingShadowContainer, 
-        { backgroundColor: paperTheme.colors.surface }
+        { 
+          backgroundColor: paperTheme.colors.surface,
+          shadowColor: paperTheme.colors.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+        }
       ]} 
-      elevation={2}
+      elevation={3}
     >
-      <View style={styles.loadingContainer}>
-        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <ActivityIndicator size={48} color={paperTheme.colors.primary} />
+      <Animated.View 
+        style={[
+          styles.loadingContainer,
+          { opacity: fadeAnim }
+        ]}
+      >
+        <Animated.View 
+          style={{ 
+            transform: [{ scale: pulseAnim }],
+            shadowColor: paperTheme.colors.primary,
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+          }}
+        >
+          <ActivityIndicator 
+            size={56} 
+            color={paperTheme.colors.primary} 
+          />
         </Animated.View>
-        <Text variant="titleMedium" style={[styles.loadingText, { color: paperTheme.colors.onSurfaceVariant }]}>
+        <Text 
+          variant="titleMedium" 
+          style={[
+            styles.loadingText, 
+            { 
+              color: paperTheme.colors.onSurfaceVariant,
+              fontSize: 18,
+              fontWeight: '500'
+            }
+          ]}
+        >
           Loading your health data...
         </Text>
-      </View>
+      </Animated.View>
     </Surface>
   );
 });
@@ -127,13 +167,32 @@ export const Dashboard = React.memo(function Dashboard({
   } = useHealthData(provider, userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
+  const pointsScale = React.useRef(new Animated.Value(0.9)).current;
+  const pointsOpacity = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(headerOpacity, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
+    if (dailyTotal) {
+      Animated.sequence([
+        Animated.timing(headerOpacity, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.parallel([
+          Animated.spring(pointsScale, {
+            toValue: 1,
+            friction: 6,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pointsOpacity, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+          })
+        ])
+      ]).start();
+    }
   }, [dailyTotal]);
 
   useEffect(() => {
@@ -202,26 +261,58 @@ export const Dashboard = React.memo(function Dashboard({
           <View style={styles.headerContainer}>
             <Animated.View style={[styles.headerContent, { opacity: headerOpacity }]}>
               <Image 
-                source={require('@/assets/images/mylera-logo.png')}
+                source={require('@/assets/images/myLeraBanner.png')}
                 style={styles.logo}
                 resizeMode="contain"
               />
-              <Surface 
-                style={[
-                  styles.pointsShadowContainer, 
-                  { backgroundColor: paperTheme.colors.primaryContainer }
-                ]} 
-                elevation={1}
+              <Animated.View 
+                style={{ 
+                  transform: [{ scale: pointsScale }],
+                  opacity: pointsOpacity
+                }}
               >
-                <View style={styles.pointsContainer}>
-                  <Text variant="labelLarge" style={{ color: paperTheme.colors.onPrimaryContainer }}>
-                    Total Points
-                  </Text>
-                  <Text variant="headlineSmall" style={[styles.pointsValue, { color: paperTheme.colors.primary }]}>
-                    {dailyTotal.total_points}
-                  </Text>
-                </View>
-              </Surface>
+                <Surface 
+                  style={[
+                    styles.pointsShadowContainer, 
+                    { 
+                      backgroundColor: paperTheme.colors.primaryContainer,
+                      shadowColor: paperTheme.colors.primary,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.15,
+                      shadowRadius: 6,
+                    }
+                  ]} 
+                  elevation={3}
+                >
+                  <View style={styles.pointsContainer}>
+                    <Text 
+                      variant="labelLarge" 
+                      style={{ 
+                        color: paperTheme.colors.onPrimaryContainer,
+                        fontWeight: '600',
+                        letterSpacing: 0.5,
+                        fontSize: 16
+                      }}
+                    >
+                      Total Points
+                    </Text>
+                    <Text 
+                      variant="headlineMedium" 
+                      style={[
+                        styles.pointsValue, 
+                        { 
+                          color: paperTheme.colors.primary,
+                          textShadowColor: 'rgba(0, 0, 0, 0.1)',
+                          textShadowOffset: { width: 0, height: 1 },
+                          textShadowRadius: 2
+                        }
+                      ]}
+                    >
+                      {dailyTotal.total_points}
+                    </Text>
+                  </View>
+                </Surface>
+              </Animated.View>
             </Animated.View>
           </View>
         </Surface>
@@ -248,13 +339,49 @@ export const Dashboard = React.memo(function Dashboard({
       </ScrollView>
 
       <Portal>
-        <Dialog visible={errorDialogVisible} onDismiss={() => setErrorDialogVisible(false)}>
-          <Dialog.Title>Error</Dialog.Title>
+        <Dialog 
+          visible={errorDialogVisible} 
+          onDismiss={() => setErrorDialogVisible(false)}
+          style={{
+            borderRadius: 24,
+            backgroundColor: paperTheme.colors.surface,
+          }}
+        >
+          <Dialog.Title 
+            style={{ 
+              textAlign: 'center',
+              color: paperTheme.colors.error,
+              fontSize: 20,
+              fontWeight: '600',
+              letterSpacing: 0.5,
+            }}
+          >
+            Error
+          </Dialog.Title>
           <Dialog.Content>
-            <Text>Failed to fetch health metrics. Please try again.</Text>
+            <Text 
+              style={{ 
+                textAlign: 'center',
+                color: paperTheme.colors.onSurface,
+                fontSize: 16,
+                lineHeight: 24,
+                letterSpacing: 0.25,
+              }}
+            >
+              Failed to fetch health metrics. Please try again.
+            </Text>
           </Dialog.Content>
-          <Dialog.Actions>
-            <Text onPress={() => setErrorDialogVisible(false)} style={{ color: paperTheme.colors.primary, padding: 8 }}>
+          <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 8 }}>
+            <Text 
+              onPress={() => setErrorDialogVisible(false)} 
+              style={{ 
+                color: paperTheme.colors.primary,
+                padding: 12,
+                fontSize: 16,
+                fontWeight: '600',
+                letterSpacing: 0.5,
+              }}
+            >
               OK
             </Text>
           </Dialog.Actions>
@@ -270,7 +397,8 @@ const styles = StyleSheet.create({
   },
   loadingShadowContainer: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 20,
+    margin: 16,
   },
   loadingContainer: {
     flex: 1,
@@ -280,12 +408,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   headerShadowContainer: {
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   headerContainer: {
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: 'hidden',
     backgroundColor: 'transparent',
   },
@@ -293,36 +429,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    height: 80,
   },
   logo: {
-    height: 32,
-    width: 120,
+    height: 50,
+    width: 135,
   },
   pointsShadowContainer: {
-    borderRadius: 12,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   pointsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 16,
     backgroundColor: 'transparent',
   },
   pointsValue: {
     fontWeight: '700',
+    fontSize: 24,
+    letterSpacing: 0.5,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: 20,
     textAlign: 'center',
+    letterSpacing: 0.25,
   }
 });

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus, Platform, StatusBar, Dimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { theme } from '../../theme/theme';
 import { leaderboardService } from '../../services/leaderboardService';
@@ -184,6 +184,13 @@ export function Leaderboard() {
   );
 }
 
+// Get status bar height for Android
+const STATUSBAR_HEIGHT = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Calculate dynamic padding based on screen size
+const DYNAMIC_PADDING = Math.min(20, SCREEN_HEIGHT * 0.025);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -200,7 +207,10 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: Platform.select({
+      android: STATUSBAR_HEIGHT + DYNAMIC_PADDING,
+      ios: DYNAMIC_PADDING
+    }),
     paddingBottom: 16,
     backgroundColor: '#F0F9FF',
     borderBottomWidth: 1,
