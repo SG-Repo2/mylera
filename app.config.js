@@ -21,6 +21,8 @@ export default {
           },
           ios: {
             deploymentTarget: "16.1",
+            useFrameworks: "static",
+            newArchEnabled: false,
           },
         },
       ],
