@@ -31,6 +31,7 @@ export default {
     ios: {
       bundleIdentifier: "com.groebe1kenobi.mylera",
       infoPlist: {
+        NSHealthKitUsageDescription: "Mylera needs access to your health data to track fitness metrics and provide personalized insights.",
         NSHealthShareUsageDescription: "This app requires access to health data to track your fitness metrics.",
         NSHealthUpdateUsageDescription: "This app requires access to health data to track your fitness metrics.",
         UIBackgroundModes: ["fetch", "remote-notification"],
