@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, ScrollView, RefreshControl, SafeAreaView, StyleSheet, Image, Animated } from 'react-native';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { brandColors } from '@/src/theme/theme';
 import { useHealthData } from '@/src/hooks/useHealthData';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { MetricCardList } from './MetricCardList';
@@ -8,6 +10,7 @@ import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
+import { leaderboardService } from '@/src/services/leaderboardService';
 import { useState, useEffect } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
@@ -159,6 +162,7 @@ export const Dashboard = React.memo(function Dashboard({
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
+  const [userRank, setUserRank] = useState<number | null>(null);
   
   const {
     loading,
@@ -198,9 +202,10 @@ export const Dashboard = React.memo(function Dashboard({
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [totals, metricScores] = await Promise.all([
+        const [totals, metricScores, rank] = await Promise.all([
           metricsService.getDailyTotals(date),
-          metricsService.getDailyMetrics(userId, date)
+          metricsService.getDailyMetrics(userId, date),
+          leaderboardService.getUserRank(userId, date)
         ]);
         
         const userTotal = totals.find(total => total.user_id === userId) || null;
@@ -213,6 +218,7 @@ export const Dashboard = React.memo(function Dashboard({
           date
         );
         setHealthMetrics(transformedMetrics);
+        setUserRank(rank);
         setFetchError(null);
       } catch (err) {
         console.error('Error fetching metrics:', err);
@@ -251,71 +257,111 @@ export const Dashboard = React.memo(function Dashboard({
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       {dailyTotal && (
-        <Surface 
-          style={[
-            styles.headerShadowContainer, 
-            { backgroundColor: paperTheme.colors.surface }
-          ]} 
-          elevation={2}
-        >
+        <>
           <View style={styles.headerContainer}>
-            <Animated.View style={[styles.headerContent, { opacity: headerOpacity }]}>
+            <Animated.View 
+              style={[
+                styles.headerContent,
+                {
+                  opacity: headerOpacity,
+                  backgroundColor: 'transparent',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }
+              ]}
+            >
               <Image 
                 source={require('@/assets/images/myLeraBanner.png')}
                 style={styles.logo}
                 resizeMode="contain"
               />
-              <Animated.View 
-                style={{ 
-                  transform: [{ scale: pointsScale }],
-                  opacity: pointsOpacity
-                }}
+              <Text 
+                variant="titleLarge"
+                style={[
+                  styles.headerRank,
+                  { color: paperTheme.colors.primary }
+                ]}
               >
-                <Surface 
-                  style={[
-                    styles.pointsShadowContainer, 
-                    { 
-                      backgroundColor: paperTheme.colors.primaryContainer,
-                      shadowColor: paperTheme.colors.primary,
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.15,
-                      shadowRadius: 6,
-                    }
-                  ]} 
-                  elevation={3}
-                >
-                  <View style={styles.pointsContainer}>
-                    <Text 
-                      variant="labelLarge" 
-                      style={{ 
-                        color: paperTheme.colors.onPrimaryContainer,
-                        fontWeight: '600',
-                        letterSpacing: 0.5,
-                        fontSize: 16
-                      }}
-                    >
-                      Total Points
-                    </Text>
-                    <Text 
-                      variant="headlineMedium" 
-                      style={[
-                        styles.pointsValue, 
-                        { 
-                          color: paperTheme.colors.primary,
-                          textShadowColor: 'rgba(0, 0, 0, 0.1)',
-                          textShadowOffset: { width: 0, height: 1 },
-                          textShadowRadius: 2
-                        }
-                      ]}
-                    >
-                      {dailyTotal.total_points}
-                    </Text>
-                  </View>
-                </Surface>
-              </Animated.View>
+                #{userRank || '-'}
+              </Text>
+              <Text 
+                variant="titleLarge"
+                style={[
+                  styles.headerPoints,
+                  { color: paperTheme.colors.primary }
+                ]}
+              >
+                {dailyTotal.total_points} pts
+              </Text>
             </Animated.View>
           </View>
-        </Surface>
+
+          <Animated.View 
+            style={[
+              styles.statsSection,
+              {
+                transform: [{ scale: pointsScale }],
+                opacity: pointsOpacity,
+              }
+            ]}
+          >
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Surface 
+                style={[
+                  styles.statsCard, 
+                  { 
+                    backgroundColor: brandColors.primary,
+                  }
+                ]}
+                elevation={2}
+              >
+                <View style={styles.statsContainer}>
+                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                    Daily Goals
+                  </Text>
+                  <Text variant="headlineMedium" style={[styles.statsValue, { color: 'white' }]}>
+                    {dailyTotal.metrics_completed}/7
+                  </Text>
+                </View>
+              </Surface>
+
+              <Surface 
+                style={[
+                  styles.statsCard, 
+                  { 
+                    backgroundColor: brandColors.success
+                  }
+                ]}
+                elevation={2}
+              >
+                <View style={styles.statsContainer}>
+                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                    Strength
+                  </Text>
+                  <MaterialCommunityIcons name="fire" size={28} color="white" />
+                </View>
+              </Surface>
+
+              <Surface 
+                style={[
+                  styles.statsCard, 
+                  { 
+                    backgroundColor: paperTheme.colors.error
+                  }
+                ]}
+                elevation={2}
+              >
+                <View style={styles.statsContainer}>
+                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                    Improve
+                  </Text>
+                  <MaterialCommunityIcons name="run" size={28} color="white" />
+                </View>
+              </Surface>
+            </View>
+          </Animated.View>
+        </>
       )}
 
       <ScrollView
@@ -407,59 +453,75 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: 'transparent',
   },
-  headerShadowContainer: {
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+  headerContainer: {
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  headerContent: {
+    paddingHorizontal: 16,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  logo: {
+    height: 36,
+    width: 100,
+    marginRight: 'auto',
+  },
+  headerRank: {
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginHorizontal: 12,
+    fontSize: 18,
+  },
+  headerPoints: {
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    fontSize: 18,
+  },
+  statsSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  statsCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    flex: 1,
+    minWidth: 100,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  headerContainer: {
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
-  },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    height: 80,
-  },
-  logo: {
-    height: 50,
-    width: 135,
-  },
-  pointsShadowContainer: {
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
+    shadowRadius: 3,
     elevation: 3,
   },
-  pointsContainer: {
-    flexDirection: 'row',
+  statsContainer: {
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
+    justifyContent: 'center',
     paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    minHeight: 80,
   },
-  pointsValue: {
-    fontWeight: '700',
+  statsLabel: {
+    fontSize: 15,
+    marginBottom: 8,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  statsValue: {
     fontSize: 24,
+    fontWeight: '700',
     letterSpacing: 0.5,
   },
   scrollView: {
