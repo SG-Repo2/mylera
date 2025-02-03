@@ -39,7 +39,7 @@ export default {
       entitlements: {
         "com.apple.developer.healthkit": true,
         "com.apple.developer.healthkit.background-delivery": true,
-        "com.apple.developer.healthkit.access": [
+        "com.apple.developer.healthkit.read": [
           "HKQuantityTypeIdentifierStepCount",
           "HKQuantityTypeIdentifierDistanceWalkingRunning",
           "HKQuantityTypeIdentifierHeartRate",
