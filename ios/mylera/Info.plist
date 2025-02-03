@@ -51,6 +51,8 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSHealthClinicalHealthRecordsShareUsageDescription</key>
+	<string>Allow Health records to be read</string>
 	<key>NSHealthKitUsageDescription</key>
 	<string>Mylera securely accesses HealthKit to track your fitness metrics</string>
 	<key>NSHealthShareUsageDescription</key>

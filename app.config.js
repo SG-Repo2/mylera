@@ -29,12 +29,17 @@ export default {
     ios: {
       bundleIdentifier: "com.groebe1kenobi.mylera",
       infoPlist: {
-        NSHealthShareUsageDescription: "Allow Mylera to read your health data for activity tracking",
-        NSHealthKitUsageDescription: "Mylera securely accesses HealthKit to track your fitness metrics"
+        NSHealthShareUsageDescription: "This app requires access to health data to track your fitness metrics.",
+        NSHealthUpdateUsageDescription: "This app requires access to health data to track your fitness metrics.",
+        UIBackgroundModes: ["fetch", "remote-notification"],
+      },
+      config: {
+        usesNonExemptEncryption: false
       },
       entitlements: {
         "com.apple.developer.healthkit": true,
-        "com.apple.developer.healthkit.read": [
+        "com.apple.developer.healthkit.background-delivery": true,
+        "com.apple.developer.healthkit.access": [
           "HKQuantityTypeIdentifierStepCount",
           "HKQuantityTypeIdentifierDistanceWalkingRunning",
           "HKQuantityTypeIdentifierHeartRate",
