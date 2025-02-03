@@ -56,7 +56,7 @@
     <key>NSHealthClinicalHealthRecordsShareUsageDescription</key>
     <string>Allow Health records to be read</string>
     <key>NSHealthKitUsageDescription</key>
-    <string>Mylera securely accesses HealthKit to track your fitness metrics</string>
+    <string>Mylera needs access to your health data to track fitness metrics and provide personalized insights.</string>
     <key>NSHealthShareUsageDescription</key>
     <string>This app requires access to health data to track your fitness metrics.</string>
     <key>NSHealthUpdateUsageDescription</key>
