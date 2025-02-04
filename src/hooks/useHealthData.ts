@@ -33,14 +33,25 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [error, setError] = useState<Error | null>(null);
 
   const syncHealthData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
-      // Initialize permissions first
+    try {
+      // Initialize provider first
+      try {
+        await provider.initialize();
+      } catch (err) {
+        const originalMessage = err instanceof Error ? err.message : 'Unknown error';
+        console.error('Health initialization error:', err);
+        setError(new Error(`Failed to initialize health provider: ${originalMessage}`));
+        setLoading(false);
+        return; // Exit early on initialization failure
+      }
+
+      // Initialize permissions
       await provider.initializePermissions(userId);
 
-      // Check permissions
+      // Only proceed with permission checks if initialization succeeded
       const permissionState = await provider.checkPermissionsStatus();
       if (permissionState.status !== 'granted') {
         const granted = await provider.requestPermissions();
@@ -67,14 +78,34 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       const updates = healthMetrics.map(async metric => {
         const value = healthData[metric];
         if (typeof value === 'number') {
-          await metricsService.updateMetric(userId, metric, value);
+          try {
+            await metricsService.updateMetric(userId, metric, value);
+          } catch (err) {
+            // If it's an auth error, stop processing immediately
+            if (err instanceof Error && err.name === 'MetricsAuthError') {
+              throw err;
+            }
+            // For other errors, log but continue processing other metrics
+            console.error(`Error updating metric ${metric}:`, err);
+          }
         }
       });
 
       await Promise.all(updates);
 
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to sync health data'));
+      let errorMessage = 'Failed to sync health data';
+      
+      // Handle specific error types
+      if (err instanceof Error) {
+        if (err.name === 'MetricsAuthError') {
+          errorMessage = `Authentication error: ${err.message}`;
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(new Error(errorMessage));
       console.error('Health sync error:', err);
     } finally {
       setLoading(false);

@@ -66,20 +66,6 @@ jest.mock('react-native-health-connect', () => ({
 jest.mock('react-native', () => {
   const RN = jest.requireActual('react-native');
 
-  // Mock Animated
-  class AnimatedValue {
-    constructor(value) {
-      this._value = value;
-    }
-    
-    interpolate({ inputRange, outputRange }) {
-      return {
-        _interpolation: { inputRange, outputRange },
-        __getValue: () => this._value,
-      };
-    }
-  }
-
   // Mock EventEmitter for AppState
   class MockEventEmitter {
     listeners = {};
@@ -106,6 +92,19 @@ jest.mock('react-native', () => {
       remove: jest.fn()
     };
   });
+
+  const createMockComponent = (name) => {
+    const Component = ({ children, testID, ...props }) => {
+      return {
+        $$typeof: Symbol.for('react.element'),
+        type: name,
+        props: { ...props, testID, children },
+        ref: null,
+      };
+    };
+    Component.displayName = name;
+    return Component;
+  };
 
   return {
     Platform: {
@@ -136,13 +135,14 @@ jest.mock('react-native', () => {
       flatten: jest.fn(style => style),
     },
     AppState: mockAppState,
-    // Add basic components
-    View: 'View',
-    Text: 'Text',
-    Image: 'Image',
+    // Add basic components with proper component structure
+    View: createMockComponent('View'),
+    Text: createMockComponent('Text'),
+    TouchableOpacity: createMockComponent('TouchableOpacity'),
+    Image: createMockComponent('Image'),
     Animated: {
-      View: 'Animated.View',
-      Text: 'Animated.Text',
+      View: createMockComponent('Animated.View'),
+      Text: createMockComponent('Animated.Text'),
       Value: class AnimatedValue {
         constructor(value) {
           this._value = value;
@@ -158,7 +158,6 @@ jest.mock('react-native', () => {
           return {
             _interpolation: { inputRange, outputRange },
             __getValue: () => {
-              // Simple linear interpolation
               const input = this._value;
               const index = inputRange.findIndex(x => x >= input) - 1;
               if (index < 0) return outputRange[0];
