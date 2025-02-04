@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MetricType } from '@/src/types/metrics';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
-import { LineChart } from './LineChart';
+import { BarChart } from './BarChart';
 
 interface MetricModalProps {
   visible: boolean;
@@ -120,7 +120,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
             </Text>
 
             <View style={styles.chartContainer}>
-              <LineChart metricType={metricType} />
+              <BarChart metricType={metricType} />
             </View>
 
             {additionalInfo && additionalInfo.length > 0 && (

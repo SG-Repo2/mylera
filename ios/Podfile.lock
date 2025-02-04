@@ -6,18 +6,18 @@ PODS:
   - EXJSONUtils (0.14.0)
   - EXManifests (0.15.5):
     - ExpoModulesCore
-  - Expo (52.0.28):
+  - Expo (52.0.30):
     - ExpoModulesCore
-  - expo-dev-client (5.0.10):
+  - expo-dev-client (5.0.11):
     - EXManifests
     - expo-dev-launcher
     - expo-dev-menu
     - expo-dev-menu-interface
     - EXUpdatesInterface
-  - expo-dev-launcher (5.0.25):
+  - expo-dev-launcher (5.0.27):
     - DoubleConversion
     - EXManifests
-    - expo-dev-launcher/Main (= 5.0.25)
+    - expo-dev-launcher/Main (= 5.0.27)
     - expo-dev-menu
     - expo-dev-menu-interface
     - ExpoModulesCore
@@ -43,7 +43,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - expo-dev-launcher/Main (5.0.25):
+  - expo-dev-launcher/Main (5.0.27):
     - DoubleConversion
     - EXManifests
     - expo-dev-launcher/Unsafe
@@ -72,7 +72,7 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - expo-dev-launcher/Unsafe (5.0.25):
+  - expo-dev-launcher/Unsafe (5.0.27):
     - DoubleConversion
     - EXManifests
     - expo-dev-menu
@@ -216,9 +216,9 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - ExpoAsset (11.0.2):
+  - ExpoAsset (11.0.3):
     - ExpoModulesCore
-  - ExpoFileSystem (18.0.7):
+  - ExpoFileSystem (18.0.9):
     - ExpoModulesCore
   - ExpoFont (13.0.3):
     - ExpoModulesCore
@@ -1812,6 +1812,8 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
+  - RNSVG (15.11.1):
+    - React-Core
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -1901,6 +1903,7 @@ DEPENDENCIES:
   - RNAppleHealthKit (from `../node_modules/react-native-health`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNScreens (from `../node_modules/react-native-screens`)
+  - RNSVG (from `../node_modules/react-native-svg`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -2076,6 +2079,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-async-storage/async-storage"
   RNScreens:
     :path: "../node_modules/react-native-screens"
+  RNSVG:
+    :path: "../node_modules/react-native-svg"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -2085,13 +2090,13 @@ SPEC CHECKSUMS:
   EXConstants: e25c3f3ef5d1cf7a6ef911ebf7a3ab94d8d06d82
   EXJSONUtils: 01fc7492b66c234e395dcffdd5f53439c5c29c93
   EXManifests: 15142dee1be3ea1cd0039feddef3888c3f0bb057
-  Expo: f160c4be97b390767b78adaae25fd9492bebb6c6
-  expo-dev-client: 6166140e8a75696f3c965fe225a9542d39eeb652
-  expo-dev-launcher: d1383d33acdc2e40d0eb2ac105f774d42fd26505
+  Expo: 6a56836eb57959aec7bc0e6ce8234305af6803b7
+  expo-dev-client: 837811fcdc69e50023605eec10d4bf5821ad16f4
+  expo-dev-launcher: ccd8801fd59628291ef7093b2ff4f3bc94db9694
   expo-dev-menu: 10e29357d42fd8cba07e23903d0cc8e52dbed8e1
   expo-dev-menu-interface: 00dc42302a72722fdecec3fa048de84a9133bcc4
-  ExpoAsset: d2d2cbc6a4efadf51a3da27d85d589935abd0b98
-  ExpoFileSystem: 818e82dbb71175414d1ca310e926c48ff0d07348
+  ExpoAsset: 715ce37a36951fee71c32773b3be50f2285e2fbe
+  ExpoFileSystem: 65eee7cfa2a032fa06657d18e475de429f43e920
   ExpoFont: 38656978c2a4022fb7e0c43e4968d66340f5e2f3
   ExpoHead: 5d1c5c20e3933db5d9ca349424cb3b9a4a84b706
   ExpoKeepAwake: 62ff49bbc3bff90d8ee28329190f9ba371bf88e7
@@ -2164,6 +2169,7 @@ SPEC CHECKSUMS:
   RNAppleHealthKit: 86ef7ab70f762b802f5c5289372de360cca701f9
   RNCAsyncStorage: b6410dead2732b5c72a7fdb1ecb5651bbcf4674b
   RNScreens: 9d4263adf1791e32fdc1a7c8aac8a401f75e83da
+  RNSVG: 86fecdfc637614ba9def63f7f3f2e7795e018356
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: fd4ca32b81c4069b4175ad9460b042e17db94b66
 

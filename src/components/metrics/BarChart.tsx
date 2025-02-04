@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Dimensions, StyleSheet } from 'react-native';
+import { View, Dimensions, StyleSheet, Animated } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
-import Svg, { Line, Rect, Text as SvgText, G } from 'react-native-svg';
 import { MetricType } from '@/src/types/metrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 
-interface LineChartProps {
+interface BarChartProps {
   metricType: MetricType;
 }
 
 interface DataPoint {
   date: string;
   value: number;
+  animation: Animated.Value;
 }
 
-export function LineChart({ metricType }: LineChartProps) {
+export function BarChart({ metricType }: BarChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataPoint[]>([]);
@@ -61,7 +61,8 @@ export function LineChart({ metricType }: LineChartProps) {
 
     return days.map(day => ({
       date: day,
-      value: baseValue + Math.random() * variance
+      value: baseValue + Math.random() * variance,
+      animation: new Animated.Value(0)
     }));
   };
 
@@ -74,6 +75,19 @@ export function LineChart({ metricType }: LineChartProps) {
         const mockData = generateMockData();
         setData(mockData);
         setLoading(false);
+
+        // Animate bars
+        Animated.stagger(100, 
+          mockData.map(item =>
+            Animated.spring(item.animation, {
+              toValue: 1,
+              useNativeDriver: false,
+              friction: 8,
+              tension: 40
+            })
+          )
+        ).start();
+
       } catch (err) {
         setError('Failed to load chart data');
         setLoading(false);
@@ -108,10 +122,11 @@ export function LineChart({ metricType }: LineChartProps) {
   const padding = (maxValue - minValue) * 0.1;
   const yMax = maxValue + padding;
   const yMin = Math.max(0, minValue - padding);
+  const range = yMax - yMin;
 
   const chartWidth = Dimensions.get('window').width - 48; // Accounting for padding
   const chartHeight = 220;
-  const barWidth = (chartWidth * 0.8) / data.length;
+  const barWidth = (chartWidth - 40) / data.length - 8; // Account for spacing between bars
 
   return (
     <View style={styles.container}>
@@ -127,62 +142,53 @@ export function LineChart({ metricType }: LineChartProps) {
 
       {/* Chart area */}
       <View style={styles.chartArea}>
-        <Svg width={chartWidth} height={chartHeight}>
-          {/* Grid lines */}
+        {/* Grid lines */}
+        <View style={styles.gridContainer}>
           {[0, 25, 50, 75, 100].map((percent) => (
-            <Line
+            <View
               key={percent}
-              x1="0"
-              y1={`${percent}%`}
-              x2="100%"
-              y2={`${percent}%`}
-              stroke={theme.colors.surfaceVariant}
-              strokeWidth="1"
+              style={[
+                styles.gridLine,
+                {
+                  top: `${percent}%`,
+                  backgroundColor: theme.colors.surfaceVariant
+                }
+              ]}
             />
           ))}
+        </View>
 
-          {/* Bars */}
-          {data.map((d, i) => {
-            const x = (i * chartWidth) / (data.length - 1);
-            const y = ((yMax - d.value) / (yMax - yMin)) * chartHeight;
-            const barHeight = chartHeight - y;
+        {/* Bars */}
+        <View style={styles.barsContainer}>
+          {data.map((point, index) => {
+            const barHeight = ((point.value - yMin) / range) * chartHeight;
             
             return (
-              <G key={i}>
-                <Rect
-                  x={x - barWidth/2}
-                  y={y}
-                  width={barWidth}
-                  height={barHeight}
-                  fill={metricColors[metricType]}
-                  opacity={0.9}
-                  rx={2}
+              <View key={point.date} style={styles.barWrapper}>
+                <View style={styles.barLabelContainer}>
+                  <Text variant="bodySmall" style={[styles.barValue, { color: theme.colors.onSurface }]}>
+                    {Math.round(point.value)}
+                  </Text>
+                </View>
+                <Animated.View
+                  style={[
+                    styles.bar,
+                    {
+                      height: point.animation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, barHeight]
+                      }),
+                      width: barWidth,
+                      backgroundColor: metricColors[metricType],
+                    }
+                  ]}
                 />
-                <SvgText
-                  x={x}
-                  y={y - 10}
-                  textAnchor="middle"
-                  fill={theme.colors.onSurface}
-                  fontSize={12}
-                >
-                  {Math.round(d.value)}
-                </SvgText>
-              </G>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {point.date}
+                </Text>
+              </View>
             );
           })}
-        </Svg>
-
-        {/* X-axis labels */}
-        <View style={styles.xAxisLabels}>
-          {data.map((d) => (
-            <Text
-              key={d.date}
-              variant="bodySmall"
-              style={{ color: theme.colors.onSurfaceVariant }}
-            >
-              {d.date}
-            </Text>
-          ))}
         </View>
       </View>
     </View>
@@ -208,11 +214,41 @@ const styles = StyleSheet.create({
   chartArea: {
     flex: 1,
     marginLeft: 40,
+    width: Dimensions.get('window').width - 48,
   },
-  xAxisLabels: {
+  gridContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  gridLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+  },
+  barsContainer: {
+    flex: 1,
     flexDirection: 'row',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    marginTop: 8,
+    paddingBottom: 20,
+  },
+  barWrapper: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    height: '100%',
+  },
+  barLabelContainer: {
+    marginBottom: 4,
+  },
+  barValue: {
+    fontSize: 10,
+  },
+  bar: {
+    borderRadius: 4,
+    marginBottom: 8,
   },
 });
