@@ -17,6 +17,7 @@ import { METRIC_UNITS } from '../../types/metrics';
 import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
+import { DateUtils } from '../../../../utils/DateUtils';
 
 export class AppleHealthProvider extends BaseHealthProvider {
   async initialize(): Promise<void> {
@@ -253,7 +254,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   async getMetrics(): Promise<HealthMetrics> {
     const now = new Date();
-    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+    const startOfDay = DateUtils.getStartOfDay(now);
     
     const rawData = await this.fetchRawMetrics(
       startOfDay,
