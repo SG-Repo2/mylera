@@ -114,12 +114,20 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
+    if (!userId) {
+      console.warn('useHealthData: No userId available - skipping sync');
+      setLoading(false);
+      return;
+    }
+    
     syncHealthData();
     
     return () => {
-      provider.cleanup();
+      if (provider.cleanup) {
+        provider.cleanup();
+      }
     };
-  }, [syncHealthData]);
+  }, [syncHealthData, userId]);
 
   return { loading, error, syncHealthData };
 };
