@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Dimensions, Animated } from 'react-native';
+import React, { useCallback, useEffect } from 'react';
+import { View, Animated, Pressable } from 'react-native';
 import { Modal, Portal, Text, IconButton, useTheme, Surface, Card } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
@@ -76,21 +76,48 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
-  const animatedValue = React.useRef(new Animated.Value(0)).current;
+  const translateY = React.useRef(new Animated.Value(200)).current;
+  const opacity = React.useRef(new Animated.Value(0)).current;
   const healthTip = getHealthTip(metricType);
 
-  React.useEffect(() => {
-    Animated.spring(animatedValue, {
-      toValue: 1,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 100,
-    }).start();
-  }, []);
+  const handleClose = useCallback(() => {
+    Animated.parallel([
+      Animated.spring(translateY, {
+        toValue: 200,
+        useNativeDriver: true,
+        damping: 15,
+        mass: 1,
+        stiffness: 150,
+      }),
+      Animated.spring(opacity, {
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
+  }, [onClose, translateY, opacity]);
 
-  const animatedStyle = {
-    transform: [{ scale: animatedValue }],
-  };
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 15,
+          mass: 1,
+          stiffness: 150,
+        }),
+        Animated.spring(opacity, {
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      translateY.setValue(200);
+      opacity.setValue(0);
+    }
+  }, [visible, translateY, opacity]);
 
   const metricConfig = healthMetrics[metricType];
   const metricColor = metricColors[metricType];
@@ -99,56 +126,65 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     <Portal>
       <Modal
         visible={visible}
-        onDismiss={onClose}
+        onDismiss={handleClose}
         contentContainerStyle={[
           styles.modalContainer,
           { paddingBottom: insets.bottom },
         ]}
       >
-        <Animated.View style={animatedStyle}>
-          <Surface style={styles.modalContent} elevation={4}>
-            <IconButton
-              icon="close"
-              size={24}
-              onPress={onClose}
-              style={styles.closeButton}
-            />
+        <Pressable style={styles.modalBackdrop} onPress={handleClose}>
+          <View style={{ flex: 1 }} />
+        </Pressable>
+        <Animated.View
+          style={[
+            { transform: [{ translateY }] },
+            { opacity },
+          ]}
+        >
+              <Surface style={styles.modalContent} elevation={4}>
+                <IconButton
+                  icon="close"
+                  size={24}
+                  onPress={handleClose}
+                  style={styles.closeButton}
+                />
 
-            <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
-            <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-              {metricConfig.formatValue(value)} {metricConfig.displayUnit}
-            </Text>
-
-            <View style={styles.chartContainer}>
-              <BarChart metricType={metricType} />
-            </View>
-
-            {additionalInfo && additionalInfo.length > 0 && (
-              <View style={styles.additionalInfoContainer}>
-                {additionalInfo.map((info, index) => (
-                  <View key={index} style={styles.infoRow}>
-                    <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
-                    <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <Card style={styles.healthTipCard}>
-              <Card.Content style={styles.healthTipContent}>
-                <View style={styles.healthTipHeader}>
-                  <MaterialCommunityIcons name={healthTip.icon} size={24} color={metricColor} />
-                  <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
-                    Did you know?
-                  </Text>
-                </View>
-                <Text variant="bodyMedium" style={styles.healthTipText}>
-                  {healthTip.tip}
+                <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
+                <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
+                  {metricConfig.formatValue(value)} {metricConfig.displayUnit}
                 </Text>
-              </Card.Content>
-            </Card>
-          </Surface>
-        </Animated.View>
+
+                <View style={styles.chartContainer}>
+                  <BarChart metricType={metricType} />
+                </View>
+
+                {additionalInfo && additionalInfo.length > 0 && (
+                  <View style={styles.additionalInfoContainer}>
+                    {additionalInfo.map((info, index) => (
+                      <View key={index} style={styles.infoRow}>
+                        <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
+                        <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <Card style={styles.healthTipCard}>
+                  <Card.Content style={styles.healthTipContent}>
+                    <View style={styles.healthTipHeader}>
+                      <MaterialCommunityIcons name={healthTip.icon} size={24} color={metricColor} />
+                      <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
+                        Did you know?
+                      </Text>
+                    </View>
+                    <Text variant="bodyMedium" style={styles.healthTipText}>
+                      {healthTip.tip}
+                    </Text>
+                  </Card.Content>
+                </Card>
+              </Surface>
+            </Animated.View>
+
       </Modal>
     </Portal>
   );

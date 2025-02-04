@@ -55,13 +55,15 @@ function ProtectedRoutes() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <PaperProvider theme={theme}>
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-          <ProtectedRoutes />
-        </SafeAreaView>
-      </PaperProvider>
-    </AuthProvider>
+  
+      <AuthProvider>
+        <PaperProvider theme={theme}>
+          <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+            <ProtectedRoutes />
+          </SafeAreaView>
+        </PaperProvider>
+      </AuthProvider>
+
   );
 }
 

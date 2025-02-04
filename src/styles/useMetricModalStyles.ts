@@ -1,15 +1,21 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Dimensions } from 'react-native';
 import { MD3Theme, useTheme } from 'react-native-paper';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const createStyles = (theme: MD3Theme) => StyleSheet.create({
   modalContainer: {
     margin: 0,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    maxHeight: Math.min(screenHeight * 0.8, 600),
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   modalContent: {
-    padding: 24,
-    paddingTop: 32,
+    padding: screenWidth > 380 ? 24 : 16,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     backgroundColor: theme.colors.surface,
@@ -26,28 +32,38 @@ const createStyles = (theme: MD3Theme) => StyleSheet.create({
     position: 'absolute',
     right: 16,
     top: 16,
+    width: 44,
+    height: 44,
     backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: 22,
+    elevation: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
   },
   modalTitle: {
     marginBottom: 8,
     color: theme.colors.onSurface,
     letterSpacing: -0.5,
+    fontSize: screenWidth > 380 ? 24 : 20,
   },
   modalValue: {
     marginBottom: 24,
     letterSpacing: -1,
+    fontSize: screenWidth > 380 ? 36 : 32,
   },
   chartContainer: {
     alignItems: 'center',
-    marginVertical: 24,
+    marginVertical: screenWidth > 380 ? 24 : 16,
   },
   chart: {
     marginVertical: 8,
     borderRadius: 24,
     overflow: 'hidden',
+    width: '100%',
   },
   additionalInfoContainer: {
-    marginTop: 24,
+    marginTop: screenWidth > 380 ? 24 : 16,
     gap: 16,
     padding: 16,
     backgroundColor: theme.colors.surfaceVariant,
@@ -61,9 +77,11 @@ const createStyles = (theme: MD3Theme) => StyleSheet.create({
   },
   infoLabel: {
     color: theme.colors.onSurfaceVariant,
+    fontSize: screenWidth > 380 ? 16 : 14,
   },
   infoValue: {
     color: theme.colors.onSurface,
+    fontSize: screenWidth > 380 ? 16 : 14,
   },
   calorieCharts: {
     marginBottom: 16,
@@ -74,7 +92,7 @@ const createStyles = (theme: MD3Theme) => StyleSheet.create({
     marginBottom: 16,
   },
   healthTipCard: {
-    marginTop: 24,
+    marginTop: screenWidth > 380 ? 24 : 16,
     marginHorizontal: 0,
     backgroundColor: theme.colors.surfaceVariant,
   },
@@ -95,6 +113,7 @@ const createStyles = (theme: MD3Theme) => StyleSheet.create({
     color: theme.colors.onSurfaceVariant,
     lineHeight: 20,
     letterSpacing: 0.25,
+    fontSize: screenWidth > 380 ? 16 : 14,
   },
 });
 
