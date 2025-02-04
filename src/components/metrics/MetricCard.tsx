@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, View, Animated } from 'react-native';
+import { View, Animated } from 'react-native';
 import { Card, Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
-import { theme as appTheme } from '@/src/theme/theme';
+import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 
 // Individual Metric Card Component Props
 interface MetricCardProps {
@@ -39,10 +39,11 @@ export const MetricCard = React.memo(function MetricCard({
   icon,
   unit,
   metricType,
-  color = appTheme.colors.primary,
+  color,
   onPress
 }: MetricCardProps) {
-  const paperTheme = useTheme();
+  const styles = useMetricCardStyles();
+  const theme = useTheme();
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
   const percentage = Math.round(progress * 100);
@@ -74,7 +75,7 @@ export const MetricCard = React.memo(function MetricCard({
       <Surface 
         style={[
           styles.cardShadowWrapper, 
-          { backgroundColor: paperTheme.colors.surface }
+          { backgroundColor: theme.colors.surface }
         ]} 
         elevation={2}
       >
@@ -92,16 +93,16 @@ export const MetricCard = React.memo(function MetricCard({
               <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
                 <MaterialCommunityIcons name={icon} size={24} color="white" />
               </Surface>
-              <Text variant="labelLarge" style={[styles.title, { color: paperTheme.colors.onSurface }]}>
+              <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
                 {title}
               </Text>
             </View>
             
             <View style={styles.valueContainer}>
-              <Text variant="displaySmall" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
+              <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
                 {formattedValue}
               </Text>
-              <Text variant="labelMedium" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
+              <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
                 {unit}
               </Text>
             </View>
@@ -112,7 +113,7 @@ export const MetricCard = React.memo(function MetricCard({
                 color={color}
                 style={styles.progressBar}
               />
-              <Text variant="labelSmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
+              <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
                 {percentage}% of goal
               </Text>
             </View>
@@ -130,7 +131,8 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
   goal,
   color,
 }: MetricDetailCardProps) {
-  const paperTheme = useTheme();
+  const styles = useMetricCardStyles();
+  const theme = useTheme();
   const config = healthMetrics[metricType];
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
@@ -140,137 +142,32 @@ export const MetricDetailCard = React.memo(function MetricDetailCard({
     <Surface 
       style={[
         styles.detailCardShadow, 
-        { backgroundColor: paperTheme.colors.surface }
+        { backgroundColor: theme.colors.surface }
       ]} 
       elevation={2}
     >
       <View style={styles.detailCardContent}>
         <Card.Content style={styles.cardContent}>
           <View style={styles.valueContainer}>
-            <Text variant="headlineLarge" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
+            <Text variant="headlineLarge" style={[styles.value, { color: theme.colors.onSurface }]}>
               {formattedValue}
             </Text>
-            <Text variant="titleSmall" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
+            <Text variant="titleSmall" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
               {config.displayUnit}
             </Text>
           </View>
 
           <ProgressBar
             progress={progress}
-            color={color || paperTheme.colors.primary}
+            color={color || theme.colors.primary}
             style={styles.progressBar}
           />
 
-          <Text variant="bodySmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
+          <Text variant="bodySmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
             {percentage}% of {goal} {config.displayUnit}
           </Text>
         </Card.Content>
       </View>
     </Surface>
   );
-});
-
-const styles = StyleSheet.create({
-  cardWrapper: {
-    minHeight: 160,
-    aspectRatio: 1,
-  },
-  cardShadowWrapper: {
-    borderRadius: 20,
-    height: '100%',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  cardContentWrapper: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    height: '100%',
-    backgroundColor: 'transparent',
-  },
-  detailCardShadow: {
-    borderRadius: 20,
-    marginHorizontal: 16,
-    marginVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  detailCardContent: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
-  },
-  ripple: {
-    borderRadius: 20,
-    height: '100%',
-  },
-  cardContent: {
-    padding: 14,
-    gap: 10,
-    height: '100%',
-    justifyContent: 'space-between',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'transparent', // Color is passed as prop
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  title: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  valueContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-  },
-  value: {
-    fontWeight: '700',
-    fontSize: 28,
-  },
-  unit: {
-    fontWeight: '600',
-    opacity: 0.8,
-  },
-  progressContainer: {
-    gap: 6,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(0,0,0,0.05)',
-    borderRadius: 3,
-  },
-  progressText: {
-    textAlign: 'right',
-    fontSize: 12,
-    opacity: 0.7,
-  }
 });

@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, StyleSheet, Image, Animated } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated } from 'react-native';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { brandColors } from '@/src/theme/theme';
+import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
 import { useHealthData } from '@/src/hooks/useHealthData';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { MetricCardList } from './MetricCardList';
@@ -26,7 +26,8 @@ interface DashboardProps {
 }
 
 const LoadingView = React.memo(() => {
-  const paperTheme = useTheme();
+  const styles = useDashboardStyles();
+  const theme = useTheme();
   const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -58,13 +59,7 @@ const LoadingView = React.memo(() => {
     <Surface 
       style={[
         styles.loadingShadowContainer, 
-        { 
-          backgroundColor: paperTheme.colors.surface,
-          shadowColor: paperTheme.colors.primary,
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 8,
-        }
+        { backgroundColor: theme.colors.surface }
       ]} 
       elevation={3}
     >
@@ -77,7 +72,7 @@ const LoadingView = React.memo(() => {
         <Animated.View 
           style={{ 
             transform: [{ scale: pulseAnim }],
-            shadowColor: paperTheme.colors.primary,
+            shadowColor: theme.colors.primary,
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.2,
             shadowRadius: 8,
@@ -85,7 +80,7 @@ const LoadingView = React.memo(() => {
         >
           <ActivityIndicator 
             size={56} 
-            color={paperTheme.colors.primary} 
+            color={theme.colors.primary} 
           />
         </Animated.View>
         <Text 
@@ -93,7 +88,7 @@ const LoadingView = React.memo(() => {
           style={[
             styles.loadingText, 
             { 
-              color: paperTheme.colors.onSurfaceVariant,
+              color: theme.colors.onSurfaceVariant,
               fontSize: 18,
               fontWeight: '500'
             }
@@ -156,7 +151,8 @@ export const Dashboard = React.memo(function Dashboard({
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
-  const paperTheme = useTheme();
+  const styles = useDashboardStyles();
+  const theme = useTheme();
   const { healthPermissionStatus, requestHealthPermissions } = useAuth();
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
@@ -255,7 +251,7 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {dailyTotal && (
         <>
           <View style={styles.headerContainer}>
@@ -280,7 +276,7 @@ export const Dashboard = React.memo(function Dashboard({
                 variant="titleLarge"
                 style={[
                   styles.headerRank,
-                  { color: paperTheme.colors.primary }
+                  { color: theme.colors.primary }
                 ]}
               >
                 #{userRank || '-'}
@@ -289,7 +285,7 @@ export const Dashboard = React.memo(function Dashboard({
                 variant="titleLarge"
                 style={[
                   styles.headerPoints,
-                  { color: paperTheme.colors.primary }
+                  { color: theme.colors.primary }
                 ]}
               >
                 {dailyTotal.total_points} pts
@@ -311,7 +307,7 @@ export const Dashboard = React.memo(function Dashboard({
                 style={[
                   styles.statsCard, 
                   { 
-                    backgroundColor: brandColors.primary,
+                    backgroundColor: theme.colors.primary,
                   }
                 ]}
                 elevation={2}
@@ -330,7 +326,7 @@ export const Dashboard = React.memo(function Dashboard({
                 style={[
                   styles.statsCard, 
                   { 
-                    backgroundColor: brandColors.success
+                    backgroundColor: theme.colors.primary,
                   }
                 ]}
                 elevation={2}
@@ -347,7 +343,7 @@ export const Dashboard = React.memo(function Dashboard({
                 style={[
                   styles.statsCard, 
                   { 
-                    backgroundColor: paperTheme.colors.error
+                    backgroundColor: theme.colors.error
                   }
                 ]}
                 elevation={2}
@@ -371,8 +367,8 @@ export const Dashboard = React.memo(function Dashboard({
           <RefreshControl
             refreshing={loading}
             onRefresh={handleRefresh}
-            colors={[paperTheme.colors.primary]}
-            progressBackgroundColor={paperTheme.colors.surface}
+            colors={[theme.colors.primary]}
+            progressBackgroundColor={theme.colors.surface}
           />
         }
       >
@@ -390,13 +386,13 @@ export const Dashboard = React.memo(function Dashboard({
           onDismiss={() => setErrorDialogVisible(false)}
           style={{
             borderRadius: 24,
-            backgroundColor: paperTheme.colors.surface,
+            backgroundColor: theme.colors.surface,
           }}
         >
           <Dialog.Title 
             style={{ 
               textAlign: 'center',
-              color: paperTheme.colors.error,
+              color: theme.colors.error,
               fontSize: 20,
               fontWeight: '600',
               letterSpacing: 0.5,
@@ -408,7 +404,7 @@ export const Dashboard = React.memo(function Dashboard({
             <Text 
               style={{ 
                 textAlign: 'center',
-                color: paperTheme.colors.onSurface,
+                color: theme.colors.onSurface,
                 fontSize: 16,
                 lineHeight: 24,
                 letterSpacing: 0.25,
@@ -421,7 +417,7 @@ export const Dashboard = React.memo(function Dashboard({
             <Text 
               onPress={() => setErrorDialogVisible(false)} 
               style={{ 
-                color: paperTheme.colors.primary,
+                color: theme.colors.primary,
                 padding: 12,
                 fontSize: 16,
                 fontWeight: '600',
@@ -435,106 +431,4 @@ export const Dashboard = React.memo(function Dashboard({
       </Portal>
     </SafeAreaView>
   );
-});
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingShadowContainer: {
-    flex: 1,
-    borderRadius: 20,
-    margin: 16,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    backgroundColor: 'transparent',
-  },
-  headerContainer: {
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  headerContent: {
-    paddingHorizontal: 16,
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  logo: {
-    height: 36,
-    width: 100,
-    marginRight: 'auto',
-  },
-  headerRank: {
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    marginHorizontal: 12,
-    fontSize: 18,
-  },
-  headerPoints: {
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    fontSize: 18,
-  },
-  statsSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  statsCard: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    flex: 1,
-    minWidth: 100,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  statsContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    minHeight: 80,
-  },
-  statsLabel: {
-    fontSize: 15,
-    marginBottom: 8,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  statsValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 32,
-  },
-  loadingText: {
-    marginTop: 20,
-    textAlign: 'center',
-    letterSpacing: 0.25,
-  }
 });

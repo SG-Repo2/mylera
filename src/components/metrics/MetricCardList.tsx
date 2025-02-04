@@ -1,11 +1,11 @@
 import React from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import { View, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
 import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
-import { theme } from '@/src/theme/theme';
+import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
@@ -42,18 +42,8 @@ export const MetricCardList = React.memo(function MetricCardList({
   metrics, 
   showAlerts = true 
 }: MetricCardListProps) {
-  const paperTheme = useTheme();
-
-  // Define colors using our theme
-  const metricColors: Record<DisplayedMetricType, string> = {
-    steps: theme.colors.primary,
-    distance: theme.colors.secondary,
-    calories: theme.colors.tertiary,
-    exercise: theme.colors.success,
-    heart_rate: '#FF5252',
-    basal_calories: '#9C27B0',
-    flights_climbed: '#FF9800'
-  };
+  const { styles, colors: metricColors } = useMetricCardListStyles();
+  const theme = useTheme();
 
   const metricOrder: DisplayedMetricType[] = [
     'steps',
@@ -85,7 +75,7 @@ export const MetricCardList = React.memo(function MetricCardList({
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.grid}>
         {metricOrder.map((metricType, index) => (
           <Animated.View 
@@ -125,29 +115,4 @@ export const MetricCardList = React.memo(function MetricCardList({
     prevProps.showAlerts === nextProps.showAlerts &&
     JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics)
   );
-});
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 8,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cell: {
-    width: '48%',
-    minWidth: 150,
-    maxWidth: 200,
-  },
-  lastCell: {
-    width: '48%',
-    minWidth: 150,
-    maxWidth: 200,
-    marginBottom: 16,
-  }
 });
