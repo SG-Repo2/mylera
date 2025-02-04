@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
+import { MetricModal } from './MetricCardModal';
 import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
@@ -23,10 +24,8 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number | { syst
     exercise: 200,
     basal_calories: 150,
     flights_climbed: 100,
-
   };
 
-  
   // Handle numeric values only since blood pressure is handled separately
   if (typeof value !== 'number') {
     return 0;
@@ -38,10 +37,12 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number | { syst
   );
 };
 
-export const MetricCardList = React.memo(function MetricCardList({ 
-  metrics, 
-  showAlerts = true 
+export const MetricCardList = React.memo(function MetricCardList({
+  metrics,
+  showAlerts = true
 }: MetricCardListProps) {
+  const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
   const { styles, colors: metricColors } = useMetricCardListStyles();
   const theme = useTheme();
 
@@ -74,8 +75,50 @@ export const MetricCardList = React.memo(function MetricCardList({
     Animated.parallel(animations).start();
   }, []);
 
+  // Sample data for the weekly view
+  const generateSampleWeekData = (metricType: MetricType, currentValue: number) => {
+    const values = Array.from({ length: 7 }, () => 
+      Math.max(0, currentValue * (0.7 + Math.random() * 0.6))
+    );
+    values[6] = currentValue; // Today's value
+    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return {
+      values,
+      labels,
+      startDate: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), // 6 days ago
+    };
+  };
+
+  const handleMetricPress = (metricType: MetricType) => {
+    setSelectedMetric(metricType);
+    setModalVisible(true);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {selectedMetric && (
+        <MetricModal
+          visible={modalVisible}
+          onClose={() => {
+            setModalVisible(false);
+            setSelectedMetric(null);
+          }}
+          title={healthMetrics[selectedMetric].title}
+          value={metrics[selectedMetric] || 0}
+          metricType={selectedMetric}
+          data={generateSampleWeekData(selectedMetric, metrics[selectedMetric] as number || 0)}
+          additionalInfo={[
+            {
+              label: 'Daily Goal',
+              value: `${healthMetrics[selectedMetric].defaultGoal} ${healthMetrics[selectedMetric].displayUnit}`
+            },
+            {
+              label: 'Progress',
+              value: `${Math.round((metrics[selectedMetric] as number || 0) / healthMetrics[selectedMetric].defaultGoal * 100)}%`
+            }
+          ]}
+        />
+      )}
       <View style={styles.grid}>
         {metricOrder.map((metricType, index) => (
           <Animated.View 
@@ -104,6 +147,7 @@ export const MetricCardList = React.memo(function MetricCardList({
               color={metricColors[metricType]}
               showAlert={showAlerts}
               metricType={metricType}
+              onPress={() => handleMetricPress(metricType)}
             />
           </Animated.View>
         ))}
