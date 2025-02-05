@@ -196,26 +196,32 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [totals, metricScores, rank] = await Promise.all([
-          metricsService.getDailyTotals(date),
-          metricsService.getDailyMetrics(userId, date),
-          leaderboardService.getUserRank(userId, date)
-        ]);
-        
-        const userTotal = totals.find(total => total.user_id === userId) || null;
-        setDailyTotal(userTotal);
-        
-        const transformedMetrics = transformMetricsToHealthMetrics(
-          metricScores,
-          userTotal,
-          userId,
-          date
-        );
-        setHealthMetrics(transformedMetrics);
-        setUserRank(rank);
-        setFetchError(null);
+  const fetchData = async () => {
+    try {
+      console.log('Dashboard fetching data for:', { userId, date });
+      const [totals, metricScores, rank] = await Promise.all([
+        metricsService.getDailyTotals(date),
+        metricsService.getDailyMetrics(userId, date),
+        leaderboardService.getUserRank(userId, date)
+      ]);
+      
+      console.log('Daily totals:', totals);
+      console.log('Metric scores:', metricScores);
+      
+      const userTotal = totals.find(total => total.user_id === userId) || null;
+      setDailyTotal(userTotal);
+      
+      const transformedMetrics = transformMetricsToHealthMetrics(
+        metricScores,
+        userTotal,
+        userId,
+        date
+      );
+      console.log('Transformed metrics:', transformedMetrics);
+      
+      setHealthMetrics(transformedMetrics);
+      setUserRank(rank);
+      setFetchError(null);
       } catch (err) {
         console.error('Error fetching metrics:', err);
         setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
@@ -375,7 +381,8 @@ export const Dashboard = React.memo(function Dashboard({
         {healthMetrics && (
           <MetricCardList 
             metrics={healthMetrics} 
-            showAlerts={showAlerts} 
+            showAlerts={showAlerts}
+            provider={provider}
           />
         )}
       </ScrollView>

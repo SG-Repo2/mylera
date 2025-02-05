@@ -3,82 +3,97 @@ import { View, Dimensions, StyleSheet, Animated } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MetricType } from '@/src/types/metrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
-
+import type { HealthProvider } from '@/src/providers/health/types/provider';
+import type { NormalizedMetric } from '@/src/providers/health/types/metrics';
 interface BarChartProps {
   metricType: MetricType;
+  userId: string;
+  date: string;
+  provider: HealthProvider;
 }
 
 interface DataPoint {
   date: string;
   value: number;
   animation: Animated.Value;
+  dayName: string;
 }
 
-export function BarChart({ metricType }: BarChartProps) {
+export function BarChart({ metricType, userId, date, provider }: BarChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataPoint[]>([]);
   const theme = useTheme();
 
-  const generateMockData = () => {
+  const getDayName = (dateStr: string): string => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    let baseValue: number;
-    let variance: number;
-
-    switch (metricType) {
-      case 'steps':
-        baseValue = 8000;
-        variance = 2000;
-        break;
-      case 'distance':
-        baseValue = 3;
-        variance = 1;
-        break;
-      case 'heart_rate':
-        baseValue = 70;
-        variance = 10;
-        break;
-      case 'calories':
-        baseValue = 400;
-        variance = 100;
-        break;
-      case 'exercise':
-        baseValue = 30;
-        variance = 15;
-        break;
-      case 'basal_calories':
-        baseValue = 1800;
-        variance = 200;
-        break;
-      case 'flights_climbed':
-        baseValue = 10;
-        variance = 5;
-        break;
-      default:
-        baseValue = 100;
-        variance = 20;
-    }
-
-    return days.map(day => ({
-      date: day,
-      value: baseValue + Math.random() * variance,
-      animation: new Animated.Value(0)
-    }));
+    return days[new Date(dateStr).getDay()];
   };
 
   useEffect(() => {
+    let mounted = true;
     setLoading(true);
     setError(null);
 
-    const timer = setTimeout(() => {
+    const fetchData = async () => {
       try {
-        const mockData = generateMockData();
-        setData(mockData);
+        console.log('Fetching health data for:', { userId, metricType, date });
+        
+        // Initialize provider
+        await provider.initialize();
+
+        // Calculate date range
+        const endDateTime = new Date(date);
+        const startDateTime = new Date(date);
+        startDateTime.setDate(startDateTime.getDate() - 6);
+
+        // Fetch raw metrics from health provider
+        const rawData = await provider.fetchRawMetrics(
+          startDateTime,
+          endDateTime,
+          [metricType]
+        );
+
+        if (!mounted) return;
+
+        // Normalize metrics
+        const normalizedData = provider.normalizeMetrics(rawData, metricType);
+        console.log('Normalized health data:', normalizedData);
+
+        // Group by day
+        const dailyData = new Map<string, number[]>();
+        normalizedData.forEach(metric => {
+          const day = new Date(metric.timestamp).toLocaleDateString('en-CA');
+          if (!dailyData.has(day)) {
+            dailyData.set(day, []);
+          }
+          dailyData.get(day)?.push(metric.value);
+        });
+
+        console.log('Daily data map:', Object.fromEntries(dailyData));
+
+        // Fill in all days
+        const filledData = [];
+        for (let d = new Date(startDateTime); d <= endDateTime; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toLocaleDateString('en-CA');
+          const values = dailyData.get(dateStr) || [0];
+          const dayTotal = values.reduce((sum, val) => sum + val, 0);
+          
+          filledData.push({
+            date: dateStr,
+            value: dayTotal,
+            dayName: getDayName(dateStr),
+            animation: new Animated.Value(0)
+          });
+          console.log(`${getDayName(dateStr)} (${dateStr}): ${dayTotal}`);
+        }
+
+        setData(filledData);
         setLoading(false);
 
         // Animate bars
         Animated.stagger(100, 
-          mockData.map(item =>
+          filledData.map(item =>
             Animated.spring(item.animation, {
               toValue: 1,
               useNativeDriver: false,
@@ -89,13 +104,16 @@ export function BarChart({ metricType }: BarChartProps) {
         ).start();
 
       } catch (err) {
-        setError('Failed to load chart data');
+        if (!mounted) return;
+        console.error('Error fetching health data:', err);
+        setError('Failed to load health data');
         setLoading(false);
       }
-    }, 500);
+    };
 
-    return () => clearTimeout(timer);
-  }, [metricType]);
+    fetchData();
+    return () => { mounted = false; };
+  }, [metricType, userId, date, provider]);
 
   if (loading) {
     return (
@@ -117,16 +135,32 @@ export function BarChart({ metricType }: BarChartProps) {
     );
   }
 
-  const maxValue = Math.max(...data.map(d => d.value));
-  const minValue = Math.min(...data.map(d => d.value));
-  const padding = (maxValue - minValue) * 0.1;
+  if (data.length === 0) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.surfaceVariant }]}>
+        <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant }}>
+          No data available
+        </Text>
+      </View>
+    );
+  }
+
+  // Ensure all values are valid numbers
+  const validData = data.map(d => ({
+    ...d,
+    value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
+  }));
+
+  const maxValue = Math.max(...validData.map(d => d.value));
+  const minValue = Math.min(...validData.map(d => d.value));
+  const padding = Math.max((maxValue - minValue) * 0.1, 1); // Ensure non-zero padding
   const yMax = maxValue + padding;
   const yMin = Math.max(0, minValue - padding);
-  const range = yMax - yMin;
+  const range = Math.max(yMax - yMin, 1); // Ensure non-zero range
 
-  const chartWidth = Dimensions.get('window').width - 48; // Accounting for padding
+  const chartWidth = Math.max(Dimensions.get('window').width - 48, 100); // Minimum width
   const chartHeight = 220;
-  const barWidth = (chartWidth - 40) / data.length - 8; // Account for spacing between bars
+  const barWidth = Math.max((chartWidth - 40) / data.length - 8, 20); // Minimum bar width
 
   return (
     <View style={styles.container}>
@@ -160,8 +194,13 @@ export function BarChart({ metricType }: BarChartProps) {
 
         {/* Bars */}
         <View style={styles.barsContainer}>
-          {data.map((point, index) => {
-            const barHeight = ((point.value - yMin) / range) * chartHeight;
+          {validData.map((point, index) => {
+            // Ensure barHeight is a valid, non-negative number
+            const normalizedValue = (point.value - yMin) / range;
+            const barHeight = Math.max(
+              Math.min(normalizedValue * chartHeight, chartHeight),
+              0
+            );
             
             return (
               <View key={point.date} style={styles.barWrapper}>
@@ -176,15 +215,19 @@ export function BarChart({ metricType }: BarChartProps) {
                     {
                       height: point.animation.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [0, barHeight]
+                        outputRange: [0, Math.max(barHeight, 1)] // Ensure minimum height of 1
                       }),
                       width: barWidth,
                       backgroundColor: metricColors[metricType],
+                      opacity: point.date === date ? 1 : 0.7,
                     }
                   ]}
                 />
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {point.date}
+                <Text variant="bodySmall" style={[
+                  { color: theme.colors.onSurfaceVariant },
+                  point.date === date && { fontWeight: '600', color: theme.colors.onSurface }
+                ]}>
+                  {point.dayName}
                 </Text>
               </View>
             );

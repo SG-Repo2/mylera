@@ -6,11 +6,13 @@ import { MetricModal } from './MetricCardModal';
 import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
+import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
   showAlerts?: boolean;
+  provider: HealthProvider;
 }
 
 type DisplayedMetricType = MetricType;
@@ -39,8 +41,11 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number | { syst
 
 export const MetricCardList = React.memo(function MetricCardList({
   metrics,
-  showAlerts = true
+  showAlerts = true,
+  provider
 }: MetricCardListProps) {
+  // Debug log
+  console.log('MetricCardList metrics:', metrics);
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const { styles, colors: metricColors } = useMetricCardListStyles();
@@ -75,20 +80,6 @@ export const MetricCardList = React.memo(function MetricCardList({
     Animated.parallel(animations).start();
   }, []);
 
-  // Sample data for the weekly view
-  const generateSampleWeekData = (metricType: MetricType, currentValue: number) => {
-    const values = Array.from({ length: 7 }, () => 
-      Math.max(0, currentValue * (0.7 + Math.random() * 0.6))
-    );
-    values[6] = currentValue; // Today's value
-    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return {
-      values,
-      labels,
-      startDate: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), // 6 days ago
-    };
-  };
-
   const handleMetricPress = (metricType: MetricType) => {
     setSelectedMetric(metricType);
     setModalVisible(true);
@@ -97,17 +88,19 @@ export const MetricCardList = React.memo(function MetricCardList({
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {selectedMetric && (
-        <MetricModal
-          visible={modalVisible}
-          onClose={() => {
-            setModalVisible(false);
-            setSelectedMetric(null);
-          }}
-          title={healthMetrics[selectedMetric].title}
-          value={metrics[selectedMetric] || 0}
-          metricType={selectedMetric}
-          data={generateSampleWeekData(selectedMetric, metrics[selectedMetric] as number || 0)}
-          additionalInfo={[
+          <MetricModal
+            visible={modalVisible}
+            onClose={() => {
+              setModalVisible(false);
+              setSelectedMetric(null);
+            }}
+            title={healthMetrics[selectedMetric].title}
+            value={metrics[selectedMetric] || 0}
+            metricType={selectedMetric}
+            userId={metrics.user_id}
+            date={metrics.date}
+            provider={provider}
+            additionalInfo={[
             {
               label: 'Daily Goal',
               value: `${healthMetrics[selectedMetric].defaultGoal} ${healthMetrics[selectedMetric].displayUnit}`

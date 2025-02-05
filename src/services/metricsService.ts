@@ -24,6 +24,37 @@ export const metricsService = {
     return data || [];
   },
 
+  // Get user's historical metrics for the last 7 days
+  async getHistoricalMetrics(userId: string, metricType: MetricType, endDate: string) {
+    // Ensure we're working with local dates
+    const endDateTime = new Date(endDate);
+    const startDateTime = new Date(endDate);
+    startDateTime.setDate(startDateTime.getDate() - 6); // Get 7 days including end date
+    
+    // Format dates in YYYY-MM-DD format using local timezone
+    const startDateStr = startDateTime.toLocaleDateString('en-CA'); // en-CA gives YYYY-MM-DD format
+    const endDateStr = endDateTime.toLocaleDateString('en-CA');
+    
+    console.log('Date range:', { startDateStr, endDateStr });
+    
+    const { data, error } = await supabase
+      .from('daily_metric_scores')
+      .select('date, value')
+      .eq('user_id', userId)
+      .eq('metric_type', metricType)
+      .eq('is_test_data', false)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true });
+
+    if (error) throw error;
+
+    // Log the data for debugging
+    console.log('Historical data for', metricType, ':', data);
+    
+    return data || [];
+  },
+
   // Get daily totals for leaderboard
   async getDailyTotals(date: string) {
     const { data, error } = await supabase

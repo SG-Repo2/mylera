@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect } from 'react';
-import { View, Animated, Pressable } from 'react-native';
-import { Modal, Portal, Text, IconButton, useTheme, Surface, Card } from 'react-native-paper';
+import { View, Animated, Pressable, ScrollView } from 'react-native';
+import { Modal, Portal, Text, IconButton, useTheme, Card } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MetricType } from '@/src/types/metrics';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
+import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { BarChart } from './BarChart';
 
 interface MetricModalProps {
@@ -14,16 +15,14 @@ interface MetricModalProps {
   onClose: () => void;
   title: string;
   value: string | number;
-  data?: {
-    labels: string[];
-    values: number[];
-    startDate?: Date;
-  };
   additionalInfo?: {
     label: string;
     value: string | number;
   }[];
   metricType: MetricType;
+  userId: string;
+  date: string;
+  provider: HealthProvider;
 }
 
 interface HealthTip {
@@ -72,52 +71,89 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   value,
   additionalInfo,
   metricType,
+  userId,
+  date,
+  provider,
 }) => {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
-  const translateY = React.useRef(new Animated.Value(200)).current;
-  const opacity = React.useRef(new Animated.Value(0)).current;
+  const translateY = React.useRef(new Animated.Value(500)).current;
+  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
+  const contentOpacity = React.useRef(new Animated.Value(0)).current;
+  const scale = React.useRef(new Animated.Value(0.95)).current;
   const healthTip = getHealthTip(metricType);
 
-  const handleClose = useCallback(() => {
+  const animateIn = useCallback(() => {
     Animated.parallel([
-      Animated.spring(translateY, {
-        toValue: 200,
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 200,
         useNativeDriver: true,
-        damping: 15,
-        mass: 1,
-        stiffness: 150,
       }),
-      Animated.spring(opacity, {
+      Animated.spring(translateY, {
         toValue: 0,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 1,
+        stiffness: 200,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 1,
+        stiffness: 200,
+      }),
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+        delay: 100,
+      }),
+    ]).start();
+  }, [backdropOpacity, translateY, scale, contentOpacity]);
+
+  const animateOut = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 500,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 1,
+        stiffness: 200,
+      }),
+      Animated.spring(scale, {
+        toValue: 0.95,
+        useNativeDriver: true,
+        damping: 20,
+        mass: 1,
+        stiffness: 200,
+      }),
+      Animated.timing(contentOpacity, {
+        toValue: 0,
+        duration: 150,
         useNativeDriver: true,
       }),
     ]).start(() => {
       onClose();
     });
-  }, [onClose, translateY, opacity]);
+  }, [backdropOpacity, translateY, scale, contentOpacity, onClose]);
+
+  const handleClose = useCallback(() => {
+    animateOut();
+  }, [animateOut]);
 
   useEffect(() => {
     if (visible) {
-      Animated.parallel([
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 15,
-          mass: 1,
-          stiffness: 150,
-        }),
-        Animated.spring(opacity, {
-          toValue: 1,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      translateY.setValue(200);
-      opacity.setValue(0);
+      animateIn();
     }
-  }, [visible, translateY, opacity]);
+  }, [visible, animateIn]);
 
   const metricConfig = healthMetrics[metricType];
   const metricColor = metricColors[metricType];
@@ -129,62 +165,87 @@ export const MetricModal: React.FC<MetricModalProps> = ({
         onDismiss={handleClose}
         contentContainerStyle={[
           styles.modalContainer,
-          { paddingBottom: insets.bottom },
+          { paddingBottom: Math.max(insets.bottom, 20) },
         ]}
       >
-        <Pressable style={styles.modalBackdrop} onPress={handleClose}>
-          <View style={{ flex: 1 }} />
-        </Pressable>
-        <Animated.View
+        <Animated.View 
           style={[
-            { transform: [{ translateY }] },
-            { opacity },
+            styles.modalBackdrop,
+            { opacity: backdropOpacity }
           ]}
         >
-              <Surface style={styles.modalContent} elevation={4}>
-                <IconButton
-                  icon="close"
-                  size={24}
-                  onPress={handleClose}
-                  style={styles.closeButton}
-                />
+          <Pressable 
+            style={{ flex: 1 }} 
+            onPress={handleClose}
+          />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.modalContent,
+            {
+              transform: [
+                { translateY },
+                { scale }
+              ],
+              opacity: contentOpacity
+            }
+          ]}
+        >
+          <ScrollView 
+            style={{ width: '100%' }} 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <IconButton
+              icon="close"
+              size={24}
+              onPress={handleClose}
+              style={styles.closeButton}
+            />
 
-                <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
-                <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                  {metricConfig.formatValue(value)} {metricConfig.displayUnit}
-                </Text>
+            <View>
+              <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
+              <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
+                {metricConfig.formatValue(value)} {metricConfig.displayUnit}
+              </Text>
 
-                <View style={styles.chartContainer}>
-                  <BarChart metricType={metricType} />
-                </View>
-
-                {additionalInfo && additionalInfo.length > 0 && (
-                  <View style={styles.additionalInfoContainer}>
-                    {additionalInfo.map((info, index) => (
-                      <View key={index} style={styles.infoRow}>
-                        <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
-                        <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                <Card style={styles.healthTipCard}>
-                  <Card.Content style={styles.healthTipContent}>
-                    <View style={styles.healthTipHeader}>
-                      <MaterialCommunityIcons name={healthTip.icon} size={24} color={metricColor} />
-                      <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
-                        Did you know?
-                      </Text>
-                    </View>
-                    <Text variant="bodyMedium" style={styles.healthTipText}>
-                      {healthTip.tip}
+              <Card style={styles.healthTipCard}>
+                <Card.Content style={styles.healthTipContent}>
+                  <View style={styles.healthTipHeader}>
+                    <MaterialCommunityIcons name={healthTip.icon} size={24} color={metricColor} />
+                    <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
+                      Did you know?
                     </Text>
-                  </Card.Content>
-                </Card>
-              </Surface>
-            </Animated.View>
+                  </View>
+                  <Text variant="bodyMedium" style={styles.healthTipText}>
+                    {healthTip.tip}
+                  </Text>
+                </Card.Content>
+              </Card>
+            </View>
 
+            <View style={[styles.chartContainer, { marginTop: 0 }]}>
+              <BarChart 
+                metricType={metricType}
+                userId={userId}
+                date={date}
+                provider={provider}
+              />
+            </View>
+
+            {additionalInfo && additionalInfo.length > 0 && (
+              <View style={styles.additionalInfoContainer}>
+                {additionalInfo.map((info, index) => (
+                  <View key={index} style={styles.infoRow}>
+                    <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
+                    <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </Animated.View>
       </Modal>
     </Portal>
   );
