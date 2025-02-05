@@ -138,34 +138,33 @@ export function Leaderboard() {
             </View>
           )}
         </View>
-        <Text 
-          style={styles.subtitle}
-          accessibilityLabel={`For ${DateUtils.formatDateForDisplay(new Date())}`}
-        >
+        <Text style={styles.subtitle}>
           {DateUtils.formatDateForDisplay(new Date())}
         </Text>
       </View>
 
-      {/* Podium View for Top 3 */}
-      {leaderboardData.length >= 3 && (
-        <PodiumView 
-          topThree={leaderboardData.slice(0, 3)}
-          currentUserId={user?.id || ''}
-        />
-      )}
-
-      {/* Standard List for Remaining Entries */}
-      {leaderboardData.length > 3 && leaderboardData.slice(3).map((entry) => (
-        <LeaderboardEntry 
-          key={entry.user_id} 
-          entry={entry}
-          highlight={entry.user_id === user?.id}
-          variant="standard"
-        />
-      ))}
-
-      {/* Empty State */}
-      {!loading && leaderboardData.length === 0 && (
+      {/* Always show the entries, either in podium or list view */}
+      {leaderboardData.length > 0 ? (
+        <>
+          {/* Show podium view for any number of entries (1-3) */}
+          <PodiumView 
+            topThree={leaderboardData.slice(0, Math.min(3, leaderboardData.length))}
+            currentUserId={user?.id || ''}
+          />
+          
+          {/* Show remaining entries if there are more than 3 */}
+          {leaderboardData.length > 3 && (
+            leaderboardData.slice(3).map((entry) => (
+              <LeaderboardEntry 
+                key={entry.user_id} 
+                entry={entry}
+                highlight={entry.user_id === user?.id}
+                variant="standard"
+              />
+            ))
+          )}
+        </>
+      ) : (
         <View style={styles.emptyState}>
           <MaterialCommunityIcons 
             name="trophy-outline" 
@@ -177,9 +176,6 @@ export function Leaderboard() {
           </Text>
         </View>
       )}
-
-      {/* Bottom Padding */}
-      <View style={styles.bottomPadding} />
     </ScrollView>
   );
 }

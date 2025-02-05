@@ -14,12 +14,12 @@ interface PodiumProps {
  * First place is centered and elevated, with second and third place on either side.
  */
 export function PodiumView({ topThree, currentUserId }: PodiumProps) {
-  // Render entries in podium order: [2nd, 1st, 3rd]
+  // Create podium order with null entries for missing positions
   const podiumOrder = [
-    { entry: topThree[1], rank: 2 }, // Second place
-    { entry: topThree[0], rank: 1 }, // First place
-    { entry: topThree[2], rank: 3 }, // Third place
-  ];
+    { entry: topThree[1] || null, rank: 2 }, // Second place
+    { entry: topThree[0] || null, rank: 1 }, // First place
+    { entry: topThree[2] || null, rank: 3 }, // Third place
+  ].filter(item => item.entry !== null); // Filter out null entries
   
   return (
     <View style={styles.outerContainer}>
