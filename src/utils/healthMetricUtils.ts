@@ -14,8 +14,8 @@ export function normalizeMetric<T>(
  * Aggregate normalized metrics based on their type
  * Returns null if no metrics are provided
  */
-export function aggregateMetrics(metrics: NormalizedMetric[]): number | null {
-  if (!metrics.length) return null;
+export function aggregateMetrics(metrics: NormalizedMetric[]): number {
+  if (!metrics.length) return 0;
 
   const metric = metrics[0];
   if (metric.type === 'heart_rate') {
