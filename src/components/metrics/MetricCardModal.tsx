@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Animated, Pressable, ScrollView } from 'react-native';
-import { Modal, Portal, Text, IconButton, useTheme, Card } from 'react-native-paper';
+import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { brandColors } from '@/src/theme/theme';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MetricType } from '@/src/types/metrics';
@@ -78,11 +79,52 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
+  const [isLoading, setIsLoading] = useState(true);
+  const [trend, setTrend] = useState<{ direction: 'up' | 'down' | 'neutral', percentage: number } | null>(null);
+  
   const translateY = React.useRef(new Animated.Value(500)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const contentOpacity = React.useRef(new Animated.Value(0)).current;
   const scale = React.useRef(new Animated.Value(0.95)).current;
+  const valueScale = React.useRef(new Animated.Value(1)).current;
   const healthTip = getHealthTip(metricType);
+
+  // Simulate loading and trend calculation
+  useEffect(() => {
+    if (visible) {
+      setIsLoading(true);
+      // Simulate API call delay
+      setTimeout(() => {
+        setTrend({
+          direction: Math.random() > 0.5 ? 'up' : 'down',
+          percentage: Math.round(Math.random() * 20)
+        });
+        setIsLoading(false);
+      }, 1000);
+    }
+  }, [visible]);
+
+  // Add pulse animation for the value
+  const pulseValue = useCallback(() => {
+    Animated.sequence([
+      Animated.timing(valueScale, {
+        toValue: 1.05,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(valueScale, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [valueScale]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      pulseValue();
+    }
+  }, [isLoading, pulseValue]);
 
   const animateIn = useCallback(() => {
     Animated.parallel([
@@ -206,14 +248,52 @@ export const MetricModal: React.FC<MetricModalProps> = ({
 
             <View>
               <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
-              <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                {metricConfig.formatValue(value)} {metricConfig.displayUnit}
-              </Text>
+              <View style={styles.valueContainer}>
+                <Animated.View style={{ transform: [{ scale: valueScale }] }}>
+                  <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
+                    {metricConfig.formatValue(value)} {metricConfig.displayUnit}
+                  </Text>
+                </Animated.View>
+                {!isLoading && trend && (
+                  <View style={styles.trendContainer}>
+                    <MaterialCommunityIcons
+                      name={trend.direction === 'up' ? 'trending-up' : 'trending-down'}
+                      size={20}
+                      color={trend.direction === 'up' ? brandColors.primary : theme.colors.error}
+                    />
+                    <Text style={[
+                      styles.trendText,
+                      trend.direction === 'up' ? styles.trendUp : styles.trendDown
+                    ]}>
+                      {trend.percentage}%
+                    </Text>
+                  </View>
+                )}
+              </View>
 
               <Card style={styles.healthTipCard}>
                 <Card.Content style={styles.healthTipContent}>
+                  <Animated.View style={[
+                    styles.healthTipGlow,
+                    {
+                      opacity: contentOpacity.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 0.06]
+                      })
+                    }
+                  ]} />
                   <View style={styles.healthTipHeader}>
-                    <MaterialCommunityIcons name={healthTip.icon} size={24} color={metricColor} />
+                    <MaterialCommunityIcons 
+                      name={healthTip.icon} 
+                      size={24} 
+                      color={metricColor}
+                      style={{
+                        transform: [{ scale: 1.1 }],
+                        textShadowColor: metricColor,
+                        textShadowOffset: { width: 0, height: 0 },
+                        textShadowRadius: 8,
+                      }}
+                    />
                     <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
                       Did you know?
                     </Text>
@@ -226,12 +306,19 @@ export const MetricModal: React.FC<MetricModalProps> = ({
             </View>
 
             <View style={[styles.chartContainer, { marginTop: 0 }]}>
-              <BarChart 
-                metricType={metricType}
-                userId={userId}
-                date={date}
-                provider={provider}
-              />
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={metricColor} />
+                  <Text style={styles.loadingText}>Loading historical data...</Text>
+                </View>
+              ) : (
+                <BarChart 
+                  metricType={metricType}
+                  userId={userId}
+                  date={date}
+                  provider={provider}
+                />
+              )}
             </View>
 
             {additionalInfo && additionalInfo.length > 0 && (

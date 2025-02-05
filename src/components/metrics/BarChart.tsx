@@ -5,6 +5,9 @@ import { MetricType } from '@/src/types/metrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import type { NormalizedMetric } from '@/src/providers/health/types/metrics';
+import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
+import Color from 'color';
+
 interface BarChartProps {
   metricType: MetricType;
   userId: string;
@@ -39,15 +42,12 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
       try {
         console.log('Fetching health data for:', { userId, metricType, date });
         
-        // Initialize provider
         await provider.initialize();
 
-        // Calculate date range
         const endDateTime = new Date(date);
         const startDateTime = new Date(date);
         startDateTime.setDate(startDateTime.getDate() - 6);
 
-        // Fetch raw metrics from health provider
         const rawData = await provider.fetchRawMetrics(
           startDateTime,
           endDateTime,
@@ -56,11 +56,9 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
         if (!mounted) return;
 
-        // Normalize metrics
         const normalizedData = provider.normalizeMetrics(rawData, metricType);
         console.log('Normalized health data:', normalizedData);
 
-        // Group by day
         const dailyData = new Map<string, number[]>();
         normalizedData.forEach(metric => {
           const day = new Date(metric.timestamp).toLocaleDateString('en-CA');
@@ -72,7 +70,6 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
         console.log('Daily data map:', Object.fromEntries(dailyData));
 
-        // Fill in all days
         const filledData = [];
         for (let d = new Date(startDateTime); d <= endDateTime; d.setDate(d.getDate() + 1)) {
           const dateStr = d.toLocaleDateString('en-CA');
@@ -91,7 +88,6 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         setData(filledData);
         setLoading(false);
 
-        // Animate bars
         Animated.stagger(100, 
           filledData.map(item =>
             Animated.spring(item.animation, {
@@ -145,7 +141,6 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     );
   }
 
-  // Ensure all values are valid numbers
   const validData = data.map(d => ({
     ...d,
     value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
@@ -153,18 +148,21 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
   const maxValue = Math.max(...validData.map(d => d.value));
   const minValue = Math.min(...validData.map(d => d.value));
-  const padding = Math.max((maxValue - minValue) * 0.1, 1); // Ensure non-zero padding
+  const padding = Math.max((maxValue - minValue) * 0.1, 1);
   const yMax = maxValue + padding;
   const yMin = Math.max(0, minValue - padding);
-  const range = Math.max(yMax - yMin, 1); // Ensure non-zero range
+  const range = Math.max(yMax - yMin, 1);
 
-  const chartWidth = Math.max(Dimensions.get('window').width - 48, 100); // Minimum width
+  const chartWidth = Math.max(Dimensions.get('window').width - 48, 100);
   const chartHeight = 220;
-  const barWidth = Math.max((chartWidth - 40) / data.length - 8, 20); // Minimum bar width
+  const barWidth = Math.max((chartWidth - 40) / data.length - 8, 20);
+
+  const baseColor = Color(metricColors[metricType]);
+  const gradientStart = baseColor.lighten(0.2).toString();
+  const gradientEnd = baseColor.darken(0.1).toString();
 
   return (
     <View style={styles.container}>
-      {/* Y-axis labels */}
       <View style={styles.yAxisLabels}>
         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
           {Math.ceil(yMax)}
@@ -174,9 +172,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         </Text>
       </View>
 
-      {/* Chart area */}
       <View style={styles.chartArea}>
-        {/* Grid lines */}
         <View style={styles.gridContainer}>
           {[0, 25, 50, 75, 100].map((percent) => (
             <View
@@ -185,47 +181,67 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                 styles.gridLine,
                 {
                   top: `${percent}%`,
-                  backgroundColor: theme.colors.surfaceVariant
+                  backgroundColor: theme.colors.surfaceVariant,
+                  opacity: percent === 0 ? 0.8 : 0.2
                 }
               ]}
             />
           ))}
         </View>
 
-        {/* Bars */}
         <View style={styles.barsContainer}>
           {validData.map((point, index) => {
-            // Ensure barHeight is a valid, non-negative number
             const normalizedValue = (point.value - yMin) / range;
             const barHeight = Math.max(
               Math.min(normalizedValue * chartHeight, chartHeight),
               0
             );
             
+            const isToday = point.date === date;
+            const gradientId = `gradient-${index}`;
+            
             return (
               <View key={point.date} style={styles.barWrapper}>
                 <View style={styles.barLabelContainer}>
-                  <Text variant="bodySmall" style={[styles.barValue, { color: theme.colors.onSurface }]}>
+                  <Text variant="bodySmall" style={[styles.barValue, { 
+                    color: theme.colors.onSurface,
+                    opacity: isToday ? 1 : 0.7
+                  }]}>
                     {Math.round(point.value)}
                   </Text>
                 </View>
-                <Animated.View
-                  style={[
-                    styles.bar,
-                    {
-                      height: point.animation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, Math.max(barHeight, 1)] // Ensure minimum height of 1
-                      }),
-                      width: barWidth,
-                      backgroundColor: metricColors[metricType],
-                      opacity: point.date === date ? 1 : 0.7,
-                    }
-                  ]}
-                />
+                <Animated.View style={[styles.barContainer, {
+                  height: point.animation.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, Math.max(barHeight, 1)]
+                  }),
+                  width: barWidth,
+                }]}>
+                  <Svg height="100%" width="100%">
+                    <Defs>
+                      <LinearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor={gradientStart} stopOpacity={isToday ? "1" : "0.9"} />
+                        <Stop offset="1" stopColor={gradientEnd} stopOpacity={isToday ? "1" : "0.7"} />
+                      </LinearGradient>
+                    </Defs>
+                    <Rect
+                      x="0"
+                      y="0"
+                      width="100%"
+                      height="100%"
+                      rx={4}
+                      ry={4}
+                      fill={`url(#${gradientId})`}
+                    />
+                  </Svg>
+                </Animated.View>
                 <Text variant="bodySmall" style={[
+                  styles.dayLabel,
                   { color: theme.colors.onSurfaceVariant },
-                  point.date === date && { fontWeight: '600', color: theme.colors.onSurface }
+                  isToday && { 
+                    fontWeight: '600', 
+                    color: theme.colors.onSurface 
+                  }
                 ]}>
                   {point.dayName}
                 </Text>
@@ -290,8 +306,11 @@ const styles = StyleSheet.create({
   barValue: {
     fontSize: 10,
   },
-  bar: {
-    borderRadius: 4,
+  barContainer: {
     marginBottom: 8,
+    overflow: 'hidden',
+  },
+  dayLabel: {
+    fontSize: 12,
   },
 });

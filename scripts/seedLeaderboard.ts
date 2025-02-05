@@ -30,7 +30,6 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 
 // Configuration
 const NUM_USERS = 20;
-const SHOW_PROFILE_PROBABILITY = 0.9;  // 90% of users will be visible
 const AVATAR_PROBABILITY = 0.7;        // 70% will have avatars
 const POINTS_RANGE = { min: 50, max: 500 };
 const TEST_DATE = new Date().toISOString().split('T')[0]; // Today's date in YYYY-MM-DD format
@@ -91,7 +90,7 @@ async function seedUserProfiles(): Promise<UserProfile[]> {
       .update({
         display_name: faker.person.fullName(),
         avatar_url: Math.random() < AVATAR_PROBABILITY ? faker.image.avatar() : null,
-        show_profile: Math.random() < SHOW_PROFILE_PROBABILITY,
+        show_profile: true, // Always make profiles visible
         updated_at: new Date().toISOString()
       })
       .eq('id', id);
@@ -123,6 +122,7 @@ async function seedUserProfiles(): Promise<UserProfile[]> {
 
 // Step 2: Generate and insert daily totals
 async function seedDailyTotals(userProfiles: UserProfile[]): Promise<void> {
+  console.log('Starting to seed daily totals...');
   const dailyTotals: Omit<DailyTotal, 'id'>[] = userProfiles.map(profile => {
     const total_points = generatePoints();
     // More points generally means more metrics completed
@@ -139,7 +139,24 @@ async function seedDailyTotals(userProfiles: UserProfile[]): Promise<void> {
     };
   });
 
-  const { error } = await supabase.from('daily_totals').insert(dailyTotals);
+  // First, clear any existing test data for today
+  const { error: deleteError } = await supabase
+    .from('daily_totals')
+    .delete()
+    .eq('date', TEST_DATE)
+    .eq('is_test_data', true);
+
+  if (deleteError) {
+    console.error('Error clearing existing test data:', deleteError);
+    throw deleteError;
+  }
+
+  console.log(`Cleared existing test data for date ${TEST_DATE}`);
+
+  // Insert new daily totals
+  const { error } = await supabase
+    .from('daily_totals')
+    .insert(dailyTotals);
   if (error) {
     console.error('Error seeding daily_totals:', error);
     throw error;
