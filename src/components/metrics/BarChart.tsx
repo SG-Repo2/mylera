@@ -70,8 +70,11 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
         console.log('Daily data map:', Object.fromEntries(dailyData));
 
+        // Ensure we have 7 days of data
         const filledData = [];
-        for (let d = new Date(startDateTime); d <= endDateTime; d.setDate(d.getDate() + 1)) {
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(endDateTime);
+          d.setDate(d.getDate() - i);
           const dateStr = d.toLocaleDateString('en-CA');
           const values = dailyData.get(dateStr) || [0];
           const dayTotal = values.reduce((sum, val) => sum + val, 0);
@@ -88,16 +91,21 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         setData(filledData);
         setLoading(false);
 
-        Animated.stagger(100, 
-          filledData.map(item =>
+        // Enhanced staggered animation sequence
+        const animations = filledData.map((item, index) =>
+          Animated.sequence([
+            Animated.delay(index * 60), // Faster stagger for snappier feel
             Animated.spring(item.animation, {
               toValue: 1,
               useNativeDriver: false,
-              friction: 8,
-              tension: 40
+              stiffness: 180,
+              damping: 12,
+              mass: 0.8,
             })
-          )
-        ).start();
+          ])
+        );
+
+        Animated.stagger(40, animations).start();
 
       } catch (err) {
         if (!mounted) return;
@@ -213,15 +221,28 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                 <Animated.View style={[styles.barContainer, {
                   height: point.animation.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, Math.max(barHeight, 1)]
+                    outputRange: [0, Math.max(barHeight, 1)],
                   }),
                   width: barWidth,
+                  transform: [{
+                    scaleY: point.animation.interpolate({
+                      inputRange: [0, 0.8, 0.9, 1],
+                      outputRange: [0.3, 1.05, 1.02, 1], // Add bounce effect
+                    })
+                  }],
+                  transformOrigin: 'bottom'
                 }]}>
                   <Svg height="100%" width="100%">
                     <Defs>
                       <LinearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0" stopColor={gradientStart} stopOpacity={isToday ? "1" : "0.9"} />
-                        <Stop offset="1" stopColor={gradientEnd} stopOpacity={isToday ? "1" : "0.7"} />
+                    <Stop offset="0" stopColor={gradientStart} stopOpacity={isToday ? 1 : point.animation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.5, 0.9]
+                    }) as unknown as number} />
+                    <Stop offset="1" stopColor={gradientEnd} stopOpacity={isToday ? 1 : point.animation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.3, 0.7]
+                    }) as unknown as number} />
                       </LinearGradient>
                     </Defs>
                     <Rect

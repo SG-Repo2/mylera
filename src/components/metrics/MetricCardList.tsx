@@ -67,18 +67,22 @@ export const MetricCardList = React.memo(function MetricCardList({
   ).current;
 
   React.useEffect(() => {
-    // Stagger the animations
+    // Enhanced stagger animation sequence
     const animations = fadeAnims.map((anim, index) =>
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: 500,
-        delay: index * 100, // Stagger by 100ms
-        useNativeDriver: true,
-      })
+      Animated.sequence([
+        Animated.delay(index * 80), // Slightly faster stagger for better flow
+          Animated.spring(anim, {
+            toValue: 1,
+            useNativeDriver: true,
+            stiffness: 100,
+            damping: 15,
+            mass: 0.8,
+          })
+      ])
     );
 
-    Animated.parallel(animations).start();
-  }, []);
+    Animated.stagger(50, animations).start();
+  }, [fadeAnims]);
 
   const handleMetricPress = (metricType: MetricType) => {
     setSelectedMetric(metricType);
@@ -119,13 +123,18 @@ export const MetricCardList = React.memo(function MetricCardList({
             style={[
               styles.cell,
               {
-                opacity: fadeAnims[index],
-                transform: [{
-                  translateY: fadeAnims[index].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 0],
-                  }),
-                }],
+              opacity: fadeAnims[index],
+              transform: [{
+                translateY: fadeAnims[index].interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [30, 0], // Increased range for more noticeable motion
+                }),
+              }, {
+                scale: fadeAnims[index].interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0.8, 1.02, 1], // Add slight overshoot
+                }),
+              }],
               },
               index === metricOrder.length - 1 && styles.lastCell
             ]}

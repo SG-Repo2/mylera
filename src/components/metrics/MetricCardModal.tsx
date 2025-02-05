@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Animated, Pressable, ScrollView } from 'react-native';
+import { View, Animated, Pressable, ScrollView, Easing } from 'react-native';
 import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { brandColors } from '@/src/theme/theme';
@@ -104,18 +104,22 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     }
   }, [visible]);
 
-  // Add pulse animation for the value
+  // Enhanced pulse animation for the value
   const pulseValue = useCallback(() => {
     Animated.sequence([
-      Animated.timing(valueScale, {
-        toValue: 1.05,
-        duration: 200,
+      Animated.spring(valueScale, {
+        toValue: 1.08,
         useNativeDriver: true,
+        damping: 10,
+        mass: 0.8,
+        stiffness: 150,
       }),
-      Animated.timing(valueScale, {
+      Animated.spring(valueScale, {
         toValue: 1,
-        duration: 200,
         useNativeDriver: true,
+        damping: 12,
+        mass: 0.8,
+        stiffness: 150,
       }),
     ]).start();
   }, [valueScale]);
@@ -127,60 +131,84 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   }, [isLoading, pulseValue]);
 
   const animateIn = useCallback(() => {
-    Animated.parallel([
+    Animated.sequence([
+      // First fade in backdrop
       Animated.timing(backdropOpacity, {
         toValue: 1,
-        duration: 200,
+        duration: 250,
         useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
       }),
-      Animated.spring(translateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        damping: 20,
-        mass: 1,
-        stiffness: 200,
-      }),
-      Animated.spring(scale, {
-        toValue: 1,
-        useNativeDriver: true,
-        damping: 20,
-        mass: 1,
-        stiffness: 200,
-      }),
-      Animated.timing(contentOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-        delay: 100,
-      }),
+      // Then animate content with parallel animations
+      Animated.parallel([
+        // Slide up with overshoot
+        Animated.spring(translateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 12,
+          mass: 0.8,
+          stiffness: 180,
+        }),
+        // Scale up with slight overshoot
+        Animated.sequence([
+          Animated.spring(scale, {
+            toValue: 1.02,
+            useNativeDriver: true,
+            damping: 10,
+            mass: 0.8,
+            stiffness: 180,
+          }),
+          Animated.spring(scale, {
+            toValue: 1,
+            useNativeDriver: true,
+            damping: 12,
+            mass: 0.8,
+            stiffness: 180,
+          }),
+        ]),
+        // Fade in content slightly delayed
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 300,
+          delay: 150,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+      ]),
     ]).start();
   }, [backdropOpacity, translateY, scale, contentOpacity]);
 
   const animateOut = useCallback(() => {
-    Animated.parallel([
+    Animated.sequence([
+      // First animate content
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.cubic),
+        }),
+        Animated.spring(translateY, {
+          toValue: 100,
+          useNativeDriver: true,
+          damping: 12,
+          mass: 0.8,
+          stiffness: 180,
+        }),
+        Animated.spring(scale, {
+          toValue: 0.95,
+          useNativeDriver: true,
+          damping: 10,
+          mass: 0.8,
+          stiffness: 180,
+        }),
+      ]),
+      // Then fade out backdrop
       Animated.timing(backdropOpacity, {
         toValue: 0,
         duration: 200,
         useNativeDriver: true,
-      }),
-      Animated.spring(translateY, {
-        toValue: 500,
-        useNativeDriver: true,
-        damping: 20,
-        mass: 1,
-        stiffness: 200,
-      }),
-      Animated.spring(scale, {
-        toValue: 0.95,
-        useNativeDriver: true,
-        damping: 20,
-        mass: 1,
-        stiffness: 200,
-      }),
-      Animated.timing(contentOpacity, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
+        easing: Easing.in(Easing.cubic),
       }),
     ]).start(() => {
       onClose();
@@ -229,7 +257,14 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                 { translateY },
                 { scale }
               ],
-              opacity: contentOpacity
+              opacity: contentOpacity,
+              shadowOpacity: contentOpacity.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 0.15],
+              }),
+              shadowColor: theme.colors.shadow,
+              shadowOffset: { width: 0, height: -2 },
+              shadowRadius: 12,
             }
           ]}
         >
@@ -278,7 +313,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                     {
                       opacity: contentOpacity.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [0, 0.06]
+                        outputRange: [0, 0.08]
                       })
                     }
                   ]} />

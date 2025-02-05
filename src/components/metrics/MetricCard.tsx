@@ -43,29 +43,59 @@ export const MetricCard = React.memo(function MetricCard({
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
 
+  const glowAnim = React.useRef(new Animated.Value(0)).current;
+
   const handlePressIn = React.useCallback(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 100,
-    }).start();
-  }, [scaleAnim]);
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 0.95,
+        useNativeDriver: true,
+        stiffness: 200,
+        damping: 15,
+        mass: 0.8,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, [scaleAnim, glowAnim]);
 
   const handlePressOut = React.useCallback(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      friction: 8,
-      tension: 100,
-    }).start();
-  }, [scaleAnim]);
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        stiffness: 200,
+        damping: 15,
+        mass: 0.8,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, [scaleAnim, glowAnim]);
 
   return (
     <Animated.View 
       style={[
-        styles.cardWrapper, 
-        { transform: [{ scale: scaleAnim }] }
+        styles.cardWrapper,
+        {
+          transform: [{ scale: scaleAnim }],
+          shadowOpacity: glowAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.1, 0.25]
+          }),
+          shadowColor: color,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: glowAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [4, 8]
+          }),
+        }
       ]}
     >
       <Surface 

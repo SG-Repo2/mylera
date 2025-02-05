@@ -30,30 +30,45 @@ const LoadingView = React.memo(() => {
   const theme = useTheme();
   const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const spinAnim = React.useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     Animated.parallel([
+      // Smooth pulse animation
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
+          Animated.spring(pulseAnim, {
             toValue: 1,
-            duration: 1200,
             useNativeDriver: true,
+            damping: 10,
+            mass: 0.8,
+            stiffness: 180,
           }),
-          Animated.timing(pulseAnim, {
+          Animated.spring(pulseAnim, {
             toValue: 0.8,
-            duration: 1200,
             useNativeDriver: true,
+            damping: 10,
+            mass: 0.8,
+            stiffness: 180,
           }),
         ])
       ),
+      // Simple fade in
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
-      })
+      }),
+      // Continuous rotation
+      Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        })
+      ),
     ]).start();
-  }, []);
+  }, [pulseAnim, fadeAnim, spinAnim]);
 
   return (
     <Surface 
@@ -78,10 +93,19 @@ const LoadingView = React.memo(() => {
             shadowRadius: 8,
           }}
         >
-          <ActivityIndicator 
-            size={56} 
-            color={theme.colors.primary} 
-          />
+          <Animated.View style={{
+            transform: [{
+              rotate: spinAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '360deg']
+              })
+            }]
+          }}>
+            <ActivityIndicator 
+              size={56} 
+              color={theme.colors.primary} 
+            />
+          </Animated.View>
         </Animated.View>
         <Text 
           variant="titleMedium" 
@@ -169,31 +193,44 @@ export const Dashboard = React.memo(function Dashboard({
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const pointsScale = React.useRef(new Animated.Value(0.9)).current;
   const pointsOpacity = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
   useEffect(() => {
     if (dailyTotal) {
       Animated.sequence([
-        Animated.timing(headerOpacity, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
+        // Slide and fade in header
+        Animated.parallel([
+          Animated.timing(headerOpacity, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 12,
+            mass: 0.8,
+            stiffness: 180,
+          }),
+        ]),
+        // Animate points with bounce
         Animated.parallel([
           Animated.spring(pointsScale, {
             toValue: 1,
-            friction: 6,
-            tension: 40,
+            damping: 10,
+            mass: 0.8,
+            stiffness: 180,
             useNativeDriver: true,
           }),
           Animated.timing(pointsOpacity, {
             toValue: 1,
-            duration: 400,
+            duration: 300,
             useNativeDriver: true,
-          })
-        ])
+          }),
+        ]),
       ]).start();
     }
-  }, [dailyTotal]);
+  }, [dailyTotal, headerOpacity, pointsScale, pointsOpacity, slideAnim]);
 
   useEffect(() => {
   const fetchData = async () => {
@@ -266,6 +303,7 @@ export const Dashboard = React.memo(function Dashboard({
                 styles.headerContent,
                 {
                   opacity: headerOpacity,
+                  transform: [{ translateY: slideAnim }],
                   backgroundColor: 'transparent',
                   flexDirection: 'row',
                   justifyContent: 'space-between',
@@ -309,58 +347,88 @@ export const Dashboard = React.memo(function Dashboard({
             ]}
           >
             <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Surface 
-                style={[
-                  styles.statsCard, 
-                  { 
-                    backgroundColor: theme.colors.primary,
-                  }
-                ]}
-                elevation={2}
-              >
-                <View style={styles.statsContainer}>
-                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                    Daily Goals
-                  </Text>
-                  <Text variant="headlineMedium" style={[styles.statsValue, { color: 'white' }]}>
-                    {dailyTotal.metrics_completed}/7
-                  </Text>
-                </View>
-              </Surface>
+              <Animated.View style={{
+                flex: 1,
+                transform: [{
+                  translateY: pointsOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, 0],
+                  })
+                }]
+              }}>
+                <Surface 
+                  style={[
+                    styles.statsCard, 
+                    { 
+                      backgroundColor: theme.colors.primary,
+                    }
+                  ]}
+                  elevation={2}
+                >
+                  <View style={styles.statsContainer}>
+                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                      Daily Goals
+                    </Text>
+                    <Text variant="headlineMedium" style={[styles.statsValue, { color: 'white' }]}>
+                      {dailyTotal.metrics_completed}/7
+                    </Text>
+                  </View>
+                </Surface>
+              </Animated.View>
 
-              <Surface 
-                style={[
-                  styles.statsCard, 
-                  { 
-                    backgroundColor: theme.colors.primary,
-                  }
-                ]}
-                elevation={2}
-              >
-                <View style={styles.statsContainer}>
-                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                    Strength
-                  </Text>
-                  <MaterialCommunityIcons name="fire" size={28} color="white" />
-                </View>
-              </Surface>
+              <Animated.View style={{
+                flex: 1,
+                transform: [{
+                  translateY: pointsOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [30, 0],
+                  })
+                }]
+              }}>
+                <Surface 
+                  style={[
+                    styles.statsCard, 
+                    { 
+                      backgroundColor: theme.colors.primary,
+                    }
+                  ]}
+                  elevation={2}
+                >
+                  <View style={styles.statsContainer}>
+                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                      Strength
+                    </Text>
+                    <MaterialCommunityIcons name="fire" size={28} color="white" />
+                  </View>
+                </Surface>
+              </Animated.View>
 
-              <Surface 
-                style={[
-                  styles.statsCard, 
-                  { 
-                    backgroundColor: theme.colors.error
-                  }
-                ]}
-                elevation={2}
-              >
-                <View style={styles.statsContainer}>
-                  <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                    Improve
-                  </Text>
-                  <MaterialCommunityIcons name="run" size={28} color="white" />
-                </View>
-              </Surface>
+              <Animated.View style={{
+                flex: 1,
+                transform: [{
+                  translateY: pointsOpacity.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [40, 0],
+                  })
+                }]
+              }}>
+                <Surface 
+                  style={[
+                    styles.statsCard, 
+                    { 
+                      backgroundColor: theme.colors.error
+                    }
+                  ]}
+                  elevation={2}
+                >
+                  <View style={styles.statsContainer}>
+                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
+                      Improve
+                    </Text>
+                    <MaterialCommunityIcons name="run" size={28} color="white" />
+                  </View>
+                </Surface>
+              </Animated.View>
             </View>
           </Animated.View>
         </>
