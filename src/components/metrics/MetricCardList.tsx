@@ -44,8 +44,20 @@ export const MetricCardList = React.memo(function MetricCardList({
   showAlerts = true,
   provider
 }: MetricCardListProps) {
-  // Debug log
-  console.log('MetricCardList metrics:', metrics);
+  // Debug logs for metrics data
+  console.log('[MetricCardList] Raw metrics:', metrics);
+  
+  // Log specific metric values
+  Object.entries(metrics).forEach(([key, value]) => {
+    if (key in healthMetrics) {
+      const metricConfig = healthMetrics[key as MetricType];
+      console.log(`[MetricCardList] ${key}:`, {
+        rawValue: value,
+        formattedValue: metricConfig.formatValue(value),
+        displayUnit: metricConfig.displayUnit
+      });
+    }
+  });
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const { styles, colors: metricColors } = useMetricCardListStyles();

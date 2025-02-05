@@ -15,19 +15,36 @@ export function normalizeMetric<T>(
  * Returns null if no metrics are provided
  */
 export function aggregateMetrics(metrics: NormalizedMetric[]): number {
-  if (!metrics.length) return 0;
+  console.log('[healthMetricUtils] Aggregating metrics:', {
+    metricCount: metrics.length,
+    metricType: metrics[0]?.type,
+    rawValues: metrics.map(m => m.value)
+  });
+
+  if (!metrics.length) {
+    console.log('[healthMetricUtils] No metrics to aggregate, returning 0');
+    return 0;
+  }
 
   const metric = metrics[0];
   if (metric.type === 'heart_rate') {
     // Average for heart rate
     const sum = metrics.reduce((acc, m) => acc + (typeof m.value === 'number' ? m.value : 0), 0);
-    return Math.round(sum / metrics.length);
+    const average = Math.round(sum / metrics.length);
+    console.log('[healthMetricUtils] Heart rate average:', { sum, count: metrics.length, average });
+    return average;
   }
   
   // Sum for other metrics
-  return Math.round(
+  const total = Math.round(
     metrics.reduce((acc, m) => acc + (typeof m.value === 'number' ? m.value : 0), 0)
   );
+  console.log('[healthMetricUtils] Metric sum:', {
+    type: metric.type,
+    total,
+    unit: metric.unit
+  });
+  return total;
 }
 
 /**

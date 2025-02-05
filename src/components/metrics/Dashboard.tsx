@@ -157,12 +157,8 @@ const transformMetricsToHealthMetrics = (
   metrics.forEach(metric => {
     const metricType = metric.metric_type as MetricType;
     if (metricType in result && typeof metric.value === 'number') {
-      // Handle distance conversion (from meters to kilometers)
-      if (metricType === 'distance' && metric.value) {
-        result[metricType] = metric.value / 1000; // Convert meters to kilometers
-      } else {
-        result[metricType] = metric.value;
-      }
+      // Store the raw value - any necessary conversions will be handled by the formatters
+      result[metricType] = metric.value;
     }
   });
 

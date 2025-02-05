@@ -77,6 +77,14 @@ export const metricsService = {
 
   // Update a single metric
   async updateMetric(userId: string, metricType: MetricType, value: number) {
+    console.log('[MetricsService] Updating metric:', {
+      userId,
+      metricType,
+      value,
+      valueType: typeof value,
+      timestamp: new Date().toISOString()
+    });
+
     // Verify user is authenticated
     const session = await supabase.auth.getSession();
     if (!session.data.session?.user) {
@@ -91,6 +99,12 @@ export const metricsService = {
     const today = new Date().toISOString().split('T')[0];
     const config = healthMetrics[metricType];
     
+    console.log('[MetricsService] Metric config:', {
+      metricType,
+      defaultGoal: config.defaultGoal,
+      unit: config.unit
+    });
+    
     // Calculate points and goal status based on environment
     let goalReached = false;
     let points = 0;
@@ -104,24 +118,38 @@ export const metricsService = {
       goalReached = value >= config.defaultGoal;
       points = Math.min(Math.floor((value / config.defaultGoal) * 100), 100);
     }
+
+    console.log('[MetricsService] Calculated score:', {
+      goalReached,
+      points,
+      value,
+      defaultGoal: config.defaultGoal
+    });
     
-    // Update metric score - always set is_test_data to false to comply with RLS policies
-    const { error: metricError } = await supabase
+    // Prepare the metric data
+    const metricData = {
+      user_id: userId,
+      date: today,
+      metric_type: metricType,
+      value,
+      points,
+      goal_reached: goalReached,
+      updated_at: new Date().toISOString(),
+      is_test_data: false // Always false to avoid RLS policy violations
+    };
+
+    console.log('[MetricsService] Upserting metric data:', metricData);
+
+    // Update metric score
+    const { data: upsertResult, error: metricError } = await supabase
       .from('daily_metric_scores')
-      .upsert({
-        user_id: userId,
-        date: today,
-        metric_type: metricType,
-        value,
-        points,
-        goal_reached: goalReached,
-        updated_at: new Date().toISOString(),
-        is_test_data: false // Always false to avoid RLS policy violations
-      }, {
+      .upsert(metricData, {
         onConflict: 'user_id,date,metric_type'
-      });
+      })
+      .select();
   
     if (metricError) {
+      console.error('[MetricsService] Error upserting metric:', metricError);
       // Handle RLS policy violation
       if (metricError.code === '42501') {
         throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
@@ -129,17 +157,27 @@ export const metricsService = {
       throw metricError;
     }
 
-    // Update daily total
-    const { data: metrics } = await supabase
+    console.log('[MetricsService] Upsert result:', upsertResult);
+
+    // Get updated metrics for daily total
+    const { data: metrics, error: fetchError } = await supabase
       .from('daily_metric_scores')
-      .select('points, goal_reached')
+      .select('points, goal_reached, metric_type, value')
       .eq('user_id', userId)
       .eq('date', today);
+
+    if (fetchError) {
+      console.error('[MetricsService] Error fetching metrics:', fetchError);
+      throw fetchError;
+    }
+
+    console.log('[MetricsService] Current metrics state:', metrics);
 
     const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
     const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
 
-    const { error: totalError } = await supabase
+    // Update daily total
+    const { data: totalResult, error: totalError } = await supabase
       .from('daily_totals')
       .upsert({
         user_id: userId,
@@ -150,7 +188,14 @@ export const metricsService = {
         is_test_data: false
       }, {
         onConflict: 'user_id,date'
-      });
+      })
+      .select();
+
+    console.log('[MetricsService] Daily total update result:', {
+      totalPoints,
+      metricsCompleted,
+      result: totalResult
+    });
 
     if (totalError) {
       // Handle RLS policy violation
