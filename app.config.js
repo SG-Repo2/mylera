@@ -6,9 +6,14 @@ export default {
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "mylera",
+    newArchEnabled: false,
     userInterfaceStyle: "automatic",
     "assets": ["./src/assets/animations"],
-
+    splash: {
+      image: "./assets/images/splash.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff"
+    },
     plugins: [
       "expo-router",
       [
@@ -21,8 +26,8 @@ export default {
           },
           ios: {
             deploymentTarget: "16.1",
-            useFrameworks: "static",
-            newArchEnabled: false,
+            useFrameworks: "static"
+            
           },
         },
       ],
