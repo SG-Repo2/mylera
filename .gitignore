@@ -54,3 +54,12 @@ app-example
 docs/*.md
 **/repomix-output.txt
 backup.sql
+
+src/components/leaderboard/tests/__snapshots__/LeaderboardEntry.test.tsx.snap
+src/components/leaderboard/tests/mocks/leaderboardData.ts
+src/components/leaderboard/tests/mocks/leaderboardService.ts
+src/components/leaderboard/tests/Leaderboard.test.tsx
+src/components/leaderboard/tests/LeaderboardEntry.test.tsx
+src/hooks/__tests__/
+src/services/__mocks__
+src/__tests__/
