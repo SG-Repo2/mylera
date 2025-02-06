@@ -16,6 +16,7 @@ export default {
     },
     plugins: [
       "expo-router",
+      "./withHealthConnectManifest",
       [
         "expo-build-properties",
         {
@@ -59,6 +60,10 @@ export default {
       }
     },
     android: {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
       package: "com.groebe1kenobi.mylera",
       permissions: [
         "android.permission.health.READ_STEPS",
