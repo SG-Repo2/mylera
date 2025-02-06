@@ -57,31 +57,3 @@ export async function initializeHealthProviderForUser(
   
   setHealthStatus('not_determined');
 }
-
-/**
- * Verify specific health permission
- * Returns true if the permission is granted, false otherwise
- */
-export async function verifyHealthPermission(
-  permissionType: string
-): Promise<boolean> {
-  try {
-    const provider = HealthProviderFactory.getProvider();
-    const permissionState = await provider.checkPermissionsStatus();
-    
-    if (permissionState.status !== 'granted') {
-      console.warn(
-        `[HealthProvider] Permission not granted for ${permissionType}`
-      );
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error(
-      `[HealthProvider] Error verifying ${permissionType} permission:`,
-      error instanceof Error ? error.message : 'Unknown error'
-    );
-    return false;
-  }
-}

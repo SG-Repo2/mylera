@@ -10,7 +10,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from './health/types/permissions';
-import { initializeHealthProviderForUser, mapAuthError } from '../utils/healthProviderUtils';
+import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
+import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 
 interface AuthContextType {
@@ -76,21 +77,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const register = async (email: string, password: string) => {
     try {
+      console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
 
       // Attempt registration
+      console.log('[AuthProvider] Calling supabase.auth.signUp...');
       const { error: signUpError, data } = await supabase.auth.signUp({ email, password });
-      if (signUpError) throw signUpError;
+      console.log('[AuthProvider] Supabase signUp response:', { data, error: signUpError });
+
+      if (signUpError) {
+        console.log('[AuthProvider] SignUp error detected:', signUpError);
+        throw signUpError;
+      }
 
       // Initialize health provider for new user
       if (data.user) {
+        console.log('[AuthProvider] User created, attempting auto-login...');
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        
+        if (signInError) {
+          console.error('[AuthProvider] Auto-login failed:', signInError);
+          throw signInError;
+        }
+        
+        console.log('[AuthProvider] Auto-login successful, initializing health provider');
         await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {
-      console.error('Registration error:', err);
-      setError(mapAuthError(err));
+      console.error('[AuthProvider] Registration error:', err);
+      const mappedError = mapAuthError(err);
+      console.log('[AuthProvider] Mapped error:', mappedError);
+      setError(mappedError);
     } finally {
+      console.log('[AuthProvider] Registration process complete. Setting loading to false');
       setLoading(false);
     }
   };

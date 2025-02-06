@@ -71,6 +71,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+    backgroundColor: '#FFFFFF', // Add solid background color for shadow optimization
   },
   animation: {
     width: 200,

@@ -1,12 +1,11 @@
 import React, { useMemo } from 'react';
-import { StyleSheet, View, Animated } from 'react-native';
-import { Card, Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
+import { View, Animated } from 'react-native';
+import { Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
-import { theme as appTheme } from '@/src/theme/theme';
+import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 
-// Individual Metric Card Component Props
 interface MetricCardProps {
   title: string;
   value: number | null;
@@ -16,22 +15,13 @@ interface MetricCardProps {
   unit: string;
   metricType: MetricType;
   color?: string;
-  onPress?: () => void;
+  onPress: () => void;
   showAlert?: boolean;
-}
-
-interface MetricDetailCardProps {
-  metricType: MetricType;
-  value: number | null;
-  goal: number;
-  color?: string;
 }
 
 const calculateProgress = (value: number | null, goal: number): number => {
   return Math.min((value ?? 0) / goal, 1);
 };
-
-const AnimatedSurface = Animated.createAnimatedComponent(Surface);
 
 export const MetricCard = React.memo(function MetricCard({
   title,
@@ -41,175 +31,121 @@ export const MetricCard = React.memo(function MetricCard({
   icon,
   unit,
   metricType,
-  color = appTheme.colors.primary,
-  onPress
+  color,
+  onPress,
+  showAlert
 }: MetricCardProps) {
-  const paperTheme = useTheme();
+  const styles = useMetricCardStyles();
+  const theme = useTheme();
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
   const percentage = Math.round(progress * 100);
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
 
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
+  const glowAnim = React.useRef(new Animated.Value(0)).current;
 
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
-  };
+  const handlePressIn = React.useCallback(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 0.95,
+        useNativeDriver: true,
+        stiffness: 200,
+        damping: 15,
+        mass: 0.8,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, [scaleAnim, glowAnim]);
+
+  const handlePressOut = React.useCallback(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        stiffness: 200,
+        damping: 15,
+        mass: 0.8,
+      }),
+      Animated.timing(glowAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, [scaleAnim, glowAnim]);
 
   return (
-    <Animated.View style={[styles.cardWrapper, { transform: [{ scale: scaleAnim }] }]}>
-      <Surface style={[styles.card, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
-        <TouchableRipple
-          onPress={onPress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          style={styles.ripple}
-          borderless
-        >
-          <View style={styles.cardContent}>
-            <View style={styles.headerRow}>
-              <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
-                <MaterialCommunityIcons name={icon} size={24} color="white" />
-              </Surface>
-              <Text variant="labelLarge" style={[styles.title, { color: paperTheme.colors.onSurface }]}>
-                {title}
-              </Text>
-            </View>
-            
-            <View style={styles.valueContainer}>
-              <Text variant="displaySmall" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
-                {formattedValue}
-              </Text>
-              <Text variant="labelMedium" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
-                {unit}
-              </Text>
-            </View>
+    <Animated.View 
+      style={[
+        styles.cardWrapper,
+        {
+          transform: [{ scale: scaleAnim }],
+          shadowOpacity: glowAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.1, 0.25]
+          }),
+          shadowColor: color,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: glowAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [4, 8]
+          }),
+        }
+      ]}
+    >
+      <Surface 
+        style={[
+          styles.cardShadowWrapper, 
+          { backgroundColor: theme.colors.surface }
+        ]} 
+        elevation={2}
+      >
+        <View style={styles.cardContentWrapper}>
+          <TouchableRipple
+            onPress={onPress}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            style={styles.ripple}
+            borderless
+          >
+            <View style={styles.cardContent}>
+              <View style={styles.headerRow}>
+                <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
+                  <MaterialCommunityIcons name={icon} size={24} color="white" />
+                </Surface>
+                <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
+                  {title}
+                </Text>
+              </View>
+              
+              <View style={styles.valueContainer}>
+                <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                  {formattedValue}
+                </Text>
+                <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
+                  {unit}
+                </Text>
+              </View>
 
-            <View style={styles.progressContainer}>
-              <ProgressBar
-                progress={progress}
-                color={color}
-                style={styles.progressBar}
-              />
-              <Text variant="labelSmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
-                {percentage}% of goal
-              </Text>
+              <View style={styles.progressContainer}>
+                <ProgressBar
+                  progress={progress}
+                  color={color}
+                  style={styles.progressBar}
+                />
+                <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
+                  {percentage}% of goal
+                </Text>
+              </View>
             </View>
-          </View>
-        </TouchableRipple>
+          </TouchableRipple>
+        </View>
       </Surface>
     </Animated.View>
   );
-});
-
-export const MetricDetailCard = React.memo(function MetricDetailCard({
-  metricType,
-  value,
-  goal,
-  color,
-}: MetricDetailCardProps) {
-  const paperTheme = useTheme();
-  const config = healthMetrics[metricType];
-  const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0);
-  const percentage = Math.round(progress * 100);
-  
-  return (
-    <Surface style={[styles.detailCard, { backgroundColor: paperTheme.colors.surface }]} elevation={2}>
-      <Card.Content style={styles.cardContent}>
-        <View style={styles.valueContainer}>
-          <Text variant="headlineLarge" style={[styles.value, { color: paperTheme.colors.onSurface }]}>
-            {formattedValue}
-          </Text>
-          <Text variant="titleSmall" style={[styles.unit, { color: paperTheme.colors.onSurfaceVariant }]}>
-            {config.displayUnit}
-          </Text>
-        </View>
-
-        <ProgressBar
-          progress={progress}
-          color={color || paperTheme.colors.primary}
-          style={styles.progressBar}
-        />
-
-        <Text variant="bodySmall" style={[styles.progressText, { color: paperTheme.colors.onSurfaceVariant }]}>
-          {percentage}% of {goal} {config.displayUnit}
-        </Text>
-      </Card.Content>
-    </Surface>
-  );
-});
-
-const styles = StyleSheet.create({
-  cardWrapper: {
-    minHeight: 160,
-    aspectRatio: 1,
-  },
-  card: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    height: '100%',
-  },
-  detailCard: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginHorizontal: 16,
-    marginVertical: 8,
-  },
-  ripple: {
-    borderRadius: 16,
-    height: '100%',
-  },
-  cardContent: {
-    padding: 16,
-    gap: 8,
-    height: '100%',
-    justifyContent: 'space-between',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: {
-    flex: 1,
-  },
-  valueContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
-  value: {
-    fontWeight: '600',
-  },
-  unit: {
-    fontWeight: '500',
-  },
-  progressContainer: {
-    gap: 4,
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 3,
-  },
-  progressText: {
-    textAlign: 'right',
-  }
 });

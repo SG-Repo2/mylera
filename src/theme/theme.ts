@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import type { MD3TypescaleKey } from 'react-native-paper/lib/typescript/types';
 
 // First, let's define our brand colors with semantic meaning
-const brandColors = {
+export const brandColors = {
   primary: '#183E9F',    // Main brand color for primary actions
   secondary: '#F7A072',  // Secondary actions and highlights
   accent: '#A2D5F2',     // Subtle accents and backgrounds

@@ -4,7 +4,7 @@ import AppleHealthKit, {
   HealthInputOptions,
 } from 'react-native-health';
 import { promisify } from '../../../../utils/promiseWrapper';
-import { aggregateMetrics } from '../../../../utils/healthProviderUtils';
+import { aggregateMetrics } from '../../../../utils/healthMetricUtils';
 import { permissions, HEALTH_PERMISSIONS } from './permissions';
 import { BaseHealthProvider } from '../../types/provider';
 import type { 
@@ -17,6 +17,7 @@ import { METRIC_UNITS } from '../../types/metrics';
 import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
+import { DateUtils } from '../../../../utils/DateUtils';
 
 export class AppleHealthProvider extends BaseHealthProvider {
   async initialize(): Promise<void> {
@@ -188,12 +189,23 @@ export class AppleHealthProvider extends BaseHealthProvider {
         break;
       case 'distance':
         if (rawData.distance) {
-          metrics.push(...rawData.distance.map(raw => ({
+          console.log('[AppleHealthProvider] Normalizing distance metrics:', {
+            rawMetrics: rawData.distance,
+            rawTotal: rawData.distance.reduce((sum, m) => sum + (m.value || 0), 0)
+          });
+          const normalizedDistanceMetrics = rawData.distance.map(raw => ({
             timestamp: raw.endDate,
             value: Number(raw.value), // Keep in meters
             unit: METRIC_UNITS.DISTANCE,
             type: 'distance'
-          } as NormalizedMetric)));
+          } as NormalizedMetric));
+          metrics.push(...normalizedDistanceMetrics);
+          console.log('[AppleHealthProvider] Normalized distance metrics:', {
+            normalizedMetrics: normalizedDistanceMetrics,
+            normalizedTotal: normalizedDistanceMetrics.reduce((sum, m) => sum + m.value, 0)
+          });
+        } else {
+          console.log('[AppleHealthProvider] No distance data to normalize');
         }
         break;
       case 'calories':
@@ -253,7 +265,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   async getMetrics(): Promise<HealthMetrics> {
     const now = new Date();
-    const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+    const startOfDay = DateUtils.getStartOfDay(now);
+    
+    console.log('[AppleHealthProvider] Fetching metrics for time window:', {
+      start: startOfDay.toISOString(),
+      end: now.toISOString()
+    });
     
     const rawData = await this.fetchRawMetrics(
       startOfDay,
@@ -308,14 +325,77 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchDistanceRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      const results = await promisify<{ value: number }>(
+      console.log('[AppleHealthProvider] Fetching distance with options:', options);
+      
+      // Get walking/running distance
+      const results = await promisify<any>(
         AppleHealthKit.getDistanceWalkingRunning,
         options
       );
+      
+      console.log('[AppleHealthProvider] Distance raw results:', results);
+
+      // Log the type of results to help with debugging
+      console.log('[AppleHealthProvider] Results type:', {
+        isObject: typeof results === 'object',
+        hasValue: 'value' in (results || {}),
+        valueType: typeof results?.value,
+        keys: results ? Object.keys(results) : []
+      });
+
+      // Handle the case where results is a plain object with startDate, endDate, and value
+      if (results && typeof results === 'object' && 'startDate' in results && 'endDate' in results && typeof results.value === 'number') {
+        const metric = {
+          startDate: results.startDate,
+          endDate: results.endDate,
+          value: Math.round(results.value),
+          unit: 'meters',
+          sourceBundle: 'com.apple.health'
+        };
+        
+        console.log('[AppleHealthProvider] Processed plain distance result:', metric);
+        return [metric];
+      }
+      
+      // Handle legacy allResults format (keeping for backward compatibility)
+      if (results?.allResults && typeof results.allResults.value === 'number') {
+        const metric = {
+          startDate: results.allResults.startDate || options.startDate,
+          endDate: results.allResults.endDate || options.endDate,
+          value: Math.round(results.allResults.value),
+          unit: 'meters',
+          sourceBundle: 'com.apple.health'
+        };
+        
+        console.log('[AppleHealthProvider] Processed single distance result:', metric);
+        return [metric];
+      }
+      
+      // Handle array response format
+      if (Array.isArray(results) && results.length > 0) {
+        const mappedResults = results.map(sample => ({
+          startDate: sample.startDate,
+          endDate: sample.endDate,
+          value: Math.round(sample.value || 0),
+          unit: 'meters',
+          sourceBundle: 'com.apple.health'
+        }));
+
+        console.log('[AppleHealthProvider] Processed distance results:', {
+          totalResults: mappedResults.length,
+          totalValue: mappedResults.reduce((sum, item) => sum + item.value, 0),
+          samples: mappedResults
+        });
+
+        return mappedResults;
+      }
+
+      // No valid results found
+      console.log('[AppleHealthProvider] No valid distance results found, returning 0');
       return [{
         startDate: options.startDate || new Date().toISOString(),
         endDate: options.endDate || new Date().toISOString(),
-        value: results.value || 0, // Keep in meters
+        value: 0,
         unit: 'meters',
         sourceBundle: 'com.apple.health'
       }];
@@ -327,17 +407,30 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      const results = await promisify<{ value: number }>(
+      console.log('[AppleHealthProvider] Fetching calories with options:', options);
+      const results = await promisify<Array<{ value: number; startDate: string; endDate: string }>>(
         AppleHealthKit.getActiveEnergyBurned,
         options
       );
-      return [{
-        startDate: options.startDate || new Date().toISOString(),
-        endDate: options.endDate || new Date().toISOString(),
-        value: Math.round(results.value || 0),
+      console.log('[AppleHealthProvider] Calories raw results:', results);
+      
+      if (!Array.isArray(results) || results.length === 0) {
+        return [{
+          startDate: options.startDate || new Date().toISOString(),
+          endDate: options.endDate || new Date().toISOString(),
+          value: 0,
+          unit: 'kcal',
+          sourceBundle: 'com.apple.health'
+        }];
+      }
+
+      return results.map(sample => ({
+        startDate: sample.startDate,
+        endDate: sample.endDate,
+        value: Math.round(sample.value || 0),
         unit: 'kcal',
         sourceBundle: 'com.apple.health'
-      }];
+      }));
     } catch (error) {
       console.error('[AppleHealthProvider] Error reading active calories:', error);
       return [];
@@ -445,7 +538,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
     }
   }
 
-  private aggregateMetric(metrics: NormalizedMetric[]): number | null {
+  private aggregateMetric(metrics: NormalizedMetric[]): number {
     return aggregateMetrics(metrics);
   }
 }

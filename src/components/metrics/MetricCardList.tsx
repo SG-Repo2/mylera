@@ -1,15 +1,18 @@
-import React from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import React, { useState } from 'react';
+import { View, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
+import { MetricModal } from './MetricCardModal';
 import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
-import { theme } from '@/src/theme/theme';
+import type { HealthProvider } from '@/src/providers/health/types/provider';
+import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
   showAlerts?: boolean;
+  provider: HealthProvider;
 }
 
 type DisplayedMetricType = MetricType;
@@ -23,10 +26,8 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number | { syst
     exercise: 200,
     basal_calories: 150,
     flights_climbed: 100,
-
   };
 
-  
   // Handle numeric values only since blood pressure is handled separately
   if (typeof value !== 'number') {
     return 0;
@@ -38,22 +39,29 @@ const calculateMetricPoints = (type: DisplayedMetricType, value: number | { syst
   );
 };
 
-export const MetricCardList = React.memo(function MetricCardList({ 
-  metrics, 
-  showAlerts = true 
+export const MetricCardList = React.memo(function MetricCardList({
+  metrics,
+  showAlerts = true,
+  provider
 }: MetricCardListProps) {
-  const paperTheme = useTheme();
-
-  // Define colors using our theme
-  const metricColors: Record<DisplayedMetricType, string> = {
-    steps: theme.colors.primary,
-    distance: theme.colors.secondary,
-    calories: theme.colors.tertiary,
-    exercise: theme.colors.success,
-    heart_rate: '#FF5252',
-    basal_calories: '#9C27B0',
-    flights_climbed: '#FF9800'
-  };
+  // Debug logs for metrics data
+  console.log('[MetricCardList] Raw metrics:', metrics);
+  
+  // Log specific metric values
+  Object.entries(metrics).forEach(([key, value]) => {
+    if (key in healthMetrics) {
+      const metricConfig = healthMetrics[key as MetricType];
+      console.log(`[MetricCardList] ${key}:`, {
+        rawValue: value,
+        formattedValue: metricConfig.formatValue(value),
+        displayUnit: metricConfig.displayUnit
+      });
+    }
+  });
+  const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const { styles, colors: metricColors } = useMetricCardListStyles();
+  const theme = useTheme();
 
   const metricOrder: DisplayedMetricType[] = [
     'steps',
@@ -71,21 +79,55 @@ export const MetricCardList = React.memo(function MetricCardList({
   ).current;
 
   React.useEffect(() => {
-    // Stagger the animations
+    // Enhanced stagger animation sequence
     const animations = fadeAnims.map((anim, index) =>
-      Animated.timing(anim, {
-        toValue: 1,
-        duration: 500,
-        delay: index * 100, // Stagger by 100ms
-        useNativeDriver: true,
-      })
+      Animated.sequence([
+        Animated.delay(index * 80), // Slightly faster stagger for better flow
+          Animated.spring(anim, {
+            toValue: 1,
+            useNativeDriver: true,
+            stiffness: 100,
+            damping: 15,
+            mass: 0.8,
+          })
+      ])
     );
 
-    Animated.parallel(animations).start();
-  }, []);
+    Animated.stagger(50, animations).start();
+  }, [fadeAnims]);
+
+  const handleMetricPress = (metricType: MetricType) => {
+    setSelectedMetric(metricType);
+    setModalVisible(true);
+  };
 
   return (
-    <View style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {selectedMetric && (
+          <MetricModal
+            visible={modalVisible}
+            onClose={() => {
+              setModalVisible(false);
+              setSelectedMetric(null);
+            }}
+            title={healthMetrics[selectedMetric].title}
+            value={metrics[selectedMetric] || 0}
+            metricType={selectedMetric}
+            userId={metrics.user_id}
+            date={metrics.date}
+            provider={provider}
+            additionalInfo={[
+            {
+              label: 'Daily Goal',
+              value: `${healthMetrics[selectedMetric].defaultGoal} ${healthMetrics[selectedMetric].displayUnit}`
+            },
+            {
+              label: 'Progress',
+              value: `${Math.round((metrics[selectedMetric] as number || 0) / healthMetrics[selectedMetric].defaultGoal * 100)}%`
+            }
+          ]}
+        />
+      )}
       <View style={styles.grid}>
         {metricOrder.map((metricType, index) => (
           <Animated.View 
@@ -93,13 +135,18 @@ export const MetricCardList = React.memo(function MetricCardList({
             style={[
               styles.cell,
               {
-                opacity: fadeAnims[index],
-                transform: [{
-                  translateY: fadeAnims[index].interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 0],
-                  }),
-                }],
+              opacity: fadeAnims[index],
+              transform: [{
+                translateY: fadeAnims[index].interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [30, 0], // Increased range for more noticeable motion
+                }),
+              }, {
+                scale: fadeAnims[index].interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0.8, 1.02, 1], // Add slight overshoot
+                }),
+              }],
               },
               index === metricOrder.length - 1 && styles.lastCell
             ]}
@@ -114,6 +161,7 @@ export const MetricCardList = React.memo(function MetricCardList({
               color={metricColors[metricType]}
               showAlert={showAlerts}
               metricType={metricType}
+              onPress={() => handleMetricPress(metricType)}
             />
           </Animated.View>
         ))}
@@ -125,26 +173,4 @@ export const MetricCardList = React.memo(function MetricCardList({
     prevProps.showAlerts === nextProps.showAlerts &&
     JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics)
   );
-});
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 12,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-    justifyContent: 'space-evenly',
-    alignItems: 'flex-start',
-  },
-  cell: {
-    width: '45%',
-    maxWidth: 180,
-  },
-  lastCell: {
-    width: '45%',
-    maxWidth: 180,
-  }
 });

@@ -20,10 +20,29 @@ module.exports = {
   ],
   coverageThreshold: {
     global: {
-      branches: 70,
-      functions: 70,
-      lines: 70,
-      statements: 70,
+      branches: 85,
+      functions: 85,
+      lines: 85,
+      statements: 85,
+    },
+    // Stricter requirements for critical paths
+    'src/utils/**/*.{ts,tsx}': {
+      branches: 100,
+      functions: 100,
+      lines: 100,
+      statements: 100,
+    },
+    'src/hooks/**/*.{ts,tsx}': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    'src/services/**/*.{ts,tsx}': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
     },
   },
 };

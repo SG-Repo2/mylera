@@ -35,14 +35,13 @@ export const leaderboardService = {
     console.log('Fetching daily leaderboard for date:', date);
     
     try {
-      // First try to get daily totals with user profiles
       const { data, error } = await supabase
         .from('daily_totals')
         .select(`
           user_id,
           total_points,
           metrics_completed,
-          user_profiles (
+          user_profiles!left (
             id,
             display_name,
             avatar_url,
@@ -85,26 +84,15 @@ export const leaderboardService = {
 
       console.log('Raw daily_totals data:', data);
       
-      const leaderboard = data
-        .filter(entry => {
-          const showProfile = entry.user_profiles?.show_profile;
-          if (!showProfile) {
-            console.log(`Filtering out user ${entry.user_id} due to show_profile = false`);
-          }
-          return showProfile;
-        })
-        .map((entry, index): LeaderboardEntry => {
-          const mappedEntry = {
-            user_id: entry.user_id,
-            display_name: entry.user_profiles?.display_name || 'Anonymous User',
-            avatar_url: entry.user_profiles?.avatar_url || null,
-            total_points: entry.total_points,
-            metrics_completed: entry.metrics_completed,
-            rank: index + 1,
-          };
-          console.log('Mapped leaderboard entry:', mappedEntry);
-          return mappedEntry;
-        });
+      const leaderboard = (data || []).map((entry, index) => ({
+        user_id: entry.user_id,
+        display_name: entry.user_profiles?.display_name || `User ${entry.user_id.slice(0, 8)}`,
+        avatar_url: entry.user_profiles?.avatar_url || null,
+        total_points: entry.total_points,
+        metrics_completed: entry.metrics_completed,
+        rank: index + 1,
+        show: entry.user_profiles?.show_profile !== false
+      })).filter(entry => entry.show);
 
       console.log('Final leaderboard data:', leaderboard);
       return leaderboard;
