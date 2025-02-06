@@ -36,19 +36,10 @@ yarn-error.*
 *.tsbuildinfo
 
 # Android
-android/local.properties
-android/.gradle/
-android/.idea/
-android/build/
-android/app/build/
+android/
 
 # iOS
-ios/build/
-ios/Pods/
-ios/DerivedData/
-ios/*.xcworkspace/xcuserdata/
-ios/*.xcodeproj/xcuserdata/
-ios/*.xcuserstate
+ios/
 
 app-example
 docs/*.md
