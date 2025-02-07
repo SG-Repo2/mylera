@@ -66,33 +66,56 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
   private async performInitialization(): Promise<void> {
     if (Platform.OS !== 'android') {
+      console.error('[GoogleHealthProvider] Attempted to initialize on non-Android platform');
       throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
-    const available = await initialize();
+    console.log('[GoogleHealthProvider] Starting initialization...');
     
-    if (!available) {
-      throw new Error('Health Connect is not available');
-    }
+    try {
+      const available = await initialize();
+      console.log('[GoogleHealthProvider] Health Connect availability:', available);
+      
+      if (!available) {
+        console.error('[GoogleHealthProvider] Health Connect is not available');
+        throw new Error('Health Connect is not available. Please install or update Health Connect from the Google Play Store.');
+      }
 
-    this.initialized = true;
+      this.initialized = true;
+      console.log('[GoogleHealthProvider] Initialization successful');
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Initialization failed:', error);
+      throw error;
+    }
   }
 
   async initialize(): Promise<void> {
+    console.log('[GoogleHealthProvider] Initialize called. Current state:', {
+      initialized: this.initialized,
+      initializationInProgress: !!this.initializationPromise
+    });
+
     if (this.initialized) {
+      console.log('[GoogleHealthProvider] Already initialized');
       return;
     }
 
     // If initialization is already in progress, wait for it
     if (this.initializationPromise) {
+      console.log('[GoogleHealthProvider] Waiting for existing initialization...');
       await this.initializationPromise;
       return;
     }
 
     // Start new initialization
+    console.log('[GoogleHealthProvider] Starting new initialization');
     this.initializationPromise = this.performInitialization();
     try {
       await this.initializationPromise;
+      console.log('[GoogleHealthProvider] Initialization completed successfully');
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Initialization failed:', error);
+      throw error;
     } finally {
       this.initializationPromise = null;
     }
