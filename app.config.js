@@ -17,6 +17,7 @@ export default {
     plugins: [
       "expo-router",
       "./withHealthConnectManifest",
+      "expo-health-connect",
       [
         "expo-build-properties",
         {

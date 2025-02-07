@@ -42,8 +42,14 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         await provider.initialize();
       } catch (err) {
         const originalMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error('Health initialization error:', err);
-        setError(new Error(`Failed to initialize health provider: ${originalMessage}`));
+        console.error('[useHealthData] Health initialization error:', err);
+        
+        // More user-friendly error message
+        const errorMessage = originalMessage.includes('not available')
+          ? 'Health Connect is not available. Please ensure it is installed and set up on your device.'
+          : 'Unable to connect to health services. Please check your device settings and try again.';
+        
+        setError(new Error(errorMessage));
         setLoading(false);
         return; // Exit early on initialization failure
       }
@@ -52,14 +58,31 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       await provider.initializePermissions(userId);
 
       // Only proceed with permission checks if initialization succeeded
-      const permissionState = await provider.checkPermissionsStatus();
-      if (permissionState.status !== 'granted') {
-        const granted = await provider.requestPermissions();
-        if (granted !== 'granted') {
-          throw new Error('Health permissions denied');
+      try {
+        const permissionState = await provider.checkPermissionsStatus();
+        if (permissionState.status !== 'granted') {
+          console.log('[useHealthData] Requesting health permissions...');
+          const granted = await provider.requestPermissions();
+          if (granted !== 'granted') {
+            throw new Error(
+              'Health permissions are required to track your fitness metrics. ' +
+              'Please grant permissions in your device settings.'
+            );
+          }
         }
+      } catch (permError) {
+        console.error('[useHealthData] Permission error:', permError);
+        const isPermissionDenied = permError instanceof Error &&
+          (permError.message.includes('permission') || permError.message.includes('denied'));
+        
+        throw new Error(
+          isPermissionDenied
+            ? 'Unable to access health data. Please check your permissions in device settings.'
+            : 'There was a problem accessing health services. Please try again.'
+        );
       }
 
+      console.log('[useHealthData] Permissions granted, fetching health data...');
       // Get health data and update scores
       const healthData = await provider.getMetrics();
       
@@ -75,6 +98,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       ];
       
       // Update each health metric that has a value
+      let failedMetrics: string[] = [];
       const updates = healthMetrics.map(async metric => {
         const value = healthData[metric];
         if (typeof value === 'number') {
@@ -85,28 +109,42 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
             if (err instanceof Error && err.name === 'MetricsAuthError') {
               throw err;
             }
-            // For other errors, log but continue processing other metrics
-            console.error(`Error updating metric ${metric}:`, err);
+            // For other errors, track the failed metric but continue processing
+            console.error(`[useHealthData] Error updating metric ${metric}:`, err);
+            failedMetrics.push(metric);
           }
         }
       });
 
       await Promise.all(updates);
 
+      // If some metrics failed but not all, show a warning but don't fail completely
+      if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
+        console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
+      }
+
     } catch (err) {
-      let errorMessage = 'Failed to sync health data';
+      let errorMessage: string;
       
-      // Handle specific error types
+      // Handle specific error types with user-friendly messages
       if (err instanceof Error) {
         if (err.name === 'MetricsAuthError') {
-          errorMessage = `Authentication error: ${err.message}`;
+          errorMessage = 'Your session has expired. Please sign in again.';
+        } else if (err.message.includes('permission')) {
+          errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
+        } else if (err.message.includes('network') || err.message.includes('timeout')) {
+          errorMessage = 'Network error. Please check your connection and try again.';
         } else {
-          errorMessage = err.message;
+          // Use the error message if it's user-friendly, otherwise use a generic message
+          errorMessage = err.message.includes('health') ? err.message :
+            'Unable to sync health data. Please try again later.';
         }
+      } else {
+        errorMessage = 'An unexpected error occurred. Please try again.';
       }
       
       setError(new Error(errorMessage));
-      console.error('Health sync error:', err);
+      console.error('[useHealthData] Health sync error:', err);
     } finally {
       setLoading(false);
     }
