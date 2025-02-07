@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, Button, StyleSheet, Alert, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 import { useAuth } from '@/src/providers/AuthProvider';
@@ -10,32 +10,59 @@ export default function HealthSetupScreen() {
     const { requestHealthPermissions, healthPermissionStatus, error } = useAuth();
     const [status, setStatus] = useState<string>('Awaiting user action...');
     const [retryCount, setRetryCount] = useState(0);
+    const [initError, setInitError] = useState<string | null>(null);
 
     // Effect to handle initial health permission status
     useEffect(() => {
         if (healthPermissionStatus === 'granted') {
             router.replace('/(app)/(home)');
         } else if (healthPermissionStatus === 'denied' && retryCount > 2) {
-            setStatus('Health permissions have been denied. Please enable them in your device settings.');
+            if (Platform.OS === 'android') {
+                setStatus('Health permissions have been denied. Please check Health Connect settings.');
+            } else {
+                setStatus('Health permissions have been denied. Please enable them in your device settings.');
+            }
         }
     }, [healthPermissionStatus, retryCount, router]);
 
     const handleSetupHealth = async () => {
         try {
-            setStatus('Requesting health permissions...');
-            const platform = HealthProviderFactory.getPlatform();
-            const result = await requestHealthPermissions();
+            setInitError(null);
+            setStatus('Initializing health services...');
+            console.log('[HealthSetup] Setting up health integration');
+            
+            const result = await requestHealthPermissions().catch(error => {
+                console.error('[HealthSetup] Health setup error:', error);
+                if (error.message?.includes('not available')) {
+                    setInitError('Health Connect not found');
+                    return 'unavailable';
+                }
+                throw error;
+            });
+
+            if (result === 'unavailable' && Platform.OS === 'android') {
+                setStatus('Health Connect is not available. Please ensure Health Connect is installed and enabled.');
+                return;
+            }
             
             if (result === 'granted') {
-                setStatus(`${platform} Health access granted`);
+                console.log('[HealthSetup] Health permissions granted');
+                setStatus('Health access granted');
                 router.replace('/(app)/(home)');
             } else if (result === 'denied') {
+                console.log('[HealthSetup] Health permissions denied');
                 setRetryCount(prev => prev + 1);
-                setStatus(`${platform} Health access denied. Please try again or check device settings.`);
+                if (Platform.OS === 'android') {
+                    setStatus('Health Connect access denied. Please check Health Connect settings and try again.');
+                } else {
+                    setStatus('Health access denied. Please check device settings and try again.');
+                }
             } else {
+                console.log('[HealthSetup] Permission request failed with result:', result);
                 setStatus('Permission request failed. Please try again.');
             }
         } catch (err) {
+            console.error('[HealthSetup] Error during health setup:', err);
             setRetryCount(prev => prev + 1);
             if (err instanceof Error) {
                 if (err.message.includes('42501')) {
@@ -77,16 +104,24 @@ export default function HealthSetupScreen() {
                     Connect your health data to track your fitness progress and compete with friends.
                 </Text>
                 
-                <Text style={[
-                    styles.status,
-                    healthPermissionStatus === 'denied' && styles.errorText
-                ]}>
-                    {status}
-                </Text>
+                {initError === 'Health Connect not found' && Platform.OS === 'android' ? (
+                    <View style={styles.errorContainer}>
+                        <Text style={styles.errorText}>
+                            Health Connect is required but not found. Please ensure Health Connect is installed and enabled in your device settings.
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={[
+                        styles.status,
+                        healthPermissionStatus === 'denied' && styles.errorText
+                    ]}>
+                        {status}
+                    </Text>
+                )}
                 
-                {healthPermissionStatus === 'denied' && retryCount > 2 && (
+                {healthPermissionStatus === 'denied' && retryCount > 2 && Platform.OS === 'android' && (
                     <Text style={styles.errorText}>
-                        Please enable health permissions in your device settings to continue.
+                        Please open Health Connect settings and ensure all permissions are granted.
                     </Text>
                 )}
             </View>
@@ -137,6 +172,12 @@ const styles = StyleSheet.create({
         color: theme.colors.onSurfaceVariant,
         marginVertical: 12,
         textAlign: 'center',
+    },
+    errorContainer: {
+        backgroundColor: theme.colors.errorContainer,
+        padding: 16,
+        borderRadius: 8,
+        marginVertical: 12,
     },
     errorText: {
         ...theme.fonts.bodyMedium,

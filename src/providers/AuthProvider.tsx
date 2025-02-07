@@ -81,28 +81,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /**
    * Handle user registration
    */
-  const register = async (email: string, password: string, profileData?: RegisterProfileData) => {
+  const register = async (
+    email: string, 
+    password: string, 
+    profile: {
+      displayName: string;
+      deviceType: 'os' | 'fitbit';
+      measurementSystem: 'metric' | 'imperial';
+      avatarUri?: string | null;
+    }
+  ) => {
     try {
       console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
 
-      const { error: signUpError, data } = await supabase.auth.signUp({ 
-        email, 
+      const { data, error } = await supabase.auth.signUp({
+        email,
         password,
         options: {
           data: {
-            display_name: profileData?.displayName,
-            preferred_device: profileData?.deviceType,
-            measurement_system: profileData?.measurementSystem,
-          }
-        }
+            displayName: profile.displayName,
+            deviceType: profile.deviceType,
+            measurementSystem: profile.measurementSystem,
+            avatarUri: profile.avatarUri,
+          },
+        },
       });
 
-      if (signUpError) throw signUpError;
+      if (error) throw error;
 
       // Handle avatar upload if provided
-      if (data.user && profileData?.avatarUri) {
+      if (data.user && profile.avatarUri) {
         // Implement avatar upload logic here
       }
 
@@ -227,7 +237,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setHealthPermissionStatus(status);
       return status;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to request health permissions';
+      console.error('[AuthProvider] Health permissions error:', err);
+      let message = 'Failed to request health permissions';
+      
+      if (err instanceof Error) {
+        // Standardize error messages for consistent UI handling
+        if (err.message.includes('not available')) {
+          message = 'Health Connect is not available';
+        } else if (err.message.includes('42501')) {
+          message = 'Unable to save health settings';
+        } else {
+          message = err.message;
+        }
+      }
+      
       setError(message);
       setHealthPermissionStatus('denied');
       return 'denied';
@@ -242,7 +265,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     error,
     healthPermissionStatus,
-    register,
+    register: (email: string, password: string, profileData?: RegisterProfileData) => {
+      if (!profileData) {
+        throw new Error('Profile data is required for registration');
+      }
+      return register(email, password, profileData);
+    },
     login,
     logout,
     requestHealthPermissions,

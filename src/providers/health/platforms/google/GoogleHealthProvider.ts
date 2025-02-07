@@ -78,13 +78,19 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       
       if (!available) {
         console.error('[GoogleHealthProvider] Health Connect is not available');
-        throw new Error('Health Connect is not available. Please install or update Health Connect from the Google Play Store.');
+        throw new Error('Health Connect is not available');
       }
 
       this.initialized = true;
       console.log('[GoogleHealthProvider] Initialization successful');
     } catch (error) {
       console.error('[GoogleHealthProvider] Initialization failed:', error);
+      // Wrap the error to ensure consistent messaging
+      if (error instanceof Error) {
+        if (error.message.includes('not available')) {
+          throw new Error('Health Connect is not available');
+        }
+      }
       throw error;
     }
   }

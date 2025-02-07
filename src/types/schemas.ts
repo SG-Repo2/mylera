@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UserProfile } from './leaderboard';
 
 // Core MetricType enum - single source of truth
 export const MetricTypeEnum = z.enum([
@@ -79,15 +80,6 @@ export interface DailyTotal {
   date: string;
   total_points: number;
   metrics_completed: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UserProfile {
-  id: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  show_profile: boolean;
   created_at: string;
   updated_at: string;
 }

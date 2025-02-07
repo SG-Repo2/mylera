@@ -14,6 +14,7 @@ import { useAuth } from '@/src/providers/AuthProvider';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { theme } from '@/src/theme/theme';
 import * as ImagePicker from 'expo-image-picker';
+import { leaderboardService } from '@/src/services/leaderboardService';
 
 // Step type for multi-step form
 type RegistrationStep = 'credentials' | 'profile';
@@ -69,15 +70,21 @@ export default function RegisterScreen() {
   const [localError, setLocalError] = useState('');
 
   const handleAvatarPick = async () => {
+    if (!email) {
+      setLocalError('Please enter your email first');
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
       });
 
       if (!result.canceled && result.assets[0].uri) {
+        // Store the URI temporarily - it will be uploaded during registration
         setAvatar(result.assets[0].uri);
       }
     } catch (err) {
@@ -128,12 +135,26 @@ export default function RegisterScreen() {
     }
 
     try {
+      let avatarUrl = null;
+      
+      // If an avatar was selected, upload it first
+      if (avatar) {
+        try {
+          // Create a temporary ID for the avatar
+          const tempId = `temp-${Date.now()}`;
+          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
+        } catch (avatarErr) {
+          console.error('Failed to upload avatar:', avatarErr);
+          // Continue registration without avatar if upload fails
+        }
+      }
+
       // Register with additional profile data
       await register(email, password, {
         displayName,
-        deviceType: deviceType as 'os' | 'fitbit', // Type assertion to match expected type
+        deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatar
+        avatarUri: avatarUrl
       });
 
       // If successful, AuthProvider will handle the navigation to health-setup

@@ -141,22 +141,80 @@ export const leaderboardService = {
     }
   },
 
-  async updateUserProfile(userId: string, profile: Partial<Omit<UserProfile, 'id' | 'created_at' | 'updated_at'>>): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .upsert({
-          id: userId,
-          ...profile,
-          updated_at: new Date().toISOString(),
-        });
+  async getUserProfile(userId: string) {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
 
-      if (error) {
-        console.error('Error updating user profile:', error);
-        throw error;
-      }
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  async updateUserProfile(userId: string, profile: Partial<UserProfile>) {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .upsert({
+        id: userId,
+        display_name: profile.display_name,
+        show_profile: profile.show_profile,
+        avatar_url: profile.avatar_url,
+        device_type: profile.device_type,
+        measurement_system: profile.measurement_system,
+        updated_at: new Date().toISOString(),
+      })
+      .select();
+
+    if (error) {
+      console.error('Error updating user profile:', error);
+      throw error;
+    } else {
+      console.log('User profile updated successfully:', data);
+    }
+
+    return data;
+  },
+
+  mapMetadataToProfile(metadata: any): Partial<UserProfile> {
+    return {
+      display_name: metadata.displayName || null,
+      avatar_url: metadata.avatarUri || null,
+      device_type: metadata.deviceType || null,
+      measurement_system: metadata.measurementSystem || 'metric',
+    };
+  },
+
+  async uploadAvatar(userId: string, uri: string): Promise<string> {
+    try {
+      // Convert URI to Blob
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      // Generate a unique filename
+      const fileExt = uri.split('.').pop();
+      const fileName = `${userId}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob);
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
     } catch (error) {
-      console.error('Error in updateUserProfile:', error);
+      console.error('Error uploading avatar:', error);
       throw error;
     }
   },
@@ -256,46 +314,6 @@ export const leaderboardService = {
       return userIndex === -1 ? null : userIndex + 1;
     } catch (error) {
       console.error('Error in getUserWeeklyRank:', error);
-      throw error;
-    }
-  },
-
-  async getUserProfile(userId: string): Promise<UserProfile | null> {
-    try {
-      console.log('Fetching user profile for ID:', userId);
-      
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        // Handle "no rows returned" as a non-error case
-        if (error.code === 'PGRST116') {
-          console.log('No profile found for user:', userId);
-          return null;
-        }
-        
-        // Handle permission errors by returning null instead of throwing
-        if (error.code === '42501') {
-          console.warn('Permission denied for user profile access:', userId);
-          return null;
-        }
-        
-        console.error('Error fetching user profile:', error);
-        throw error;
-      }
-
-      if (!data) {
-        console.log('No profile data returned for user:', userId);
-        return null;
-      }
-
-      console.log('Found user profile:', data);
-      return data;
-    } catch (error) {
-      console.error('Error in getUserProfile:', error);
       throw error;
     }
   },
