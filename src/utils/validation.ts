@@ -8,11 +8,17 @@ export function isValidEmail(email: string): boolean {
   }
   
   /**
-   * Checks basic password strength criteria (length, possible additions like uppercase/numbers, etc.).
+   * Checks password strength criteria:
+   * - At least 8 characters long
+   * - Contains at least one uppercase letter
+   * - Contains at least one lowercase letter
+   * - Contains at least one number
    */
   export function isValidPassword(password: string): boolean {
-    // Basic example: password should be at least 6 characters
-    return password.length >= 6;
+    return password.length >= 8 && 
+           /[A-Z]/.test(password) && 
+           /[a-z]/.test(password) && 
+           /[0-9]/.test(password);
   }
   
   /**

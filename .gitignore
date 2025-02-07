@@ -54,3 +54,4 @@ src/components/leaderboard/tests/LeaderboardEntry.test.tsx
 src/hooks/__tests__/
 src/services/__mocks__
 src/__tests__/
+database_schema.sql
