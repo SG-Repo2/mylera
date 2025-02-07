@@ -1,4 +1,3 @@
-
 /**
  * Key points:
 	•	We store both session and user to manage app logic that might require more than a session token.
@@ -20,7 +19,7 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   healthPermissionStatus: PermissionStatus | null;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, profileData?: RegisterProfileData) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   requestHealthPermissions: () => Promise<PermissionStatus>;
@@ -28,6 +27,13 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+interface RegisterProfileData {
+  displayName: string;
+  deviceType: 'os' | 'fitbit';
+  measurementSystem: 'metric' | 'imperial';
+  avatarUri?: string | null;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -75,20 +81,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /**
    * Handle user registration
    */
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string, profileData?: RegisterProfileData) => {
     try {
       console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
 
-      // Attempt registration
-      console.log('[AuthProvider] Calling supabase.auth.signUp...');
-      const { error: signUpError, data } = await supabase.auth.signUp({ email, password });
-      console.log('[AuthProvider] Supabase signUp response:', { data, error: signUpError });
+      const { error: signUpError, data } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          data: {
+            display_name: profileData?.displayName,
+            preferred_device: profileData?.deviceType,
+            measurement_system: profileData?.measurementSystem,
+          }
+        }
+      });
 
-      if (signUpError) {
-        console.log('[AuthProvider] SignUp error detected:', signUpError);
-        throw signUpError;
+      if (signUpError) throw signUpError;
+
+      // Handle avatar upload if provided
+      if (data.user && profileData?.avatarUri) {
+        // Implement avatar upload logic here
       }
 
       // Initialize health provider for new user

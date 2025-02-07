@@ -6,55 +6,140 @@
 	•	If the request is successful (no error from the auth context), we navigate the user to /login or another screen.
  */
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Image, Pressable, StyleSheet } from 'react-native';
+import { Text, TextInput, Button, Surface, ActivityIndicator } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { theme } from '@/src/theme/theme';
+import * as ImagePicker from 'expo-image-picker';
+
+// Step type for multi-step form
+type RegistrationStep = 'credentials' | 'profile';
+
+interface DeviceOptionProps {
+  title: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+const DeviceOption = ({ title, icon, isSelected, onSelect }: DeviceOptionProps) => (
+  <Pressable onPress={onSelect}>
+    <Surface style={[
+      styles.deviceOption,
+      isSelected && styles.deviceOptionSelected
+    ]}>
+      <MaterialCommunityIcons 
+        name={icon} 
+        size={24} 
+        color={isSelected ? theme.colors.primary : theme.colors.onSurface} 
+      />
+      <Text style={[
+        styles.deviceOptionText,
+        isSelected && styles.deviceOptionTextSelected
+      ]}>
+        {title}
+      </Text>
+      {isSelected && (
+        <MaterialCommunityIcons 
+          name="check-circle" 
+          size={24} 
+          color={theme.colors.primary} 
+        />
+      )}
+    </Surface>
+  </Pressable>
+);
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register, error, loading } = useAuth();
-
+  const { register, error: authError, loading } = useAuth();
+  
+  // Form state
+  const [currentStep, setCurrentStep] = useState<RegistrationStep>('credentials');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [deviceType, setDeviceType] = useState<'os' | 'fitbit' | ''>('');
+  const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
+  const [avatar, setAvatar] = useState<string | null>(null);
   const [localError, setLocalError] = useState('');
 
-  const handleRegister = async () => {
-    // Clear local error each time user attempts to register
-    setLocalError('');
+  const handleAvatarPick = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
 
-    // Validate inputs locally first
+      if (!result.canceled && result.assets[0].uri) {
+        setAvatar(result.assets[0].uri);
+      }
+    } catch (err) {
+      setLocalError('Failed to select avatar image');
+    }
+  };
+
+  const validateCredentials = () => {
     if (!isValidEmail(email)) {
       setLocalError('Please enter a valid email address.');
-      return;
+      return false;
     }
     if (!isValidPassword(password)) {
       setLocalError('Password must be at least 6 characters long.');
-      return;
+      return false;
     }
     if (!doPasswordsMatch(password, confirmPassword)) {
       setLocalError('Passwords do not match.');
+      return false;
+    }
+    return true;
+  };
+
+  const validateProfile = () => {
+    if (!displayName.trim()) {
+      setLocalError('Please enter a display name');
+      return false;
+    }
+    if (!deviceType) {
+      setLocalError('Please select a device type');
+      return false;
+    }
+    return true;
+  };
+
+  const handleNextStep = () => {
+    setLocalError('');
+    if (currentStep === 'credentials' && validateCredentials()) {
+      setCurrentStep('profile');
+    }
+  };
+
+  const handleRegister = async () => {
+    setLocalError('');
+    
+    if (!validateProfile()) {
       return;
     }
 
     try {
-      // If validation passes, call register
-      await register(email, password);
+      // Register with additional profile data
+      await register(email, password, {
+        displayName,
+        deviceType: deviceType as 'os' | 'fitbit', // Type assertion to match expected type
+        measurementSystem,
+        avatarUri: avatar
+      });
 
-      // If registration is successful, always route to health setup
-      if (!error) {
-        router.replace('/(onboarding)/health-setup');
-      }
+      // If successful, AuthProvider will handle the navigation to health-setup
     } catch (err) {
-      // Handle any unexpected errors
       if (err instanceof Error) {
-        if (err.message.includes('42501')) {
-          setLocalError('Unable to create user profile. Please try again later.');
-        } else {
-          setLocalError(err.message);
-        }
+        setLocalError(err.message);
       } else {
         setLocalError('An unexpected error occurred during registration.');
       }
@@ -62,46 +147,116 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Register</Text>
+    <ScrollView style={styles.container}>
+      <Text style={styles.title}>Create Account</Text>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {authError ? <Text style={styles.errorText}>{authError}</Text> : null}
       {localError ? <Text style={styles.errorText}>{localError}</Text> : null}
 
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
-
-      {loading ? (
-        <ActivityIndicator />
+      {currentStep === 'credentials' ? (
+        // Step 1: Credentials
+        <View>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Confirm Password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+          />
+          <Button 
+            mode="contained"
+            onPress={handleNextStep}
+            style={styles.button}
+          >
+            Next
+          </Button>
+        </View>
       ) : (
-        <Button title="Sign Up" onPress={handleRegister} />
+        // Step 2: Profile
+        <View>
+          <TextInput
+            style={styles.input}
+            placeholder="Display Name"
+            value={displayName}
+            onChangeText={setDisplayName}
+          />
+
+          <Text style={styles.sectionTitle}>Select Your Device</Text>
+          <DeviceOption
+            title="Apple Health / Google Fit"
+            icon="cellphone"
+            isSelected={deviceType === 'os'}
+            onSelect={() => setDeviceType('os')}
+          />
+          <DeviceOption
+            title="Fitbit"
+            icon="watch"
+            isSelected={deviceType === 'fitbit'}
+            onSelect={() => setDeviceType('fitbit')}
+          />
+
+          <Text style={styles.sectionTitle}>Measurement System</Text>
+          <View style={styles.measurementContainer}>
+            <Button
+              mode={measurementSystem === 'metric' ? 'contained' : 'outlined'}
+              onPress={() => setMeasurementSystem('metric')}
+            >
+              Metric
+            </Button>
+            <Button
+              mode={measurementSystem === 'imperial' ? 'contained' : 'outlined'}
+              onPress={() => setMeasurementSystem('imperial')}
+            >
+              Imperial
+            </Button>
+          </View>
+
+          <Text style={styles.sectionTitle}>Profile Picture (Optional)</Text>
+          <Pressable onPress={handleAvatarPick} style={styles.avatarContainer}>
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={styles.avatar} />
+            ) : (
+              <MaterialCommunityIcons name="camera-plus" size={32} color={theme.colors.primary} />
+            )}
+          </Pressable>
+
+          {loading ? (
+            <ActivityIndicator />
+          ) : (
+            <Button 
+              mode="contained"
+              onPress={handleRegister}
+              style={styles.button}
+            >
+              Create Account
+            </Button>
+          )}
+        </View>
       )}
 
       <Button
-        title="Already have an account? Login"
+        mode="text"
         onPress={() => router.push('/(auth)/login')}
-      />
-    </View>
+        style={styles.button}
+      >
+        Already have an account? Login
+      </Button>
+    </ScrollView>
   );
 }
 
@@ -131,5 +286,54 @@ const styles = StyleSheet.create({
     ...theme.fonts.bodySmall,
     color: theme.colors.error,
     marginBottom: 8,
+  },
+  deviceOption: {
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: theme.colors.outline,
+  },
+  deviceOptionSelected: {
+    backgroundColor: theme.colors.primaryContainer,
+    borderColor: theme.colors.primary,
+  },
+  deviceOptionText: {
+    ...theme.fonts.bodyMedium,
+    color: theme.colors.onSurface,
+  },
+  deviceOptionTextSelected: {
+    ...theme.fonts.bodyMedium,
+    color: theme.colors.primary,
+  },
+  sectionTitle: {
+    ...theme.fonts.headlineSmall,
+    color: theme.colors.onBackground,
+    marginBottom: 12,
+  },
+  measurementContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: theme.colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+  },
+  button: {
+    marginTop: 12,
   },
 });
