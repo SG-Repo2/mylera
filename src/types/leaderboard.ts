@@ -1,5 +1,7 @@
 // src/types/leaderboard.ts
 
+export type LeaderboardTimeframe = 'daily' | 'weekly';
+
 // Database table types
 export interface UserProfile {
     id: string;                   // PRIMARY KEY, REFERENCES auth.users(id)
@@ -18,6 +20,18 @@ export interface UserProfile {
     metrics_completed: number;   // int4 DEFAULT 0
     created_at: string;         // timestamptz DEFAULT now()
     updated_at: string;         // timestamptz DEFAULT now()
+    user_profiles?: UserProfile; // Join relationship
+  }
+
+  export interface WeeklyTotal {
+    id: string;                  // uuid PRIMARY KEY
+    user_id: string;            // NOT NULL, REFERENCES auth.users(id)
+    week_start: string;         // date NOT NULL
+    total_points: number;       // int4 DEFAULT 0
+    metrics_completed: number;   // int4 DEFAULT 0
+    created_at: string;         // timestamptz DEFAULT now()
+    updated_at: string;         // timestamptz DEFAULT now()
+    is_test_data: boolean;      // boolean DEFAULT false
     user_profiles?: UserProfile; // Join relationship
   }
   

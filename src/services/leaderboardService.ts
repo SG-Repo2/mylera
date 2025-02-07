@@ -2,32 +2,48 @@ import { supabase } from './supabaseClient';
 import { PostgrestResponse } from '@supabase/supabase-js';
 import { 
   LeaderboardEntry, 
-  DailyTotal, 
-  UserProfile 
+  DailyTotal,
+  WeeklyTotal,
+  UserProfile,
+  LeaderboardTimeframe
 } from '@/src/types/leaderboard';
 
+// Helper function to get week start date
+function getWeekStart(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay()); // Set to Sunday
+  return d.toISOString().split('T')[0];
+}
+
 export const leaderboardService = {
-  subscribeToLeaderboard(date: string, onUpdate: (entries: LeaderboardEntry[]) => void) {
-    console.log('Setting up leaderboard subscription for date:', date);
+  subscribeToLeaderboard(date: string, timeframe: LeaderboardTimeframe, onUpdate: (entries: LeaderboardEntry[]) => void) {
+    console.log(`Setting up ${timeframe} leaderboard subscription for date:`, date);
+    
+    const table = timeframe === 'daily' ? 'daily_totals' : 'weekly_totals';
+    const dateField = timeframe === 'daily' ? 'date' : 'week_start';
+    const dateValue = timeframe === 'daily' ? date : getWeekStart(new Date(date));
     
     return supabase
-      .channel(`leaderboard-${date}`)
+      .channel(`${timeframe}-leaderboard-${date}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'daily_totals',
-          filter: `date=eq.${date}`,
+          table,
+          filter: `${dateField}=eq.${dateValue}`,
         },
         async () => {
           // Fetch updated data when changes occur
-          const entries = await this.getDailyLeaderboard(date);
+          const entries = timeframe === 'daily' 
+            ? await this.getDailyLeaderboard(date)
+            : await this.getWeeklyLeaderboard(date);
           onUpdate(entries);
         }
       )
       .subscribe((status) => {
-        console.log('Leaderboard subscription status:', status);
+        console.log(`${timeframe} leaderboard subscription status:`, status);
       });
   },
 
@@ -141,6 +157,105 @@ export const leaderboardService = {
       }
     } catch (error) {
       console.error('Error in updateUserProfile:', error);
+      throw error;
+    }
+  },
+
+  async getWeeklyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
+    console.log('Fetching weekly leaderboard for date:', date);
+    const weekStart = getWeekStart(new Date(date));
+    
+    try {
+      const { data, error } = await supabase
+        .from('weekly_totals')
+        .select(`
+          user_id,
+          total_points,
+          metrics_completed,
+          user_profiles!left (
+            id,
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
+        .eq('week_start', weekStart)
+        .eq('is_test_data', false)
+        .order('total_points', { ascending: false }) as PostgrestResponse<WeeklyTotal>;
+
+      if (error) {
+        // If there's a foreign key or permission error, fall back to just weekly_totals
+        if (error.code === 'PGRST200' || error.code === '42501') {
+          console.warn('Falling back to weekly_totals only due to:', error.message);
+          const { data: fallbackData, error: fallbackError } = await supabase
+            .from('weekly_totals')
+            .select('user_id, total_points, metrics_completed')
+            .eq('week_start', weekStart)
+            .eq('is_test_data', false)
+            .order('total_points', { ascending: false });
+
+          if (fallbackError) throw fallbackError;
+          if (!fallbackData) return [];
+
+          // Map fallback data without user profile information
+          return fallbackData.map((entry, index) => ({
+            user_id: entry.user_id,
+            display_name: 'Anonymous User',
+            avatar_url: null,
+            total_points: entry.total_points,
+            metrics_completed: entry.metrics_completed,
+            rank: index + 1,
+          }));
+        }
+        throw error;
+      }
+      
+      if (!data) {
+        console.log('No data returned from weekly_totals query');
+        return [];
+      }
+
+      console.log('Raw weekly_totals data:', data);
+      
+      const leaderboard = (data || []).map((entry, index) => ({
+        user_id: entry.user_id,
+        display_name: entry.user_profiles?.display_name || `User ${entry.user_id.slice(0, 8)}`,
+        avatar_url: entry.user_profiles?.avatar_url || null,
+        total_points: entry.total_points,
+        metrics_completed: entry.metrics_completed,
+        rank: index + 1,
+        show: entry.user_profiles?.show_profile !== false
+      })).filter(entry => entry.show);
+
+      console.log('Final weekly leaderboard data:', leaderboard);
+      return leaderboard;
+    } catch (error) {
+      console.error('Error in getWeeklyLeaderboard:', error);
+      throw error;
+    }
+  },
+
+  async getUserWeeklyRank(userId: string, date: string): Promise<number | null> {
+    try {
+      const weekStart = getWeekStart(new Date(date));
+      const { data, error } = await supabase
+        .from('weekly_totals')
+        .select('user_id, total_points')
+        .eq('week_start', weekStart)
+        .eq('is_test_data', false)
+        .order('total_points', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching user weekly rank:', error);
+        throw error;
+      }
+      
+      if (!data) return null;
+
+      const userIndex = data.findIndex(entry => entry.user_id === userId);
+      return userIndex === -1 ? null : userIndex + 1;
+    } catch (error) {
+      console.error('Error in getUserWeeklyRank:', error);
       throw error;
     }
   },
