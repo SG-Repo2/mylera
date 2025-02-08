@@ -18,6 +18,7 @@ export default {
       "expo-router",
       "./withHealthConnectManifest",
       "expo-health-connect",
+      "expo-image-picker",
       [
         "expo-build-properties",
         {
@@ -41,6 +42,8 @@ export default {
         NSHealthKitUsageDescription: "Mylera needs access to your health data to track fitness metrics and provide personalized insights.",
         NSHealthShareUsageDescription: "This app requires access to health data to track your fitness metrics.",
         NSHealthUpdateUsageDescription: "This app requires access to health data to track your fitness metrics.",
+        NSPhotoLibraryUsageDescription: "Allow MyLera to access your photos to set a profile picture",
+        NSCameraUsageDescription: "Allow MyLera to access your camera to take a profile picture",
         UIBackgroundModes: ["fetch", "remote-notification"],
       },
       config: {
@@ -73,7 +76,10 @@ export default {
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
         "android.permission.health.READ_FLIGHTS_CLIMBED",
         "android.permission.health.READ_BASAL_METABOLIC_RATE",
-        "android.permission.health.READ_EXERCISE"
+        "android.permission.health.READ_EXERCISE",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     extra: {
