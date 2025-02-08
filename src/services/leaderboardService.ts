@@ -191,28 +191,46 @@ export const leaderboardService = {
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {
     try {
-      // Convert URI to Blob
+      // Convert URI to Blob with explicit type
       const response = await fetch(uri);
-      const blob = await response.blob();
+      if (!response.ok) throw new Error('Failed to fetch image');
       
-      // Generate a unique filename
-      const fileExt = uri.split('.').pop();
+      const blob = await response.blob();
+      if (!blob) throw new Error('Failed to create blob from image');
+      
+      // Generate a unique filename with fallback extension
+      const fileExt = uri.split('.').pop() || 'jpg';
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
       // Upload to Supabase Storage
-      const { error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, blob);
+        .upload(filePath, blob, {
+          contentType: blob.type || 'image/jpeg',
+          cacheControl: '3600',
+          upsert: true
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      if (!uploadData) {
+        throw new Error('Upload succeeded but no data returned');
+      }
 
       // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
+      const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
 
-      return publicUrl;
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to get public URL for uploaded avatar');
+      }
+
+      return urlData.publicUrl;
     } catch (error) {
       console.error('Error uploading avatar:', error);
       throw error;

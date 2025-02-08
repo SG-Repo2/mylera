@@ -163,26 +163,46 @@ export function Profile() {
     try {
       setLoading(true);
       
-      // Launch image picker
+      // Request permissions first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setError(new Error('Permission to access media library was denied'));
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
       });
 
-      if (!result.canceled && result.assets[0].uri) {
-        // Upload the image
-        const publicUrl = await leaderboardService.uploadAvatar(user.id, result.assets[0].uri);
-        
-        // Update profile with new avatar URL
-        await leaderboardService.updateUserProfile(user.id, {
-          ...profile,
-          avatar_url: publicUrl
-        });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        if (!asset.uri) {
+          throw new Error('No image URI available');
+        }
 
-        // Reload profile
-        await loadProfile();
+        try {
+          // Upload the image
+          const publicUrl = await leaderboardService.uploadAvatar(user.id, asset.uri);
+          
+          if (!publicUrl) {
+            throw new Error('Failed to get public URL for uploaded avatar');
+          }
+
+          // Update profile with new avatar URL
+          await leaderboardService.updateUserProfile(user.id, {
+            ...profile,
+            avatar_url: publicUrl
+          });
+
+          // Reload profile
+          await loadProfile();
+        } catch (uploadError) {
+          console.error('Error during avatar upload:', uploadError);
+          throw new Error('Failed to upload avatar. Please try again.');
+        }
       }
     } catch (err) {
       console.error('Error updating avatar:', err);
