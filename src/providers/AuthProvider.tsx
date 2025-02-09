@@ -12,7 +12,7 @@ import { PermissionStatus } from './health/types/permissions';
 import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
-
+import { leaderboardService } from '@/src/services/leaderboardService';
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -113,7 +113,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Handle avatar upload if provided
       if (data.user && profile.avatarUri) {
-        // Implement avatar upload logic here
+        try {
+          const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
+          // Update user profile with avatar URL
+          await leaderboardService.updateUserProfile(data.user.id, {
+            ...profile,
+            avatar_url: avatarUrl
+          });
+        } catch (uploadError) {
+          console.error('Avatar upload failed:', uploadError);
+          // Don't throw here - the user is still registered, just without an avatar
+        }
       }
 
       // Initialize health provider for new user
