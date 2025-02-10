@@ -4,14 +4,20 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "simulator": true
+        "buildConfiguration": "Debug"
       },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "distribution": "store"
+      "distribution": "store",
+      "ios": {
+        "buildConfiguration": "Release"
+      },
+      "android": {
+        "buildType": "aab"
+      }
     }
   }
 }
