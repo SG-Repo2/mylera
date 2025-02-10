@@ -20,9 +20,10 @@
       }
     },
     "simulator": {
-      "distribution": "simulator",
+      "distribution": "internal",
       "ios": {
-        "buildConfiguration": "Debug"
+        "buildConfiguration": "Debug",
+        "simulator": true
       }
     }
   }
