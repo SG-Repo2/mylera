@@ -43,27 +43,22 @@ export default {
         NSHealthShareUsageDescription: "This app requires access to health data to track your fitness metrics.",
         NSHealthUpdateUsageDescription: "This app requires access to health data to track your fitness metrics.",
         NSPhotoLibraryUsageDescription: "Allow MyLera to access your photos to set a profile picture",
-        NSCameraUsageDescription: "Allow MyLera to access your camera to take a profile picture",
-        UIBackgroundModes: ["fetch", "remote-notification"],
+        NSCameraUsageDescription: "Allow MyLera to access your camera to take a profile picture"
       },
       config: {
         usesNonExemptEncryption: false
       },
       entitlements: {
         "com.apple.developer.healthkit": true,
-        "com.apple.developer.healthkit.background-delivery": true,
-        "com.apple.developer.healthkit.access": {
-          "read": [
-            "HKQuantityTypeIdentifierStepCount",
-            "HKQuantityTypeIdentifierDistanceWalkingRunning",
-            "HKQuantityTypeIdentifierHeartRate",
-            "HKQuantityTypeIdentifierActiveEnergyBurned",
-            "HKQuantityTypeIdentifierFlightsClimbed",
-            "HKQuantityTypeIdentifierBasalEnergyBurned",
-            "HKQuantityTypeIdentifierAppleExerciseTime"
-          ],
-          "write": []
-        }
+        "com.apple.developer.healthkit.access": [
+          "HKQuantityTypeIdentifierStepCount",
+          "HKQuantityTypeIdentifierDistanceWalkingRunning",
+          "HKQuantityTypeIdentifierHeartRate",
+          "HKQuantityTypeIdentifierActiveEnergyBurned",
+          "HKQuantityTypeIdentifierFlightsClimbed",
+          "HKQuantityTypeIdentifierBasalEnergyBurned",
+          "HKQuantityTypeIdentifierAppleExerciseTime"
+        ]
       }
     },
     android: {
