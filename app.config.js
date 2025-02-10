@@ -49,16 +49,7 @@ export default {
         usesNonExemptEncryption: false
       },
       entitlements: {
-        "com.apple.developer.healthkit": true,
-        "com.apple.developer.healthkit.access": [
-          "HKQuantityTypeIdentifierStepCount",
-          "HKQuantityTypeIdentifierDistanceWalkingRunning",
-          "HKQuantityTypeIdentifierHeartRate",
-          "HKQuantityTypeIdentifierActiveEnergyBurned",
-          "HKQuantityTypeIdentifierFlightsClimbed",
-          "HKQuantityTypeIdentifierBasalEnergyBurned",
-          "HKQuantityTypeIdentifierAppleExerciseTime"
-        ]
+        "com.apple.developer.healthkit": true
       }
     },
     android: {
