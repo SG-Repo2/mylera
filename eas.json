@@ -16,7 +16,13 @@
         "buildConfiguration": "Release"
       },
       "android": {
-        "buildType": "aab"
+        "buildType": "app-bundle"
+      }
+    },
+    "simulator": {
+      "distribution": "simulator",
+      "ios": {
+        "buildConfiguration": "Debug"
       }
     }
   }
