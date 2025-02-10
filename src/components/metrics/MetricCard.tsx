@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Animated } from 'react-native';
+import { View, Animated, StyleSheet } from 'react-native';
 import { Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
@@ -42,7 +42,6 @@ export const MetricCard = React.memo(function MetricCard({
   const percentage = Math.round(progress * 100);
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
-
   const glowAnim = React.useRef(new Animated.Value(0)).current;
 
   const handlePressIn = React.useCallback(() => {
@@ -78,6 +77,20 @@ export const MetricCard = React.memo(function MetricCard({
       })
     ]).start();
   }, [scaleAnim, glowAnim]);
+
+  const getPointsText = () => {
+    if (metricType === 'heart_rate') {
+      return '(zone)';
+    }
+    const increment = healthMetrics[metricType].pointIncrement.value;
+    if (increment === 1) {
+      return '(1 per)';
+    }
+    if (increment < 1) {
+      return `(${Math.round(1/increment)} per)`;
+    }
+    return `(1 per ${increment})`;
+  };
 
   return (
     <Animated.View 
@@ -138,9 +151,14 @@ export const MetricCard = React.memo(function MetricCard({
                   color={color}
                   style={styles.progressBar}
                 />
-                <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
-                  {percentage}% of goal
-                </Text>
+                <View style={styles.progressInfo}>
+                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
+                    {percentage}% of goal
+                  </Text>
+                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}>
+                    {points} pts {getPointsText()} {unit}
+                  </Text>
+                </View>
               </View>
             </View>
           </TouchableRipple>

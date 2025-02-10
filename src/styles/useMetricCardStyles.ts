@@ -100,10 +100,20 @@ const createStyles = (theme: MD3Theme) =>
       backgroundColor: 'rgba(0,0,0,0.05)',
       borderRadius: 3,
     },
+    progressInfo: {
+      flexDirection: 'column',
+      gap: 4,
+    },
     progressText: {
       textAlign: 'right',
       fontSize: 12,
       opacity: 0.7,
+    },
+    pointsText: {
+      textAlign: 'right',
+      fontSize: 12,
+      opacity: 0.7,
+      fontWeight: '500',
     }
   });
 

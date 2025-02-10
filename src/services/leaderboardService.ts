@@ -7,6 +7,26 @@ import {
   UserProfile,
   LeaderboardTimeframe
 } from '@/src/types/leaderboard';
+import { healthMetrics } from '@/src/config/healthMetrics';
+import type { MetricType } from '@/src/types/metrics';
+import type { DailyMetricScore } from '@/src/types/schemas';
+
+const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
+  return metrics.reduce((total, metric) => {
+    const config = healthMetrics[metric.metric_type];
+    if (!config || typeof metric.value !== 'number') return total;
+
+    if (metric.metric_type === 'heart_rate') {
+      const targetValue = config.defaultGoal;
+      const deviation = Math.abs(metric.value - targetValue);
+      const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
+      return total + Math.round(points);
+    }
+
+    const points = Math.floor(metric.value / config.pointIncrement.value);
+    return total + Math.min(points, config.pointIncrement.maxPoints);
+  }, 0);
+};
 
 // Helper function to get week start date
 function getWeekStart(date: Date): string {
@@ -51,67 +71,55 @@ export const leaderboardService = {
     console.log('Fetching daily leaderboard for date:', date);
     
     try {
-      const { data, error } = await supabase
-        .from('daily_totals')
-        .select(`
-          user_id,
-          total_points,
-          metrics_completed,
-          user_profiles!left (
-            id,
-            display_name,
-            avatar_url,
-            show_profile
-          )
-        `)
-        .eq('date', date)
-        .order('total_points', { ascending: false }) as PostgrestResponse<DailyTotal>;
+      const { data: metricsData, error: metricsError } = await supabase
+        .from('daily_metric_scores')
+        .select('user_id, metric_type, value')
+        .eq('date', date);
 
-      if (error) {
-        // If there's a foreign key or permission error, fall back to just daily_totals
-        if (error.code === 'PGRST200' || error.code === '42501') {
-          console.warn('Falling back to daily_totals only due to:', error.message);
-          const { data: fallbackData, error: fallbackError } = await supabase
-            .from('daily_totals')
-            .select('user_id, total_points, metrics_completed')
-            .eq('date', date)
-            .order('total_points', { ascending: false });
+      if (metricsError) throw metricsError;
 
-          if (fallbackError) throw fallbackError;
-          if (!fallbackData) return [];
+      // Group metrics by user
+      const userMetrics = new Map<string, DailyMetricScore[]>();
+      metricsData?.forEach(metric => {
+        const metrics = userMetrics.get(metric.user_id) || [];
+        userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
+      });
 
-          // Map fallback data without user profile information
-          return fallbackData.map((entry, index) => ({
-            user_id: entry.user_id,
-            display_name: 'Anonymous User',
-            avatar_url: null,
-            total_points: entry.total_points,
-            metrics_completed: entry.metrics_completed,
+      // Calculate points using the same function as Dashboard
+      const userPoints = new Map<string, { total: number, completed: number }>();
+      userMetrics.forEach((metrics, userId) => {
+        userPoints.set(userId, {
+          total: calculateTotalPoints(metrics),
+          completed: metrics.length
+        });
+      });
+
+      // Get user profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('user_profiles')
+        .select('id, display_name, avatar_url, show_profile');
+
+      if (profilesError) throw profilesError;
+
+      // Create leaderboard entries
+      const entries = Array.from(userPoints.entries())
+        .map(([userId, points], index) => {
+          const profile = profiles?.find(p => p.id === userId);
+          return {
+            user_id: userId,
+            display_name: profile?.display_name || `User ${userId.slice(0, 8)}`,
+            avatar_url: profile?.avatar_url || null,
+            total_points: points.total,
+            metrics_completed: points.completed,
             rank: index + 1,
-          }));
-        }
-        throw error;
-      }
-      
-      if (!data) {
-        console.log('No data returned from daily_totals query');
-        return [];
-      }
+            show: profile?.show_profile !== false
+          };
+        })
+        .sort((a, b) => b.total_points - a.total_points)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }))
+        .filter(entry => entry.show);
 
-      console.log('Raw daily_totals data:', data);
-      
-      const leaderboard = (data || []).map((entry, index) => ({
-        user_id: entry.user_id,
-        display_name: entry.user_profiles?.display_name || `User ${entry.user_id.slice(0, 8)}`,
-        avatar_url: entry.user_profiles?.avatar_url || null,
-        total_points: entry.total_points,
-        metrics_completed: entry.metrics_completed,
-        rank: index + 1,
-        show: entry.user_profiles?.show_profile !== false
-      })).filter(entry => entry.show);
-
-      console.log('Final leaderboard data:', leaderboard);
-      return leaderboard;
+      return entries;
     } catch (error) {
       console.error('Error in getDailyLeaderboard:', error);
       throw error;
@@ -120,20 +128,8 @@ export const leaderboardService = {
 
   async getUserRank(userId: string, date: string): Promise<number | null> {
     try {
-      const { data, error } = await supabase
-        .from('daily_totals')
-        .select('user_id, total_points')
-        .eq('date', date)
-        .order('total_points', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching user rank:', error);
-        throw error;
-      }
-      
-      if (!data) return null;
-
-      const userIndex = data.findIndex(entry => entry.user_id === userId);
+      const leaderboard = await this.getDailyLeaderboard(date);
+      const userIndex = leaderboard.findIndex(entry => entry.user_id === userId);
       return userIndex === -1 ? null : userIndex + 1;
     } catch (error) {
       console.error('Error in getUserRank:', error);
@@ -242,69 +238,56 @@ export const leaderboardService = {
     const weekStart = getWeekStart(new Date(date));
     
     try {
-      const { data, error } = await supabase
-        .from('weekly_totals')
-        .select(`
-          user_id,
-          total_points,
-          metrics_completed,
-          user_profiles!left (
-            id,
-            display_name,
-            avatar_url,
-            show_profile
-          )
-        `)
-        .eq('week_start', weekStart)
-        .eq('is_test_data', false)
-        .order('total_points', { ascending: false }) as PostgrestResponse<WeeklyTotal>;
+      const { data: metricsData, error: metricsError } = await supabase
+        .from('daily_metric_scores')
+        .select('user_id, metric_type, value, date')
+        .gte('date', weekStart)
+        .lte('date', date);
 
-      if (error) {
-        // If there's a foreign key or permission error, fall back to just weekly_totals
-        if (error.code === 'PGRST200' || error.code === '42501') {
-          console.warn('Falling back to weekly_totals only due to:', error.message);
-          const { data: fallbackData, error: fallbackError } = await supabase
-            .from('weekly_totals')
-            .select('user_id, total_points, metrics_completed')
-            .eq('week_start', weekStart)
-            .eq('is_test_data', false)
-            .order('total_points', { ascending: false });
+      if (metricsError) throw metricsError;
 
-          if (fallbackError) throw fallbackError;
-          if (!fallbackData) return [];
+      // Group metrics by user
+      const userMetrics = new Map<string, DailyMetricScore[]>();
+      metricsData?.forEach(metric => {
+        const metrics = userMetrics.get(metric.user_id) || [];
+        userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
+      });
 
-          // Map fallback data without user profile information
-          return fallbackData.map((entry, index) => ({
-            user_id: entry.user_id,
-            display_name: 'Anonymous User',
-            avatar_url: null,
-            total_points: entry.total_points,
-            metrics_completed: entry.metrics_completed,
+      // Calculate points using the same function as Dashboard
+      const userPoints = new Map<string, { total: number, completed: number }>();
+      userMetrics.forEach((metrics, userId) => {
+        userPoints.set(userId, {
+          total: calculateTotalPoints(metrics),
+          completed: metrics.length
+        });
+      });
+
+      // Get user profiles
+      const { data: profiles, error: profilesError } = await supabase
+        .from('user_profiles')
+        .select('id, display_name, avatar_url, show_profile');
+
+      if (profilesError) throw profilesError;
+
+      // Create leaderboard entries
+      const entries = Array.from(userPoints.entries())
+        .map(([userId, points], index) => {
+          const profile = profiles?.find(p => p.id === userId);
+          return {
+            user_id: userId,
+            display_name: profile?.display_name || `User ${userId.slice(0, 8)}`,
+            avatar_url: profile?.avatar_url || null,
+            total_points: points.total,
+            metrics_completed: points.completed,
             rank: index + 1,
-          }));
-        }
-        throw error;
-      }
-      
-      if (!data) {
-        console.log('No data returned from weekly_totals query');
-        return [];
-      }
+            show: profile?.show_profile !== false
+          };
+        })
+        .sort((a, b) => b.total_points - a.total_points)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }))
+        .filter(entry => entry.show);
 
-      console.log('Raw weekly_totals data:', data);
-      
-      const leaderboard = (data || []).map((entry, index) => ({
-        user_id: entry.user_id,
-        display_name: entry.user_profiles?.display_name || `User ${entry.user_id.slice(0, 8)}`,
-        avatar_url: entry.user_profiles?.avatar_url || null,
-        total_points: entry.total_points,
-        metrics_completed: entry.metrics_completed,
-        rank: index + 1,
-        show: entry.user_profiles?.show_profile !== false
-      })).filter(entry => entry.show);
-
-      console.log('Final weekly leaderboard data:', leaderboard);
-      return leaderboard;
+      return entries;
     } catch (error) {
       console.error('Error in getWeeklyLeaderboard:', error);
       throw error;
@@ -313,22 +296,8 @@ export const leaderboardService = {
 
   async getUserWeeklyRank(userId: string, date: string): Promise<number | null> {
     try {
-      const weekStart = getWeekStart(new Date(date));
-      const { data, error } = await supabase
-        .from('weekly_totals')
-        .select('user_id, total_points')
-        .eq('week_start', weekStart)
-        .eq('is_test_data', false)
-        .order('total_points', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching user weekly rank:', error);
-        throw error;
-      }
-      
-      if (!data) return null;
-
-      const userIndex = data.findIndex(entry => entry.user_id === userId);
+      const leaderboard = await this.getWeeklyLeaderboard(date);
+      const userIndex = leaderboard.findIndex(entry => entry.user_id === userId);
       return userIndex === -1 ? null : userIndex + 1;
     } catch (error) {
       console.error('Error in getUserWeeklyRank:', error);

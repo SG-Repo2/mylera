@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Animated } from 'react-native';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
@@ -18,61 +18,58 @@ interface MetricCardListProps {
 type DisplayedMetricType = MetricType;
 
 const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
-  const maxPoints: Record<DisplayedMetricType, number> = {
-    steps: 165,
-    heart_rate: 250,
-    calories: 188,
-    distance: 160,
-    exercise: 200,
-    basal_calories: 150,
-    flights_climbed: 100,
-  };
-
-  // Handle numeric values only since blood pressure is handled separately
+  // Handle non-numeric values
   if (typeof value !== 'number') {
     return 0;
   }
 
+  const config = healthMetrics[type];
+  
+  // Special handling for heart rate since it's based on target zone
+  if (type === 'heart_rate') {
+    const targetValue = config.defaultGoal;
+    const deviation = Math.abs(value - targetValue);
+    // Within 5 BPM = max points, then decreases linearly
+    const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
+    return Math.round(points);
+  }
+
+  // For all other metrics, calculate points based on increment value
   return Math.min(
-    Math.round((value / healthMetrics[type].defaultGoal) * maxPoints[type]),
-    maxPoints[type]
+    Math.floor(value / config.pointIncrement.value),
+    config.pointIncrement.maxPoints
   );
 };
+
+const metricOrder: DisplayedMetricType[] = [
+  'steps',
+  'distance',
+  'calories',
+  'exercise',
+  'heart_rate',
+  'basal_calories',
+  'flights_climbed'
+];
 
 export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
   provider
 }: MetricCardListProps) {
-  // Debug logs for metrics data
-  console.log('[MetricCardList] Raw metrics:', metrics);
-  
-  // Log specific metric values
-  Object.entries(metrics).forEach(([key, value]) => {
-    if (key in healthMetrics) {
-      const metricConfig = healthMetrics[key as MetricType];
-      console.log(`[MetricCardList] ${key}:`, {
-        rawValue: value,
-        formattedValue: metricConfig.formatValue(value),
-        displayUnit: metricConfig.displayUnit
-      });
-    }
-  });
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const { styles, colors: metricColors } = useMetricCardListStyles();
   const theme = useTheme();
 
-  const metricOrder: DisplayedMetricType[] = [
-    'steps',
-    'distance',
-    'calories',
-    'exercise',
-    'heart_rate',
-    'basal_calories',
-    'flights_climbed'
-  ];
-
+  // Memoize metric values to prevent unnecessary re-renders
+  const memoizedMetrics = React.useMemo(() => {
+    return metricOrder.map(metricType => ({
+      type: metricType,
+      value: metrics[metricType] as number,
+      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
+      config: healthMetrics[metricType]
+    }));
+  }, [metrics]);
   // Create fade-in animations for each card
   const fadeAnims = React.useRef(
     metricOrder.map(() => new Animated.Value(0))
@@ -96,20 +93,23 @@ export const MetricCardList = React.memo(function MetricCardList({
     Animated.stagger(50, animations).start();
   }, [fadeAnims]);
 
-  const handleMetricPress = (metricType: MetricType) => {
+  // Memoize modal handlers
+  const handleModalClose = useCallback(() => {
+    setModalVisible(false);
+    setSelectedMetric(null);
+  }, []);
+
+  const handleMetricPress = useCallback((metricType: MetricType) => {
     setSelectedMetric(metricType);
     setModalVisible(true);
-  };
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {selectedMetric && (
           <MetricModal
             visible={modalVisible}
-            onClose={() => {
-              setModalVisible(false);
-              setSelectedMetric(null);
-            }}
+            onClose={handleModalClose}
             title={healthMetrics[selectedMetric].title}
             value={metrics[selectedMetric] || 0}
             metricType={selectedMetric}
@@ -129,7 +129,7 @@ export const MetricCardList = React.memo(function MetricCardList({
         />
       )}
       <View style={styles.grid}>
-        {metricOrder.map((metricType, index) => (
+        {memoizedMetrics.map(({ type: metricType, value, points, config }, index) => (
           <Animated.View 
             key={metricType} 
             style={[
@@ -152,12 +152,12 @@ export const MetricCardList = React.memo(function MetricCardList({
             ]}
           >
             <MetricCard
-              title={healthMetrics[metricType].title}
-              value={metrics[metricType] as number}
-              points={calculateMetricPoints(metricType, metrics[metricType] || 0)}
-              goal={healthMetrics[metricType].defaultGoal as number}
-              unit={healthMetrics[metricType].displayUnit}
-              icon={healthMetrics[metricType].icon}
+              title={config.title}
+              value={value}
+              points={points}
+              goal={config.defaultGoal as number}
+              unit={config.displayUnit}
+              icon={config.icon}
               color={metricColors[metricType]}
               showAlert={showAlerts}
               metricType={metricType}

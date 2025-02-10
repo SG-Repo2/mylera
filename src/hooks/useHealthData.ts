@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
@@ -31,8 +31,12 @@ import type { MetricType } from '../types/schemas';
 export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const isMounted = useRef(true);
 
   const syncHealthData = useCallback(async () => {
+    if (!isMounted.current) return;
+    
     setLoading(true);
     setError(null);
 
@@ -146,26 +150,33 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       setError(new Error(errorMessage));
       console.error('[useHealthData] Health sync error:', err);
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+        setIsInitialized(true);
+      }
     }
   }, [provider, userId]);
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
+    isMounted.current = true;
+    
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
       setLoading(false);
+      setIsInitialized(true);
       return;
     }
     
     syncHealthData();
     
     return () => {
+      isMounted.current = false;
       if (provider.cleanup) {
         provider.cleanup();
       }
     };
   }, [syncHealthData, userId]);
 
-  return { loading, error, syncHealthData };
+  return { loading, error, syncHealthData, isInitialized };
 };

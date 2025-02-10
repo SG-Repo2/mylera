@@ -11,10 +11,11 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
+import { healthMetrics } from '@/src/config/healthMetrics';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
@@ -125,6 +126,23 @@ const LoadingView = React.memo(() => {
   );
 });
 
+const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
+  return metrics.reduce((total, metric) => {
+    const config = healthMetrics[metric.metric_type];
+    if (!config || typeof metric.value !== 'number') return total;
+
+    if (metric.metric_type === 'heart_rate') {
+      const targetValue = config.defaultGoal;
+      const deviation = Math.abs(metric.value - targetValue);
+      const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
+      return total + Math.round(points);
+    }
+
+    const points = Math.floor(metric.value / config.pointIncrement.value);
+    return total + Math.min(points, config.pointIncrement.maxPoints);
+  }, 0);
+};
+
 const transformMetricsToHealthMetrics = (
   metrics: DailyMetricScore[],
   dailyTotal: DailyTotal | null,
@@ -183,7 +201,8 @@ export const Dashboard = React.memo(function Dashboard({
   const {
     loading,
     error,
-    syncHealthData
+    syncHealthData,
+    isInitialized
   } = useHealthData(provider, userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
@@ -228,8 +247,9 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, pointsScale, pointsOpacity, slideAnim]);
 
-  useEffect(() => {
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!isInitialized) return;
+    
     try {
       console.log('Dashboard fetching data for:', { userId, date });
       const [totals, metricScores, rank] = await Promise.all([
@@ -241,7 +261,18 @@ export const Dashboard = React.memo(function Dashboard({
       console.log('Daily totals:', totals);
       console.log('Metric scores:', metricScores);
       
-      const userTotal = totals.find(total => total.user_id === userId) || null;
+      // Calculate total points using new system
+      const totalPoints = calculateTotalPoints(metricScores);
+      
+      const userTotal = {
+        id: `${userId}-${date}`,
+        user_id: userId,
+        date: date,
+        total_points: totalPoints,
+        metrics_completed: metricScores.length,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
       setDailyTotal(userTotal);
       
       const transformedMetrics = transformMetricsToHealthMetrics(
@@ -255,15 +286,16 @@ export const Dashboard = React.memo(function Dashboard({
       setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
-      } catch (err) {
-        console.error('Error fetching metrics:', err);
-        setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-        setErrorDialogVisible(true);
-      }
-    };
-    
+    } catch (err) {
+      console.error('Error fetching metrics:', err);
+      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+      setErrorDialogVisible(true);
+    }
+  }, [userId, date, isInitialized]);
+
+  useEffect(() => {
     fetchData();
-  }, [userId, date]);
+  }, [fetchData, isInitialized]);
 
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {

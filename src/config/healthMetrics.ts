@@ -47,7 +47,17 @@ export interface MetricConfig {
   formatValue: (value: any) => string;
   calculateProgress: (value: any, goal: any) => number;
   displayUnit: string; // Human readable unit
+  pointIncrement: {
+    value: number;    // Amount of metric value per point
+    maxPoints: number; // Maximum points possible
+  };
 }
+
+// Helper function to calculate points based on value and increment settings
+const calculatePoints = (value: number, increment: number, maxPoints: number): number => {
+  const points = Math.floor(value / increment);
+  return Math.min(points, maxPoints);
+};
 
 export const healthMetrics: Record<MetricType, MetricConfig> = {
   steps: {
@@ -59,7 +69,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF9500',
     formatValue: formatters.steps,
     calculateProgress: progressCalculators.steps,
-    displayUnit: 'steps'
+    displayUnit: 'steps',
+    pointIncrement: {
+      value: 100, // 1 point per 100 steps
+      maxPoints: 100
+    }
   },
   distance: {
     id: 'distance',
@@ -70,7 +84,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#AF52DE',
     formatValue: formatters.distance,
     calculateProgress: progressCalculators.distance,
-    displayUnit: 'mi'
+    displayUnit: 'mi',
+    pointIncrement: {
+      value: 160.934, // 1 point per 0.1 miles (in meters)
+      maxPoints: 30
+    }
   },
   calories: {
     id: 'calories',
@@ -81,7 +99,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF2D55',
     formatValue: formatters.calories,
     calculateProgress: progressCalculators.calories,
-    displayUnit: 'kcal'
+    displayUnit: 'kcal',
+    pointIncrement: {
+      value: 10, // 1 point per 10 calories
+      maxPoints: 50
+    }
   },
   heart_rate: {
     id: 'heart_rate',
@@ -92,7 +114,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FC3D39',
     formatValue: formatters.heart_rate,
     calculateProgress: progressCalculators.heart_rate,
-    displayUnit: 'BPM'
+    displayUnit: 'BPM',
+    pointIncrement: {
+      value: 1, // Special case - points based on target zone
+      maxPoints: 30
+    }
   },
   exercise: {
     id: 'exercise',
@@ -103,7 +129,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#30D158',
     formatValue: formatters.exercise,
     calculateProgress: progressCalculators.exercise,
-    displayUnit: 'min'
+    displayUnit: 'min',
+    pointIncrement: {
+      value: 1, // 1 point per minute
+      maxPoints: 30
+    }
   },
   basal_calories: {
     id: 'basal_calories',
@@ -114,7 +144,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF9500',
     formatValue: formatters.basal_calories,
     calculateProgress: progressCalculators.basal_calories,
-    displayUnit: 'kcal'
+    displayUnit: 'kcal',
+    pointIncrement: {
+      value: 20, // 1 point per 20 calories
+      maxPoints: 90
+    }
   },
   flights_climbed: {
     id: 'flights_climbed',
@@ -125,7 +159,11 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#5856D6',
     formatValue: formatters.flights_climbed,
     calculateProgress: progressCalculators.flights_climbed,
-    displayUnit: 'flights'
+    displayUnit: 'flights',
+    pointIncrement: {
+      value: 0.5, // 2 points per flight
+      maxPoints: 20
+    }
   }
 };
 
