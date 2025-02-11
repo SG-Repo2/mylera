@@ -19,7 +19,7 @@
         "buildConfiguration": "Release"
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "apk"
       },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://jnxsqqsbhzirijklxqbq.supabase.co",
