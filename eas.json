@@ -17,6 +17,14 @@
       },
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://jnxsqqsbhzirijklxqbq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpueHNxcXNiaHppcmlqa2x4cWJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUzNDA0MDksImV4cCI6MjA1MDkxNjQwOX0.GQ8a8zlHkldvvamERaz1sVakkyvbwMtDWn1N7b0n3bI",
+        "EXPO_PUBLIC_FITBIT_CLIENT_ID": "23Q6BN",
+        "EXPO_PUBLIC_FITBIT_REDIRECT_URL": "https://jnxsqqsbhzirijklxqbq.supabase.co/auth/v1/callback",
+        "EXPO_PUBLIC_FITBIT_AUTH_URL": "https://www.fitbit.com/oauth2/authorize",
+        "EXPO_PUBLIC_FITBIT_TOKEN_URL": "https://api.fitbit.com/oauth2/token"
       }
     },
     "simulator": {
