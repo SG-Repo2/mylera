@@ -10,6 +10,8 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { BarChart } from './BarChart';
+import { useAuth } from '@/src/providers/AuthProvider';
+import { MeasurementSystem, DISPLAY_UNITS, formatMetricValue } from '@/src/utils/unitConversion';
 
 interface MetricModalProps {
   visible: boolean;
@@ -79,6 +81,8 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
+  const { user } = useAuth();
+  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   const [isLoading, setIsLoading] = useState(true);
   const [trend, setTrend] = useState<{ direction: 'up' | 'down' | 'neutral', percentage: number } | null>(null);
   
@@ -227,6 +231,10 @@ export const MetricModal: React.FC<MetricModalProps> = ({
 
   const metricConfig = healthMetrics[metricType];
   const metricColor = metricColors[metricType];
+  const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
+
+  // Format goal value for display
+  const formattedGoal = formatMetricValue(metricConfig.defaultGoal, metricType, measurementSystem);
 
   return (
     <Portal>
@@ -286,7 +294,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: valueScale }] }}>
                   <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                    {metricConfig.formatValue(value)} {metricConfig.displayUnit}
+                    {metricConfig.formatValue(value, measurementSystem)} {displayUnit}
                   </Text>
                 </Animated.View>
                 {!isLoading && trend && (
@@ -358,12 +366,19 @@ export const MetricModal: React.FC<MetricModalProps> = ({
 
             {additionalInfo && additionalInfo.length > 0 && (
               <View style={styles.additionalInfoContainer}>
-                {additionalInfo.map((info, index) => (
-                  <View key={index} style={styles.infoRow}>
-                    <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
-                    <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
-                  </View>
-                ))}
+                {additionalInfo.map((info, index) => {
+                  // Format goal value if this is the goal info
+                  const displayValue = info.label === 'Daily Goal' 
+                    ? `${formattedGoal.value} ${displayUnit}`
+                    : info.value;
+                    
+                  return (
+                    <View key={index} style={styles.infoRow}>
+                      <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
+                      <Text variant="titleMedium" style={styles.infoValue}>{displayValue}</Text>
+                    </View>
+                  );
+                })}
               </View>
             )}
           </ScrollView>

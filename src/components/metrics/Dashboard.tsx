@@ -179,7 +179,7 @@ export const Dashboard = React.memo(function Dashboard({
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { healthPermissionStatus, requestHealthPermissions } = useAuth();
+  const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
@@ -262,7 +262,7 @@ export const Dashboard = React.memo(function Dashboard({
 
   useEffect(() => {
     fetchData();
-  }, [fetchData, isInitialized]);
+  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
 
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {

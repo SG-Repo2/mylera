@@ -18,6 +18,7 @@ import { UserProfile } from '../../types/leaderboard';
 import { ErrorView } from '../shared/ErrorView';
 import { theme } from '../../theme/theme';
 import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabaseClient';
 
 // Add spacing constants to match theme
 const spacing = {
@@ -298,6 +299,47 @@ export function Profile() {
             thumbColor={showProfile ? '#0284c7' : '#F3F4F6'}
           />
         </View>
+        <View style={[styles.settingRow, styles.settingBorder]}>
+          <Text style={styles.settingLabel}>Use Imperial Units</Text>
+          <Switch
+            value={profile?.measurement_system === 'imperial'}
+            onValueChange={async (useImperial) => {
+              if (profile && user) {
+                const newSystem = useImperial ? 'imperial' : 'metric';
+                try {
+                  // Update Supabase profile
+                  await leaderboardService.updateUserProfile(user.id, {
+                    ...profile,
+                    measurement_system: newSystem
+                  });
+                  
+                  // Update local state
+                  setProfile({
+                    ...profile,
+                    measurement_system: newSystem
+                  });
+                  
+                  // Update user metadata through Supabase
+                  const { error: updateError } = await supabase.auth.updateUser({
+                    data: { measurementSystem: newSystem }
+                  });
+                  
+                  if (updateError) {
+                    throw updateError;
+                  }
+                  
+                  // Reload profile to ensure consistency
+                  loadProfile();
+                } catch (err) {
+                  console.error('Error updating measurement system:', err);
+                  setError(err instanceof Error ? err : new Error('Failed to update measurement system'));
+                }
+              }
+            }}
+            trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+            thumbColor={profile?.measurement_system === 'imperial' ? '#0284c7' : '#F3F4F6'}
+          />
+        </View>
       </View>
 
       {/* Action Buttons */}
@@ -337,6 +379,10 @@ export function Profile() {
 }
 
 const styles = StyleSheet.create({
+  settingBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,

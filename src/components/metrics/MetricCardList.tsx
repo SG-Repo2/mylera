@@ -8,6 +8,8 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
+import { useAuth } from '@/src/providers/AuthProvider';
+import { MeasurementSystem, DISPLAY_UNITS } from '@/src/utils/unitConversion';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
@@ -60,6 +62,8 @@ export const MetricCardList = React.memo(function MetricCardList({
   const [modalVisible, setModalVisible] = useState(false);
   const { styles, colors: metricColors } = useMetricCardListStyles();
   const theme = useTheme();
+  const { user } = useAuth();
+  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
@@ -119,7 +123,7 @@ export const MetricCardList = React.memo(function MetricCardList({
             additionalInfo={[
             {
               label: 'Daily Goal',
-              value: `${healthMetrics[selectedMetric].defaultGoal} ${healthMetrics[selectedMetric].displayUnit}`
+              value: `${healthMetrics[selectedMetric].defaultGoal} ${DISPLAY_UNITS[selectedMetric][measurementSystem]}`
             },
             {
               label: 'Progress',
@@ -156,11 +160,12 @@ export const MetricCardList = React.memo(function MetricCardList({
               value={value}
               points={points}
               goal={config.defaultGoal as number}
-              unit={config.displayUnit}
+              unit={DISPLAY_UNITS[metricType][measurementSystem]}
               icon={config.icon}
               color={metricColors[metricType]}
               showAlert={showAlerts}
               metricType={metricType}
+              measurementSystem={measurementSystem}
               onPress={() => handleMetricPress(metricType)}
             />
           </Animated.View>

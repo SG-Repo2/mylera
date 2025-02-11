@@ -1,20 +1,24 @@
 import { MetricType } from '../types/metrics';
 import { METRIC_UNITS } from '../providers/health/types/metrics';
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
+import { formatMetricValue, MeasurementSystem } from '../utils/unitConversion';
 
-// Helper functions for formatting values
+// Helper functions for formatting values with measurement system support
 const formatters = {
-  steps: (value: number) => Math.round(value).toLocaleString(),
-  distance: (value: number) => {
-    // Value is in meters, convert to miles for display
-    const miles = value / 1609.34;
-    return miles.toFixed(2);
-  },
-  calories: (value: number) => Math.round(value).toLocaleString(),
-  heart_rate: (value: number) => Math.round(value).toString(),
-  exercise: (value: number) => Math.round(value).toString(),
-  basal_calories: (value: number) => Math.round(value).toLocaleString(),
-  flights_climbed: (value: number) => Math.round(value).toString(),
+  steps: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'steps', system).value.toLocaleString(),
+  distance: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'distance', system).value.toString(),
+  calories: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'calories', system).value.toLocaleString(),
+  heart_rate: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'heart_rate', system).value.toString(),
+  exercise: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'exercise', system).value.toString(),
+  basal_calories: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'basal_calories', system).value.toLocaleString(),
+  flights_climbed: (value: number, system: MeasurementSystem = 'metric') => 
+    formatMetricValue(value, 'flights_climbed', system).value.toString(),
 };
 
 // Helper functions for calculating progress (0-1)
@@ -44,9 +48,8 @@ export interface MetricConfig {
   defaultGoal: number;
   unit: string;
   color: string;
-  formatValue: (value: any) => string;
+  formatValue: (value: any, system?: MeasurementSystem) => string;
   calculateProgress: (value: any, goal: any) => number;
-  displayUnit: string; // Human readable unit
   pointIncrement: {
     value: number;    // Amount of metric value per point
     maxPoints: number; // Maximum points possible
@@ -69,7 +72,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF9500',
     formatValue: formatters.steps,
     calculateProgress: progressCalculators.steps,
-    displayUnit: 'steps',
     pointIncrement: {
       value: 100, // 1 point per 100 steps
       maxPoints: 100
@@ -84,7 +86,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#AF52DE',
     formatValue: formatters.distance,
     calculateProgress: progressCalculators.distance,
-    displayUnit: 'mi',
     pointIncrement: {
       value: 160.934, // 1 point per 0.1 miles (in meters)
       maxPoints: 30
@@ -99,7 +100,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF2D55',
     formatValue: formatters.calories,
     calculateProgress: progressCalculators.calories,
-    displayUnit: 'kcal',
     pointIncrement: {
       value: 10, // 1 point per 10 calories
       maxPoints: 50
@@ -114,7 +114,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FC3D39',
     formatValue: formatters.heart_rate,
     calculateProgress: progressCalculators.heart_rate,
-    displayUnit: 'BPM',
     pointIncrement: {
       value: 1, // Special case - points based on target zone
       maxPoints: 30
@@ -129,7 +128,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#30D158',
     formatValue: formatters.exercise,
     calculateProgress: progressCalculators.exercise,
-    displayUnit: 'min',
     pointIncrement: {
       value: 1, // 1 point per minute
       maxPoints: 30
@@ -144,7 +142,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#FF9500',
     formatValue: formatters.basal_calories,
     calculateProgress: progressCalculators.basal_calories,
-    displayUnit: 'kcal',
     pointIncrement: {
       value: 20, // 1 point per 20 calories
       maxPoints: 90
@@ -159,7 +156,6 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     color: '#5856D6',
     formatValue: formatters.flights_climbed,
     calculateProgress: progressCalculators.flights_climbed,
-    displayUnit: 'flights',
     pointIncrement: {
       value: 0.5, // 2 points per flight
       maxPoints: 20
