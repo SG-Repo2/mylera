@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
@@ -26,16 +27,41 @@ interface DashboardProps {
   showAlerts?: boolean;
 }
 
+const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
+  const styles = useDashboardStyles();
+  const theme = useTheme();
+  
+  return (
+    <View style={styles.headerContainer}>
+      <View style={styles.headerContent}>
+        <Image
+          source={require('@/assets/images/myLeraBanner.png')}
+          style={styles.logo}
+        />
+        <View style={styles.statsContainer}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Goals</Text>
+            <Text style={styles.statText}>{dailyTotal.metrics_completed}/7</Text>
+          </View>
+          <View style={styles.statItem}>
+            <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+});
+
 const LoadingView = React.memo(() => {
   const styles = useDashboardStyles();
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  
   const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const spinAnim = React.useRef(new Animated.Value(0)).current;
-
+  
   React.useEffect(() => {
     Animated.parallel([
-      // Smooth pulse animation
       Animated.loop(
         Animated.sequence([
           Animated.spring(pulseAnim, {
@@ -54,13 +80,6 @@ const LoadingView = React.memo(() => {
           }),
         ])
       ),
-      // Simple fade in
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      // Continuous rotation
       Animated.loop(
         Animated.timing(spinAnim, {
           toValue: 1,
@@ -69,60 +88,35 @@ const LoadingView = React.memo(() => {
         })
       ),
     ]).start();
-  }, [pulseAnim, fadeAnim, spinAnim]);
+  }, []);
 
   return (
-    <Surface 
-      style={[
-        styles.loadingShadowContainer, 
-        { backgroundColor: theme.colors.surface }
-      ]} 
-      elevation={3}
-    >
-      <Animated.View 
-        style={[
-          styles.loadingContainer,
-          { opacity: fadeAnim }
-        ]}
-      >
-        <Animated.View 
-          style={{ 
-            transform: [{ scale: pulseAnim }],
-            shadowColor: theme.colors.primary,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.2,
-            shadowRadius: 8,
-          }}
-        >
-          <Animated.View style={{
-            transform: [{
+    <View style={[
+      styles.loadingContainer,
+      { paddingTop: insets.top }
+    ]}>
+      <View style={styles.loadingCard}>
+        <Animated.View style={{
+          transform: [
+            { scale: pulseAnim },
+            {
               rotate: spinAnim.interpolate({
                 inputRange: [0, 1],
                 outputRange: ['0deg', '360deg']
               })
-            }]
-          }}>
-            <ActivityIndicator 
-              size={56} 
-              color={theme.colors.primary} 
-            />
-          </Animated.View>
-        </Animated.View>
-        <Text 
-          variant="titleMedium" 
-          style={[
-            styles.loadingText, 
-            { 
-              color: theme.colors.onSurfaceVariant,
-              fontSize: 18,
-              fontWeight: '500'
             }
-          ]}
-        >
+          ]
+        }}>
+          <ActivityIndicator
+            size={Platform.OS === 'ios' ? 'large' : 48}
+            color={theme.colors.primary}
+          />
+        </Animated.View>
+        <Text style={styles.loadingText}>
           Loading your health data...
         </Text>
-      </Animated.View>
-    </Surface>
+      </View>
+    </View>
   );
 });
 
@@ -151,7 +145,6 @@ const transformMetricsToHealthMetrics = (
 ): HealthMetrics => {
   const now = new Date().toISOString();
   
-  // Initialize with null values as per HealthMetrics interface
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
     user_id: userId,
@@ -171,11 +164,9 @@ const transformMetricsToHealthMetrics = (
     updated_at: now
   };
 
-  // Map metric values from the database scores
   metrics.forEach(metric => {
     const metricType = metric.metric_type as MetricType;
     if (metricType in result && typeof metric.value === 'number') {
-      // Store the raw value - any necessary conversions will be handled by the formatters
       result[metricType] = metric.value;
     }
   });
@@ -206,46 +197,26 @@ export const Dashboard = React.memo(function Dashboard({
   } = useHealthData(provider, userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
-  const pointsScale = React.useRef(new Animated.Value(0.9)).current;
-  const pointsOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
   useEffect(() => {
     if (dailyTotal) {
-      Animated.sequence([
-        // Slide and fade in header
-        Animated.parallel([
-          Animated.timing(headerOpacity, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true,
-          }),
-          Animated.spring(slideAnim, {
-            toValue: 0,
-            useNativeDriver: true,
-            damping: 12,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-        ]),
-        // Animate points with bounce
-        Animated.parallel([
-          Animated.spring(pointsScale, {
-            toValue: 1,
-            damping: 10,
-            mass: 0.8,
-            stiffness: 180,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pointsOpacity, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]),
+      Animated.parallel([
+        Animated.timing(headerOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 12,
+          mass: 0.8,
+          stiffness: 180,
+        }),
       ]).start();
     }
-  }, [dailyTotal, headerOpacity, pointsScale, pointsOpacity, slideAnim]);
+  }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async () => {
     if (!isInitialized) return;
@@ -261,7 +232,6 @@ export const Dashboard = React.memo(function Dashboard({
       console.log('Daily totals:', totals);
       console.log('Metric scores:', metricScores);
       
-      // Calculate total points using new system
       const totalPoints = calculateTotalPoints(metricScores);
       
       const userTotal = {
@@ -322,144 +292,27 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView 
+      style={[
+        styles.container, 
+        { 
+          backgroundColor: theme.colors.background,
+          paddingTop: Platform.OS === 'ios' ? 0 : 4
+        }
+      ]}
+    >
       {dailyTotal && (
-        <>
-          <View style={styles.headerContainer}>
-            <Animated.View 
-              style={[
-                styles.headerContent,
-                {
-                  opacity: headerOpacity,
-                  transform: [{ translateY: slideAnim }],
-                  backgroundColor: 'transparent',
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }
-              ]}
-            >
-              <Image 
-                source={require('@/assets/images/myLeraBanner.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-              <Text 
-                variant="titleLarge"
-                style={[
-                  styles.headerRank,
-                  { color: theme.colors.primary }
-                ]}
-              >
-                #{userRank || '-'}
-              </Text>
-              <Text 
-                variant="titleLarge"
-                style={[
-                  styles.headerPoints,
-                  { color: theme.colors.primary }
-                ]}
-              >
-                {dailyTotal.total_points} pts
-              </Text>
-            </Animated.View>
-          </View>
-
-          <Animated.View 
-            style={[
-              styles.statsSection,
-              {
-                transform: [{ scale: pointsScale }],
-                opacity: pointsOpacity,
-              }
-            ]}
-          >
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <Animated.View style={{
-                flex: 1,
-                transform: [{
-                  translateY: pointsOpacity.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 0],
-                  })
-                }]
-              }}>
-                <Surface 
-                  style={[
-                    styles.statsCard, 
-                    { 
-                      backgroundColor: theme.colors.primary,
-                    }
-                  ]}
-                  elevation={2}
-                >
-                  <View style={styles.statsContainer}>
-                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                      Daily Goals
-                    </Text>
-                    <Text variant="headlineMedium" style={[styles.statsValue, { color: 'white' }]}>
-                      {dailyTotal.metrics_completed}/7
-                    </Text>
-                  </View>
-                </Surface>
-              </Animated.View>
-
-              <Animated.View style={{
-                flex: 1,
-                transform: [{
-                  translateY: pointsOpacity.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [30, 0],
-                  })
-                }]
-              }}>
-                <Surface 
-                  style={[
-                    styles.statsCard, 
-                    { 
-                      backgroundColor: theme.colors.primary,
-                    }
-                  ]}
-                  elevation={2}
-                >
-                  <View style={styles.statsContainer}>
-                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                      Strength
-                    </Text>
-                    <MaterialCommunityIcons name="fire" size={28} color="white" />
-                  </View>
-                </Surface>
-              </Animated.View>
-
-              <Animated.View style={{
-                flex: 1,
-                transform: [{
-                  translateY: pointsOpacity.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [40, 0],
-                  })
-                }]
-              }}>
-                <Surface 
-                  style={[
-                    styles.statsCard, 
-                    { 
-                      backgroundColor: theme.colors.error
-                    }
-                  ]}
-                  elevation={2}
-                >
-                  <View style={styles.statsContainer}>
-                    <Text variant="titleMedium" style={[styles.statsLabel, { color: 'white' }]}>
-                      Improve
-                    </Text>
-                    <MaterialCommunityIcons name="run" size={28} color="white" />
-                  </View>
-                </Surface>
-              </Animated.View>
-            </View>
-          </Animated.View>
-        </>
+        <Animated.View 
+          style={[
+            styles.headerWrapper,
+            {
+              opacity: headerOpacity,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <Header dailyTotal={dailyTotal} />
+        </Animated.View>
       )}
 
       <ScrollView

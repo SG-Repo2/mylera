@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
 import { brandColors } from '@/src/theme/theme';
 
@@ -7,90 +7,94 @@ const createStyles = (theme: MD3Theme) =>
     container: {
       flex: 1,
     },
-    loadingShadowContainer: {
-      flex: 1,
-      borderRadius: 20,
-      margin: 16,
-    },
-    loadingContainer: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 24,
-      backgroundColor: 'transparent',
+    headerWrapper: {
+      marginHorizontal: 16,
+      marginTop: 8,
+      borderRadius: 12,
+      overflow: 'hidden',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 3,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
     },
     headerContainer: {
-      paddingVertical: 12,
+      height: 44,
       backgroundColor: theme.colors.surface,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.05,
-      shadowRadius: 3,
-      elevation: 2,
+      justifyContent: 'center',
     },
     headerContent: {
-      paddingHorizontal: 16,
-      minHeight: 48,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      paddingHorizontal: 12,
     },
     logo: {
-      height: 36,
-      width: 100,
-      marginRight: 'auto',
-    },
-    headerRank: {
-      fontWeight: '700',
-      letterSpacing: 0.5,
-      marginHorizontal: 12,
-      fontSize: 18,
-    },
-    headerPoints: {
-      fontWeight: '700',
-      letterSpacing: 0.5,
-      fontSize: 18,
-    },
-    statsSection: {
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-    },
-    statsCard: {
-      borderRadius: 16,
-      overflow: 'hidden',
-      flex: 1,
-      minWidth: 100,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.1,
-      shadowRadius: 3,
-      elevation: 3,
+      height: 24,
+      width: 72,
+      resizeMode: 'contain',
     },
     statsContainer: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-      minHeight: 80,
+      gap: 8,
     },
-    statsLabel: {
-      fontSize: 15,
-      marginBottom: 8,
+    statItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.colors.primaryContainer,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+    },
+    statText: {
+      color: theme.colors.primary,
+      fontSize: 13,
       fontWeight: '600',
-      textAlign: 'center',
-      color: 'white',
+      letterSpacing: 0.25,
     },
-    statsValue: {
-      fontSize: 24,
-      fontWeight: '700',
-      letterSpacing: 0.5,
-      color: 'white',
+    statLabel: {
+      color: theme.colors.onSurfaceVariant,
+      fontSize: 13,
+      marginRight: 4,
+    },
+    loadingContainer: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    loadingCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: 24,
+      padding: 24,
+      width: '85%',
+      maxWidth: 320,
+      alignItems: 'center',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+        },
+        android: {
+          elevation: 4,
+        },
+      }),
+    },
+    loadingText: {
+      marginTop: 16,
+      color: theme.colors.onSurfaceVariant,
+      textAlign: 'center',
+      fontSize: 16,
+      fontWeight: '500',
     },
     scrollView: {
       flex: 1,
@@ -99,11 +103,6 @@ const createStyles = (theme: MD3Theme) =>
       paddingHorizontal: 16,
       paddingTop: 16,
       paddingBottom: 32,
-    },
-    loadingText: {
-      marginTop: 20,
-      textAlign: 'center',
-      letterSpacing: 0.25,
     },
     errorDialog: {
       borderRadius: 24,
@@ -129,7 +128,7 @@ const createStyles = (theme: MD3Theme) =>
       fontSize: 16,
       fontWeight: '600',
       letterSpacing: 0.5,
-    }
+    },
   });
 
 export const useDashboardStyles = () => {
