@@ -14,40 +14,235 @@ import { HealthProviderPermissionError } from '../../types/errors';
  * access token is provided via setAccessToken().
  */
 export class FitbitHealthProvider extends BaseHealthProvider {
-  // The Fitbit access token (must be set externally via setAccessToken)
   private accessToken: string | null = null;
+  private refreshToken: string | null = null;
+  private tokenExpiresAt: number | null = null;
+  private codeVerifier: string | null = null;
+  private state: string | null = null;
 
   /**
    * initialize
    *
-   * For Fitbit, we simply check that an access token is available.
+   * Verifies OAuth credentials and access token
    */
   async initialize(): Promise<void> {
+    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID;
+    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET;
+    const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error('Fitbit OAuth credentials not configured');
+    }
+
+    if (this.accessToken && this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt) {
+      await this.refreshAccessToken();
+    }
+
     if (!this.accessToken) {
       throw new Error('Fitbit access token not set. Please authenticate first.');
     }
+
     this.initialized = true;
+  }
+
+  /**
+   * Generate PKCE challenge and verifier
+   */
+  private async generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: string }> {
+    const generateRandomString = (length: number) => {
+      const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+      let text = '';
+      for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+      }
+      return text;
+    };
+
+    const codeVerifier = generateRandomString(128);
+
+    // Generate code challenge using SHA-256
+    const encoder = new TextEncoder();
+    const data = encoder.encode(codeVerifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const base64Digest = btoa(String.fromCharCode(...new Uint8Array(digest)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    return {
+      codeVerifier,
+      codeChallenge: base64Digest
+    };
   }
 
   /**
    * requestPermissions
    *
-   * In a real-world Fitbit integration you would trigger the OAuth flow here.
-   * For this example, we assume that if an access token exists, permissions are granted.
+   * Implements the Fitbit OAuth 2.0 flow with PKCE
    */
   async requestPermissions(): Promise<PermissionStatus> {
     try {
-      await this.initialize();
-      if (this.permissionManager) {
-        await this.permissionManager.updatePermissionState('granted');
+      const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
+      const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL!;
+      const authUrl = process.env.EXPO_PUBLIC_FITBIT_AUTH_URL!;
+
+      // Generate PKCE values
+      const { codeVerifier, codeChallenge } = await this.generatePKCE();
+
+      // Generate state for CSRF protection
+      const state = Math.random().toString(36).substring(7);
+      
+      // Store PKCE verifier and state temporarily
+      // In a real app, store these securely
+      this.codeVerifier = codeVerifier;
+      this.state = state;
+
+      // Construct authorization URL
+      const scope = 'activity heartrate profile sleep weight';
+      const authParams = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+        scope,
+        state
+      });
+
+      const authUrlWithParams = `${authUrl}?${authParams.toString()}`;
+
+      // Launch OAuth flow in browser
+      const result = await this.handleOAuthFlow(authUrlWithParams);
+      
+      if (result.success) {
+        if (this.permissionManager) {
+          await this.permissionManager.updatePermissionState('granted');
+        }
+        return 'granted';
       }
-      return 'granted';
+
+      throw new Error('OAuth flow failed or was cancelled');
     } catch (error) {
       if (this.permissionManager) {
         await this.permissionManager.handlePermissionError('Fitbit', error);
       }
       return 'denied';
     }
+  }
+
+  /**
+   * Handle the OAuth flow using browser_action
+   */
+  private async handleOAuthFlow(authUrl: string): Promise<{ success: boolean }> {
+    return new Promise((resolve, reject) => {
+      let completed = false;
+
+      const checkResponse = (url: string) => {
+        const params = new URL(url).searchParams;
+        const code = params.get('code');
+        const returnedState = params.get('state');
+
+        if (code && returnedState === this.state) {
+          this.exchangeCodeForToken(code).then(() => {
+            completed = true;
+            resolve({ success: true });
+          }).catch(reject);
+        }
+      };
+
+      // Launch browser for OAuth
+      (window as any).browser_action({
+        action: 'launch',
+        url: authUrl
+      }).then(() => {
+        // Monitor for redirect
+        const checkInterval = setInterval(() => {
+          if (completed) {
+            clearInterval(checkInterval);
+          } else {
+            const currentUrl = window.location.href;
+            if (currentUrl.includes('code=')) {
+              checkResponse(currentUrl);
+            }
+          }
+        }, 500);
+
+        // Timeout after 5 minutes
+        setTimeout(() => {
+          if (!completed) {
+            clearInterval(checkInterval);
+            reject(new Error('OAuth flow timed out'));
+          }
+        }, 300000);
+      }).catch(reject);
+    });
+  }
+
+  /**
+   * Exchange authorization code for access token
+   */
+  private async exchangeCodeForToken(code: string): Promise<void> {
+    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
+    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET!;
+    const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL!;
+    const tokenUrl = process.env.EXPO_PUBLIC_FITBIT_TOKEN_URL!;
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        code_verifier: this.codeVerifier!
+      }).toString()
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to exchange code for token');
+    }
+
+    const data = await response.json();
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token;
+    this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+  }
+
+  /**
+   * Refresh the access token
+   */
+  private async refreshAccessToken(): Promise<void> {
+    if (!this.refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
+    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET!;
+    const tokenUrl = process.env.EXPO_PUBLIC_FITBIT_TOKEN_URL!;
+
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: this.refreshToken
+      }).toString()
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to refresh token');
+    }
+
+    const data = await response.json();
+    this.accessToken = data.access_token;
+    this.refreshToken = data.refresh_token;
+    this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
   }
 
   /**

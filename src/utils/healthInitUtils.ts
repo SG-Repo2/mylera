@@ -1,6 +1,7 @@
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 import type { PermissionStatus } from '../providers/health/types/permissions';
 import { mapAuthError } from './errorUtils';
+import { supabase } from '../services/supabaseClient';
 
 const MAX_INIT_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -23,8 +24,21 @@ export async function initializeHealthProviderForUser(
 
   while (retries < MAX_INIT_RETRIES) {
     try {
-      const provider = HealthProviderFactory.getProvider();
-      await provider.initializePermissions(userId);
+      // Get user's device type from Supabase
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('device_type')
+        .eq('id', userId)
+        .single();
+
+      if (userError) throw userError;
+      if (!userData) throw new Error('User profile not found');
+
+      const deviceType = userData.device_type as 'os' | 'fitbit';
+      
+      // Initialize the appropriate provider based on device type
+      const provider = HealthProviderFactory.getProvider(deviceType);
+      await provider.initialize();
       const permissionState = await provider.checkPermissionsStatus();
       
       // Log successful initialization

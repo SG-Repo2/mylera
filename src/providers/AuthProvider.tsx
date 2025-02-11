@@ -140,6 +140,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         
         console.log('[AuthProvider] Auto-login successful, initializing health provider');
+        
+        // Initialize the appropriate health provider based on device type
+        const provider = HealthProviderFactory.getProvider(profile.deviceType);
+        
+        // If it's a Fitbit device, handle OAuth flow
+        if (profile.deviceType === 'fitbit') {
+          console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
+          const status = await provider.requestPermissions();
+          if (status !== 'granted') {
+            throw new Error('Fitbit permissions not granted');
+          }
+        }
+        
         await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {

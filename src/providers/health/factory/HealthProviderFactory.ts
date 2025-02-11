@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import { AppleHealthProvider } from '../platforms/apple/AppleHealthProvider';
 import { GoogleHealthProvider } from '../platforms/google/GoogleHealthProvider';
+import { FitbitHealthProvider } from '../platforms/fitbit/FitbitHealthProvider';
 import type { HealthProvider } from '../types';
 
-export type HealthPlatform = 'apple' | 'google';
+export type HealthPlatform = 'apple' | 'google' | 'fitbit';
 
 class HealthProviderError extends Error {
   constructor(message: string) {
@@ -17,17 +18,24 @@ export class HealthProviderFactory {
   private static platform: HealthPlatform | null = null;
   private static isInitializing = false;
 
-  private static validatePlatform(): void {
+  private static validatePlatform(deviceType?: 'os' | 'fitbit'): void {
+    if (deviceType === 'fitbit') {
+      return; // Fitbit is platform-independent
+    }
+    
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
       throw new HealthProviderError(`Unsupported platform: ${Platform.OS}`);
     }
   }
 
-  private static initializeProvider(): HealthProvider {
+  private static initializeProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     try {
-      this.validatePlatform();
+      this.validatePlatform(deviceType);
 
-      if (Platform.OS === 'ios') {
+      if (deviceType === 'fitbit') {
+        this.platform = 'fitbit';
+        this.instance = new FitbitHealthProvider();
+      } else if (Platform.OS === 'ios') {
         this.platform = 'apple';
         this.instance = new AppleHealthProvider();
       } else {
@@ -47,7 +55,7 @@ export class HealthProviderFactory {
     }
   }
 
-  static getProvider(): HealthProvider {
+  static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     if (this.instance) {
       return this.instance;
     }
@@ -57,7 +65,7 @@ export class HealthProviderFactory {
     }
 
     this.isInitializing = true;
-    const provider = this.initializeProvider();
+    const provider = this.initializeProvider(deviceType);
     return provider;
   }
 
