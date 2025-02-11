@@ -122,15 +122,22 @@ const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
     const config = healthMetrics[metric.metric_type];
     if (!config || typeof metric.value !== 'number') return total;
 
+    let points = 0;
     if (metric.metric_type === 'heart_rate') {
       const targetValue = config.defaultGoal;
       const deviation = Math.abs(metric.value - targetValue);
-      const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-      return total + Math.round(points);
+      points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
+    } else {
+      points = Math.floor(metric.value / config.pointIncrement.value);
+      points = Math.min(points, config.pointIncrement.maxPoints);
+      
+      // Cap bonus points at 25 for goal achievements
+      if (metric.value >= config.defaultGoal) {
+        points = Math.min(points, 25);
+      }
     }
-
-    const points = Math.floor(metric.value / config.pointIncrement.value);
-    return total + Math.min(points, config.pointIncrement.maxPoints);
+    
+    return total + Math.round(points);
   }, 0);
 };
 

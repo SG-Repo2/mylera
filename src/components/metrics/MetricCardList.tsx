@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Animated } from 'react-native';
+import GoalCelebration from './GoalCelebration';
 import { useTheme } from 'react-native-paper';
 import { MetricCard } from './MetricCard';
 import { MetricModal } from './MetricCardModal';
@@ -60,6 +61,8 @@ export const MetricCardList = React.memo(function MetricCardList({
 }: MetricCardListProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [celebrationPoints, setCelebrationPoints] = useState(0);
   const { styles, colors: metricColors } = useMetricCardListStyles();
   const theme = useTheme();
   const { user } = useAuth();
@@ -108,8 +111,24 @@ export const MetricCardList = React.memo(function MetricCardList({
     setModalVisible(true);
   }, []);
 
+  // Check for goal achievement
+  useEffect(() => {
+    const stepsMetric = memoizedMetrics.find(m => m.type === 'steps');
+    if (stepsMetric && stepsMetric.value >= stepsMetric.config.defaultGoal) {
+      setShowCelebration(true);
+      setCelebrationPoints(stepsMetric.points);
+    }
+  }, [memoizedMetrics]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {showCelebration && (
+        <GoalCelebration
+          visible={showCelebration}
+          onClose={() => setShowCelebration(false)}
+          bonusPoints={celebrationPoints}
+        />
+      )}
       {selectedMetric && (
           <MetricModal
             visible={modalVisible}
