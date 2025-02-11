@@ -39,10 +39,7 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
           style={styles.logo}
         />
         <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Goals</Text>
-            <Text style={styles.statText}>{dailyTotal.metrics_completed}/7</Text>
-          </View>
+
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
