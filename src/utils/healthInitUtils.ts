@@ -41,7 +41,14 @@ export async function initializeHealthProviderForUser(
       
       // Initialize the appropriate provider based on device type
       const provider = HealthProviderFactory.getProvider(deviceType);
+      
+      // Initialize permissions before initializing the provider
+      await provider.initializePermissions(userId);
+      
+      // Initialize the provider
       await provider.initialize();
+      
+      // Check permissions status after initialization
       const permissionState = await provider.checkPermissionsStatus();
       
       // Log successful initialization
