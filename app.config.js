@@ -1,4 +1,4 @@
-export default {
+module.exports = {
   expo: {
     name: "mylera",
     slug: "mylera",
@@ -8,7 +8,7 @@ export default {
     scheme: "mylera",
     newArchEnabled: false,
     userInterfaceStyle: "automatic",
-    "assets": ["./src/assets/animations"],
+    assets: ["./src/assets/animations"],
     splash: {
       image: "./assets/images/splash.png",
       resizeMode: "contain",
@@ -20,12 +20,6 @@ export default {
       "expo-health-connect",
       "expo-image-picker",
       "expo-secure-store",
-      [
-        "expo-auth-session",
-        {
-          scheme: "mylera"
-        }
-      ],
       [
         "expo-build-properties",
         {
@@ -60,9 +54,9 @@ export default {
       }
     },
     android: {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+      adaptiveIcon: {
+        foregroundImage: "./assets/images/adaptive-icon.png",
+        backgroundColor: "#ffffff"
       },
       package: "com.groebe1kenobi.mylera",
       permissions: [
