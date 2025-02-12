@@ -20,7 +20,12 @@ export default {
       "expo-health-connect",
       "expo-image-picker",
       "expo-secure-store",
-      "expo-auth-session",
+      [
+        "expo-auth-session",
+        {
+          scheme: "mylera"
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -77,6 +82,7 @@ export default {
       eas: {
         projectId: "094cff24-896c-4aa7-bc5c-f6ad805c83e6"
       },
+      scheme: "mylera",
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
     }
