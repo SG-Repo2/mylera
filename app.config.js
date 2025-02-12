@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "mylera",
     slug: "mylera",
-    version: "1.0.1",
+    version: "1.0.2",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "mylera",
@@ -19,6 +19,8 @@ export default {
       "./withHealthConnectManifest",
       "expo-health-connect",
       "expo-image-picker",
+      "expo-secure-store",
+      "expo-auth-session",
       [
         "expo-build-properties",
         {
@@ -26,14 +28,14 @@ export default {
             compileSdkVersion: 35,
             targetSdkVersion: 35,
             minSdkVersion: 26,
+            usesCleartextTraffic: true
           },
           ios: {
             deploymentTarget: "16.1",
             useFrameworks: "static"
-            
-          },
-        },
-      ],
+          }
+        }
+      ]
     ],
     
     ios: {

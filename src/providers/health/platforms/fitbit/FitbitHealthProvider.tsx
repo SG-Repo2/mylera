@@ -1,120 +1,91 @@
-// File: platforms/fitbit/FitbitHealthProvider.ts
 import { BaseHealthProvider } from '../../types/provider';
 import type { HealthMetrics, RawHealthData, RawHealthMetric, NormalizedMetric } from '../../types/metrics';
 import { METRIC_UNITS } from '../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
 import type { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
+import * as AuthSession from 'expo-auth-session';
+import * as SecureStore from 'expo-secure-store';
+import { supabase } from '../../../../services/supabaseClient';
 
-/**
- * FitbitHealthProvider
- *
- * This provider mirrors the structure of AppleHealthProvider and GoogleHealthProvider.
- * It assumes that the Fitbit OAuth 2.0 flow is performed elsewhere and the resulting
- * access token is provided via setAccessToken().
- */
+const STORAGE_KEY = {
+  ACCESS_TOKEN: 'fitbit_access_token',
+  REFRESH_TOKEN: 'fitbit_refresh_token',
+  TOKEN_EXPIRY: 'fitbit_token_expiry'
+};
+
 export class FitbitHealthProvider extends BaseHealthProvider {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiresAt: number | null = null;
-  private codeVerifier: string | null = null;
-  private state: string | null = null;
 
-  /**
-   * initialize
-   *
-   * Verifies OAuth credentials and access token
-   */
   async initialize(): Promise<void> {
-    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID;
-    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET;
-    const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL;
+    try {
+      // Load stored tokens
+      this.accessToken = await SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN);
+      this.refreshToken = await SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN);
+      const expiryStr = await SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY);
+      this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
 
-    if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error('Fitbit OAuth credentials not configured');
-    }
-
-    if (this.accessToken && this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt) {
-      await this.refreshAccessToken();
-    }
-
-    if (!this.accessToken) {
-      throw new Error('Fitbit access token not set. Please authenticate first.');
-    }
-
-    this.initialized = true;
-  }
-
-  /**
-   * Generate PKCE challenge and verifier
-   */
-  private async generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: string }> {
-    const generateRandomString = (length: number) => {
-      const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-      let text = '';
-      for (let i = 0; i < length; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
+      if (this.accessToken && this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt) {
+        await this.refreshAccessToken();
       }
-      return text;
-    };
 
-    const codeVerifier = generateRandomString(128);
+      if (!this.accessToken) {
+        throw new Error('Fitbit access token not set. Please authenticate first.');
+      }
 
-    // Generate code challenge using SHA-256
-    const encoder = new TextEncoder();
-    const data = encoder.encode(codeVerifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    const base64Digest = btoa(String.fromCharCode(...new Uint8Array(digest)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    return {
-      codeVerifier,
-      codeChallenge: base64Digest
-    };
+      this.initialized = true;
+    } catch (error) {
+      throw new Error(`Failed to initialize Fitbit provider: ${error}`);
+    }
   }
 
-  /**
-   * requestPermissions
-   *
-   * Implements the Fitbit OAuth 2.0 flow with PKCE
-   */
   async requestPermissions(): Promise<PermissionStatus> {
     try {
       const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
-      const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL!;
+      const redirectUri = 'mylera://auth/callback';
       const authUrl = process.env.EXPO_PUBLIC_FITBIT_AUTH_URL!;
 
-      // Generate PKCE values
-      const { codeVerifier, codeChallenge } = await this.generatePKCE();
+      // Configure Auth Request
+      const discovery = {
+        authorizationEndpoint: authUrl,
+        tokenEndpoint: process.env.EXPO_PUBLIC_FITBIT_TOKEN_URL!,
+      };
 
-      // Generate state for CSRF protection
-      const state = Math.random().toString(36).substring(7);
-      
-      // Store PKCE verifier and state temporarily
-      // In a real app, store these securely
-      this.codeVerifier = codeVerifier;
-      this.state = state;
-
-      // Construct authorization URL
-      const scope = 'activity heartrate profile sleep weight';
-      const authParams = new URLSearchParams({
-        response_type: 'code',
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_challenge: codeChallenge,
-        code_challenge_method: 'S256',
-        scope,
-        state
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        scopes: ['activity', 'heartrate', 'profile', 'sleep', 'weight'],
+        redirectUri,
+        usePKCE: true,
       });
 
-      const authUrlWithParams = `${authUrl}?${authParams.toString()}`;
-
-      // Launch OAuth flow in browser
-      const result = await this.handleOAuthFlow(authUrlWithParams);
+      const result = await request.promptAsync(discovery);
       
-      if (result.success) {
+      if (result.type === 'success' && result.params.code) {
+        // Exchange code for token using Supabase Edge Function
+        const { data, error } = await supabase.functions.invoke('fitbit-token-exchange', {
+          body: {
+            code: result.params.code,
+            redirectUri,
+            codeVerifier: request.codeVerifier,
+          },
+        });
+
+        if (error) throw error;
+
+        // Store tokens securely
+        await SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token);
+        await SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token);
+        await SecureStore.setItemAsync(
+          STORAGE_KEY.TOKEN_EXPIRY,
+          (Date.now() + data.expires_in * 1000).toString()
+        );
+
+        this.accessToken = data.access_token;
+        this.refreshToken = data.refresh_token;
+        this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+
         if (this.permissionManager) {
           await this.permissionManager.updatePermissionState('granted');
         }
@@ -130,119 +101,32 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
   }
 
-  /**
-   * Handle the OAuth flow using browser_action
-   */
-  private async handleOAuthFlow(authUrl: string): Promise<{ success: boolean }> {
-    return new Promise((resolve, reject) => {
-      let completed = false;
-
-      const checkResponse = (url: string) => {
-        const params = new URL(url).searchParams;
-        const code = params.get('code');
-        const returnedState = params.get('state');
-
-        if (code && returnedState === this.state) {
-          this.exchangeCodeForToken(code).then(() => {
-            completed = true;
-            resolve({ success: true });
-          }).catch(reject);
-        }
-      };
-
-      // Launch browser for OAuth
-      (window as any).browser_action({
-        action: 'launch',
-        url: authUrl
-      }).then(() => {
-        // Monitor for redirect
-        const checkInterval = setInterval(() => {
-          if (completed) {
-            clearInterval(checkInterval);
-          } else {
-            const currentUrl = window.location.href;
-            if (currentUrl.includes('code=')) {
-              checkResponse(currentUrl);
-            }
-          }
-        }, 500);
-
-        // Timeout after 5 minutes
-        setTimeout(() => {
-          if (!completed) {
-            clearInterval(checkInterval);
-            reject(new Error('OAuth flow timed out'));
-          }
-        }, 300000);
-      }).catch(reject);
-    });
-  }
-
-  /**
-   * Exchange authorization code for access token
-   */
-  private async exchangeCodeForToken(code: string): Promise<void> {
-    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
-    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET!;
-    const redirectUri = process.env.EXPO_PUBLIC_FITBIT_REDIRECT_URL!;
-    const tokenUrl = process.env.EXPO_PUBLIC_FITBIT_TOKEN_URL!;
-
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: redirectUri,
-        code_verifier: this.codeVerifier!
-      }).toString()
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to exchange code for token');
-    }
-
-    const data = await response.json();
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
-  }
-
-  /**
-   * Refresh the access token
-   */
   private async refreshAccessToken(): Promise<void> {
     if (!this.refreshToken) {
       throw new Error('No refresh token available');
     }
 
-    const clientId = process.env.EXPO_PUBLIC_FITBIT_CLIENT_ID!;
-    const clientSecret = process.env.EXPO_PUBLIC_FITBIT_CLIENT_SECRET!;
-    const tokenUrl = process.env.EXPO_PUBLIC_FITBIT_TOKEN_URL!;
+    try {
+      const { data, error } = await supabase.functions.invoke('fitbit-token-refresh', {
+        body: { refresh_token: this.refreshToken },
+      });
 
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
-      },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: this.refreshToken
-      }).toString()
-    });
+      if (error) throw error;
 
-    if (!response.ok) {
-      throw new Error('Failed to refresh token');
+      // Store new tokens
+      await SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token);
+      await SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token);
+      await SecureStore.setItemAsync(
+        STORAGE_KEY.TOKEN_EXPIRY,
+        (Date.now() + data.expires_in * 1000).toString()
+      );
+
+      this.accessToken = data.access_token;
+      this.refreshToken = data.refresh_token;
+      this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+    } catch (error) {
+      throw new Error(`Failed to refresh token: ${error}`);
     }
-
-    const data = await response.json();
-    this.accessToken = data.access_token;
-    this.refreshToken = data.refresh_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
   }
 
   /**
