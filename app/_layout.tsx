@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
   ActivityIndicator, 
@@ -21,35 +21,43 @@ function ProtectedRoutes() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const { height, width } = useWindowDimensions(); // Use for dynamic dimensions
+  const { height, width } = useWindowDimensions();
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [lastNavigation, setLastNavigation] = useState<string | null>(null);
 
   useEffect(() => {
     console.log('[ProtectedRoutes] Navigation check triggered:', {
       loading,
       hasSession: !!session,
-      pathname
+      pathname,
+      isNavigating
     });
 
-    if (!loading) {
-      if (!session) {
-        if (pathname === '/' || pathname.startsWith('/(app)')) {
-          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
-          router.replace('/(auth)/login');
-        } else {
-          console.log('[ProtectedRoutes] No session on unprotected route, allowing access');
-        }
-      } else {
-        if (pathname === '/' || pathname.startsWith('/(auth)') || pathname.startsWith('/(onboarding)')) {
-          console.log('[ProtectedRoutes] Session exists on auth/root route, redirecting to home');
-          router.replace('/(app)/(home)');
-        } else {
-          console.log('[ProtectedRoutes] Session exists on app route, allowing access');
-        }
+    if (!loading && !isNavigating) {
+      const targetRoute = !session ? '/(auth)/login' : '/(app)/(home)';
+      const shouldNavigate = (
+        (!session && (pathname === '/' || pathname.startsWith('/(app)'))) ||
+        (session && (pathname === '/' || pathname.startsWith('/(auth)')))
+      );
+
+      console.log('[ProtectedRoutes] Should Navigate:', shouldNavigate, {
+        targetRoute,
+        lastNavigation,
+      });
+
+      if (shouldNavigate && lastNavigation !== targetRoute) {
+        console.log('[ProtectedRoutes] Navigating to:', targetRoute);
+        setLastNavigation(targetRoute);
+        setIsNavigating(true);
+        router.replace(targetRoute);
       }
-    } else {
-      console.log('[ProtectedRoutes] Still loading, skipping navigation check');
     }
-  }, [loading, session, router, pathname]);
+  }, [loading, session, router, pathname, lastNavigation]);
+
+  // Reset navigation state when pathname changes
+  useEffect(() => {
+    setIsNavigating(false);
+  }, [pathname]);
 
   if (loading) {
     return (

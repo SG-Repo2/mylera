@@ -83,6 +83,7 @@ export const metricsService = {
     
     if (error || !session) {
       console.warn('[MetricsService] Invalid session:', error?.message || 'No session found');
+      this._clearCache(); // Clear cache on invalid session
       return false;
     }
 
@@ -92,6 +93,7 @@ export const metricsService = {
     
     if (now >= expiresAt) {
       console.warn('[MetricsService] Session expired');
+      this._clearCache(); // Clear cache on expired session
       
       // Try to refresh the session
       const { data: { session: refreshedSession }, error: refreshError } = 
@@ -111,6 +113,11 @@ export const metricsService = {
 
   // Get user's daily metrics with caching
   async getDailyMetrics(userId: string, date: string) {
+    // Validate session before fetching
+    if (!await this.validateSession()) {
+      throw new MetricsAuthError('Session expired');
+    }
+
     const cacheKey = `daily_metrics:${userId}:${date}`;
     const cached = this._cache.get(cacheKey);
     if (cached) return cached;
@@ -131,6 +138,11 @@ export const metricsService = {
 
   // Get user's historical metrics for the last 7 days
   async getHistoricalMetrics(userId: string, metricType: MetricType, endDate: string) {
+    // Validate session before fetching
+    if (!await this.validateSession()) {
+      throw new MetricsAuthError('Session expired');
+    }
+
     // Ensure we're working with local dates
     const endDateTime = new Date(endDate);
     const startDateTime = new Date(endDate);
@@ -162,6 +174,11 @@ export const metricsService = {
 
   // Get daily totals with caching
   async getDailyTotals(date: string) {
+    // Validate session before fetching
+    if (!await this.validateSession()) {
+      throw new MetricsAuthError('Session expired');
+    }
+
     const cacheKey = `daily_totals:${date}`;
     const cached = this._cache.get(cacheKey);
     if (cached) return cached;
@@ -486,5 +503,9 @@ export const metricsService = {
       
       throw new Error('Failed to update metrics');
     }
+  },
+
+  _clearCache() {
+    this._cache = new SimpleCache(5 * 60000);
   }
 };

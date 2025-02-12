@@ -192,12 +192,14 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   
   const {
     loading,
-    error,
+    isInitialized,
     syncHealthData,
-    isInitialized
+    syncState
   } = useHealthData(provider, userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
@@ -227,6 +229,13 @@ export const Dashboard = React.memo(function Dashboard({
     
     try {
       console.log('Dashboard fetching data for:', { userId, date });
+      
+      // Validate session before fetching
+      const isSessionValid = await metricsService.validateSession();
+      if (!isSessionValid) {
+        throw new Error('Session expired');
+      }
+      
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
@@ -236,21 +245,24 @@ export const Dashboard = React.memo(function Dashboard({
       console.log('Daily totals:', totals);
       console.log('Metric scores:', metricScores);
       
-      const totalPoints = calculateTotalPoints(metricScores);
+      // Ensure metricScores is an array before using it
+      const metricsArray = Array.isArray(metricScores) ? metricScores : [];
+      
+      const totalPoints = calculateTotalPoints(metricsArray);
       
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
         date: date,
         total_points: totalPoints,
-        metrics_completed: metricScores.length,
+        metrics_completed: metricsArray.length,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
       setDailyTotal(userTotal);
       
       const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
+        metricsArray,
         userTotal,
         userId,
         date
@@ -262,17 +274,35 @@ export const Dashboard = React.memo(function Dashboard({
       setFetchError(null);
     } catch (err) {
       console.error('Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+      const error = err instanceof Error ? err : new Error('Failed to fetch metrics');
+      
+      if (error.message.includes('Session expired')) {
+        // Handle session expiration
+        setFetchError(new Error('Your session has expired. Please sign out and sign in again.'));
+      } else {
+        setFetchError(error);
+      }
       setErrorDialogVisible(true);
     }
   }, [userId, date, isInitialized]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+    if (syncState.status === 'error' && syncState.lastError) {
+      console.error('[Dashboard] Sync error:', syncState.lastError);
+      setSyncError(syncState.lastError.message);
+    } else if (syncState.status === 'success') {
+      setSyncError(null);
+    }
+  }, [syncState]);
 
   const handleRetry = React.useCallback(async () => {
-    if (error instanceof HealthProviderPermissionError) {
+    if (fetchError instanceof Error && fetchError.message.includes('Session expired')) {
+      // Handle session expiration
+      setErrorDialogVisible(false);
+      return;
+    }
+    
+    if (fetchError instanceof HealthProviderPermissionError) {
       const status = await requestHealthPermissions();
       if (status === 'granted') {
         syncHealthData();
@@ -281,18 +311,23 @@ export const Dashboard = React.memo(function Dashboard({
       syncHealthData();
     }
     setErrorDialogVisible(false);
-  }, [error, requestHealthPermissions, syncHealthData]);
+  }, [fetchError, requestHealthPermissions, syncHealthData]);
 
-  const handleRefresh = React.useCallback(() => {
-    syncHealthData();
+  const handleRefresh = React.useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await syncHealthData();
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [syncHealthData]);
 
-  if (loading) {
+  if (loading && !isRefreshing) {
     return <LoadingView />;
   }
 
-  if (error || healthPermissionStatus === 'denied' || fetchError) {
-    return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
+  if (fetchError || healthPermissionStatus === 'denied' || fetchError) {
+    return <ErrorView error={fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
   }
 
   return (
@@ -331,7 +366,12 @@ export const Dashboard = React.memo(function Dashboard({
           />
         }
       >
-        {healthMetrics && (
+        {syncError ? (
+          <ErrorView 
+            error={new Error(syncError)}
+            onRetry={handleRefresh}
+          />
+        ) : healthMetrics && (
           <MetricCardList 
             metrics={healthMetrics} 
             showAlerts={showAlerts}

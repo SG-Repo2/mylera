@@ -60,6 +60,7 @@ const initialSyncState: SyncState = {
  * ```
  */
 export const useHealthData = (provider: HealthProvider, userId: string) => {
+  console.log('[useHealthData] Hook called with:', { provider, userId });
   const [loading, setLoading] = useState(true);
   const [syncState, setSyncState] = useState<SyncState>(initialSyncState);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -138,12 +139,14 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   }, []);
 
   const syncHealthData = useCallback(async () => {
+    console.log('[useHealthData] syncHealthData called');
     if (!isMounted.current || !userId) return;
     
     setLoading(true);
     setSyncState(prev => ({ ...prev, status: 'syncing', lastError: null }));
 
     try {
+      console.log('[useHealthData] syncHealthData: Initializing permission manager with retries');
       // Initialize permission manager with retries
       const MAX_INIT_RETRIES = 3;
       const RETRY_DELAY = 1000; // 1 second
@@ -151,10 +154,12 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       let initSuccess = false;
       for (let i = 0; i < MAX_INIT_RETRIES && !initSuccess; i++) {
         try {
+          console.log(`[useHealthData] syncHealthData: Attempting to initialize permissions: ${i + 1}/${MAX_INIT_RETRIES}`);
           await provider.initializePermissions(userId);
           initSuccess = true;
+          console.log('[useHealthData] syncHealthData: Permission manager initialized successfully');
         } catch (err) {
-          console.warn(`[useHealthData] Permission manager initialization attempt ${i + 1}/${MAX_INIT_RETRIES} failed:`, err);
+          console.warn(`[useHealthData] syncHealthData: Permission manager initialization attempt ${i + 1}/${MAX_INIT_RETRIES} failed:`, err);
           if (i < MAX_INIT_RETRIES - 1) {
             await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
           }
@@ -165,12 +170,14 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         throw new Error('Failed to initialize permission manager after multiple attempts');
       }
 
+      console.log('[useHealthData] syncHealthData: Initializing provider');
       // Initialize provider
       try {
         await provider.initialize();
+        console.log('[useHealthData] syncHealthData: Provider initialized successfully');
       } catch (err) {
         const originalMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[useHealthData] Health initialization error:', err);
+        console.error('[useHealthData] syncHealthData: Health initialization error:', err);
         
         const errorMessage = originalMessage.includes('not available')
           ? 'Health Connect is not available. Please ensure it is installed and set up on your device.'
@@ -179,12 +186,15 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         throw new Error(errorMessage);
       }
 
+      console.log('[useHealthData] syncHealthData: Checking permissions status');
       // Check and request permissions
       const permissionState = await provider.checkPermissionsStatus();
+      console.log('[useHealthData] syncHealthData: Permission state:', permissionState.status);
       
       if (permissionState.status !== 'granted') {
-        console.log('[useHealthData] Requesting health permissions...');
+        console.log('[useHealthData] syncHealthData: Requesting health permissions...');
         const granted = await provider.requestPermissions();
+        console.log('[useHealthData] syncHealthData: Permissions granted:', granted);
         if (granted !== 'granted') {
           throw new Error(
             'Health permissions are required to track your fitness metrics. ' +

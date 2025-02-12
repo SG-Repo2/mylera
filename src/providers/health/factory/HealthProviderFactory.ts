@@ -92,11 +92,11 @@ export class HealthProviderFactory {
     }
 
     try {
-      await this.instance.cleanup();
-    } catch (error) {
-      throw new HealthProviderError(
-        `Failed to cleanup health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      try {
+        await this.instance.cleanup();
+      } catch (error) {
+        console.warn('[HealthProviderFactory] Error during instance cleanup:', error);
+      }
     } finally {
       this.instance = null;
       this.platform = null;
