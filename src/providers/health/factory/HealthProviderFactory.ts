@@ -30,6 +30,11 @@ export class HealthProviderFactory {
 
   private static initializeProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     try {
+      // Reset state before initialization
+      this.instance = null;
+      this.platform = null;
+      this.isInitializing = true;
+
       this.validatePlatform(deviceType);
 
       if (deviceType === 'fitbit') {
@@ -45,17 +50,22 @@ export class HealthProviderFactory {
 
       return this.instance;
     } catch (error) {
-      this.instance = null;
-      this.platform = null;
-      throw new HealthProviderError(
-        `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      console.error('[HealthProviderFactory] Initialization error:', error);
+      this.cleanup();
+      throw error;
     } finally {
       this.isInitializing = false;
     }
   }
 
   static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
+    console.log('[HealthProviderFactory] Getting provider:', {
+      deviceType,
+      hasInstance: !!this.instance,
+      isInitializing: this.isInitializing,
+      platform: this.platform
+    });
+
     if (this.instance) {
       return this.instance;
     }

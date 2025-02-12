@@ -24,9 +24,12 @@ export async function initializeHealthProviderForUser(
 
   while (retries < MAX_INIT_RETRIES) {
     try {
+      // Clean up before retry
+      await HealthProviderFactory.cleanup();
+
       // Get user's device type from Supabase
       const { data: userData, error: userError } = await supabase
-        .from('profiles')
+        .from('user_profiles')
         .select('device_type')
         .eq('id', userId)
         .single();

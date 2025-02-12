@@ -186,37 +186,93 @@ export const leaderboardService = {
   },
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {
+    console.log('[leaderboardService] Starting avatar upload for user:', userId);
+    
     try {
-      // Convert URI to Blob with explicit type
+      // Validate URI format
+      if (!uri || typeof uri !== 'string') {
+        throw new Error('Invalid image URI');
+      }
+
+      // Validate file:// protocol for local files
+      if (!uri.startsWith('file://') && !uri.startsWith('content://')) {
+        throw new Error('Invalid image URI format. Expected file:// or content:// protocol');
+      }
+
+      console.log('[leaderboardService] Fetching image from URI:', uri);
       const response = await fetch(uri);
-      if (!response.ok) throw new Error('Failed to fetch image');
-      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      }
+
+      console.log('[leaderboardService] Creating blob from image');
       const blob = await response.blob();
-      if (!blob) throw new Error('Failed to create blob from image');
       
-      // Generate a unique filename with fallback extension
-      const fileExt = uri.split('.').pop() || 'jpg';
+      // Validate blob
+      if (!blob) {
+        throw new Error('Failed to create blob from image');
+      }
+
+      // Validate file size (5MB limit)
+      const maxSize = 5 * 1024 * 1024;
+      if (blob.size > maxSize) {
+        throw new Error('Image too large (max 5MB)');
+      }
+
+      // Validate content type
+      const validTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+      if (!validTypes.includes(blob.type)) {
+        throw new Error('Invalid image type. Only JPG and PNG are supported');
+      }
+
+      // Generate filename with proper extension
+      const fileExt = blob.type.split('/')[1] || 'jpg';
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
+
+      console.log('[leaderboardService] Uploading to Supabase Storage:', filePath);
+      
+      // Delete any existing avatars for this user
+      try {
+        const { data: existingFiles } = await supabase.storage
+          .from('avatars')
+          .list('', {
+            search: userId
+          });
+          
+        if (existingFiles?.length) {
+          await Promise.all(existingFiles.map(file => 
+            supabase.storage
+              .from('avatars')
+              .remove([file.name])
+          ));
+          console.log('[leaderboardService] Cleaned up old avatar files');
+        }
+      } catch (cleanupError) {
+        console.warn('[leaderboardService] Failed to cleanup old avatars:', cleanupError);
+        // Continue with upload even if cleanup fails
+      }
 
       // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, blob, {
-          contentType: blob.type || 'image/jpeg',
+          contentType: blob.type,
           cacheControl: '3600',
           upsert: true
         });
 
       if (uploadError) {
-        console.error('Upload error:', uploadError);
-        throw uploadError;
+        console.error('[leaderboardService] Upload error:', uploadError);
+        throw new Error(`Upload failed: ${uploadError.message}`);
       }
 
       if (!uploadData) {
         throw new Error('Upload succeeded but no data returned');
       }
 
+      console.log('[leaderboardService] Getting public URL');
+      
       // Get the public URL
       const { data: urlData } = supabase.storage
         .from('avatars')
@@ -226,10 +282,14 @@ export const leaderboardService = {
         throw new Error('Failed to get public URL for uploaded avatar');
       }
 
+      console.log('[leaderboardService] Avatar upload successful:', urlData.publicUrl);
       return urlData.publicUrl;
+      
     } catch (error) {
-      console.error('Error uploading avatar:', error);
-      throw error;
+      console.error('[leaderboardService] Avatar upload error:', error);
+      throw error instanceof Error 
+        ? error 
+        : new Error('Failed to upload avatar: Unknown error');
     }
   },
 

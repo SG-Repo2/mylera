@@ -111,18 +111,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      // Handle avatar upload if provided
-      if (data.user && profile.avatarUri) {
+      // Handle profile creation and avatar upload if provided
+      if (data.user) {
         try {
-          const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-          // Update user profile with avatar URL
+          let avatarUrl = null;
+          
+          if (profile.avatarUri) {
+            console.log('[AuthProvider] Uploading avatar...');
+            setLoading(true);
+            avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
+            console.log('[AuthProvider] Avatar uploaded successfully:', avatarUrl);
+          }
+
+          // Create/update user profile with all data
           await leaderboardService.updateUserProfile(data.user.id, {
-            ...profile,
+            display_name: profile.displayName,
+            device_type: profile.deviceType,
+            measurement_system: profile.measurementSystem,
             avatar_url: avatarUrl
           });
-        } catch (uploadError) {
-          console.error('Avatar upload failed:', uploadError);
-          // Don't throw here - the user is still registered, just without an avatar
+          console.log('[AuthProvider] User profile updated successfully');
+        } catch (profileError) {
+          console.error('[AuthProvider] Profile/avatar error:', profileError);
+          // Create profile without avatar if upload fails
+          await leaderboardService.updateUserProfile(data.user.id, {
+            display_name: profile.displayName,
+            device_type: profile.deviceType,
+            measurement_system: profile.measurementSystem
+          });
         }
       }
 

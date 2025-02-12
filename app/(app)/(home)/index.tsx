@@ -7,6 +7,7 @@ import { theme } from '@/src/theme/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Animated } from 'react-native';
+import { cardShadow } from '@/src/theme/shadowStyles';
 
 const LoadingScreen = React.memo(() => {
   const insets = useSafeAreaInsets();
@@ -74,16 +75,6 @@ const styles = StyleSheet.create({
     width: '85%',
     maxWidth: 320,
     alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
+    ...cardShadow,
   },
 });

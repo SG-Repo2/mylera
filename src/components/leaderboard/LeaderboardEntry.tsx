@@ -3,6 +3,7 @@ import { View, Text, Image, StyleSheet, Animated, Platform } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
 import { theme } from '../../theme/theme';
+import { cardShadow } from '@/src/theme/shadowStyles';
 
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
@@ -255,11 +256,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: theme.roundness * 1.5,
     backgroundColor: '#FFFFFF',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    ...cardShadow,
   },
   mainContent: {
     flexDirection: 'row',

@@ -7,6 +7,7 @@ import type { HealthProvider } from '@/src/providers/health/types/provider';
 import Svg, { Rect } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
 import { metricsService } from '@/src/services/metricsService';
+import { cardShadow } from '@/src/theme/shadowStyles';
 
 interface BarChartProps {
   metricType: MetricType;
@@ -301,14 +302,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    ...cardShadow,
   },
   yAxisLabels: {
     position: 'absolute',

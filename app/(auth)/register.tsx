@@ -76,6 +76,12 @@ export default function RegisterScreen() {
     }
 
     try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setLocalError('Permission to access photos was denied');
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -135,35 +141,18 @@ export default function RegisterScreen() {
     }
 
     try {
-      let avatarUrl = null;
-      
-      // If an avatar was selected, upload it first
-      if (avatar) {
-        try {
-          // Create a temporary ID for the avatar
-          const tempId = `temp-${Date.now()}`;
-          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
-        } catch (avatarErr) {
-          console.error('Failed to upload avatar:', avatarErr);
-          // Continue registration without avatar if upload fails
-        }
-      }
-
-      // Register with additional profile data
+      // Pass the local URI directly to register
       await register(email, password, {
         displayName,
         deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatarUrl
+        avatarUri: avatar // Local URI from image picker
       });
 
       // If successful, AuthProvider will handle the navigation to health-setup
     } catch (err) {
-      if (err instanceof Error) {
-        setLocalError(err.message);
-      } else {
-        setLocalError('An unexpected error occurred during registration.');
-      }
+      console.error('Registration error:', err);
+      setLocalError(err instanceof Error ? err.message : 'An unexpected error occurred during registration.');
     }
   };
 
