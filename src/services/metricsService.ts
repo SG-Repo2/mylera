@@ -88,12 +88,14 @@ export const metricsService = {
     // Verify user is authenticated
     const session = await supabase.auth.getSession();
     if (!session.data.session?.user) {
-      throw new MetricsAuthError('User must be authenticated to update metrics');
+      console.warn('[MetricsService] updateMetric - User not authenticated');
+      return { error: 'User must be authenticated to update metrics' };
     }
 
     // Verify userId matches authenticated user
     if (session.data.session.user.id !== userId) {
-      throw new MetricsAuthError('Cannot update metrics for another user');
+      console.warn('[MetricsService] updateMetric - User ID mismatch');
+      return { error: 'Cannot update metrics for another user' };
     }
 
     const today = new Date().toISOString().split('T')[0];
@@ -152,9 +154,11 @@ export const metricsService = {
       console.error('[MetricsService] Error upserting metric:', metricError);
       // Handle RLS policy violation
       if (metricError.code === '42501') {
-        throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+        console.warn('[MetricsService] updateMetric - RLS policy violation');
+        return { error: 'Permission denied: Cannot update metrics for this user' };
       }
-      throw metricError;
+      console.error('[MetricsService] updateMetric - Error upserting metric:', metricError);
+      return { error: 'Failed to update metric' };
     }
 
     console.log('[MetricsService] Upsert result:', upsertResult);

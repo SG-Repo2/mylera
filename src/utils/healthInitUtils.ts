@@ -24,6 +24,7 @@ export async function initializeHealthProviderForUser(
 
   while (retries < MAX_INIT_RETRIES) {
     try {
+      console.log(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - Getting user's device type from Supabase`);
       // Get user's device type from Supabase
       const { data: userData, error: userError } = await supabase
         .from('profiles')
@@ -31,14 +32,23 @@ export async function initializeHealthProviderForUser(
         .eq('id', userId)
         .single();
 
-      if (userError) throw userError;
-      if (!userData) throw new Error('User profile not found');
+      if (userError) {
+        console.error(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - Error getting user data:`, userError);
+        throw userError;
+      }
+      if (!userData) {
+        console.error(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - User profile not found`);
+        throw new Error('User profile not found');
+      }
 
       const deviceType = userData.device_type as 'os' | 'fitbit';
       
+      console.log(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - Device type:`, deviceType);
       // Initialize the appropriate provider based on device type
       const provider = HealthProviderFactory.getProvider(deviceType);
+      console.log(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - Initializing provider`);
       await provider.initialize();
+      console.log(`[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} - Checking permissions status`);
       const permissionState = await provider.checkPermissionsStatus();
       
       // Log successful initialization

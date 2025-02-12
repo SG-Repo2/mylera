@@ -44,15 +44,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check initial session
+    console.log('[AuthProvider] useEffect - Checking initial session');
+    setLoading(true);
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('[AuthProvider] useEffect - Initial session:', session);
       setSession(session ?? null);
       setUser(session?.user ?? null);
       
       // Initialize health provider if user is logged in
       if (session?.user) {
+        console.log('[AuthProvider] useEffect - Initializing health provider');
         await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       }
       
+      console.log('[AuthProvider] useEffect - Setting loading to false');
       setLoading(false);
     });
 
@@ -174,12 +179,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      // Attempt login
+      console.log('[AuthProvider] login - Attempting login');
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (signInError) throw signInError;
+      if (signInError) {
+        console.error('[AuthProvider] login - Login error:', signInError);
+        throw signInError;
+      }
+      console.log('[AuthProvider] login - Login successful');
 
       // After successful login, check health permissions
       const provider = HealthProviderFactory.getProvider();
@@ -209,36 +218,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
+      console.log('[AuthProvider] logout - Starting logout process');
+
       // Clean up health provider state
       if (user) {
         try {
+          console.log('[AuthProvider] logout - Cleaning up health provider');
           const provider = HealthProviderFactory.getProvider();
           await provider.cleanup?.();
         } catch (healthError) {
-          console.error('Error cleaning up health provider:', healthError);
+          console.error('[AuthProvider] logout - Error cleaning up health provider:', healthError);
           // Don't block logout on health cleanup error
         }
       }
 
       // Sign out from Supabase
+      console.log('[AuthProvider] logout - Signing out from Supabase');
       const { error: signOutError } = await supabase.auth.signOut();
-      if (signOutError) throw signOutError;
+      if (signOutError) {
+        console.error('[AuthProvider] logout - Sign out error:', signOutError);
+        throw signOutError;
+      }
 
       // Clear all state
+      console.log('[AuthProvider] logout - Clearing session, user, and health permission status');
       setSession(null);
       setUser(null);
       setHealthPermissionStatus(null);
       
     } catch (err) {
-      console.error('Logout error:', err);
+      console.error('[AuthProvider] logout - Logout error:', err);
       if (err instanceof Error && err.message.includes('42501')) {
         // Still clear local state even if there's a permission error
+        console.log('[AuthProvider] logout - Permission error, still clearing local state');
         setSession(null);
         setUser(null);
         setHealthPermissionStatus(null);
       }
       setError(mapAuthError(err));
     } finally {
+      console.log('[AuthProvider] logout - Setting loading to false');
       setLoading(false);
     }
   };

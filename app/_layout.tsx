@@ -35,15 +35,11 @@ function ProtectedRoutes() {
         if (pathname === '/' || pathname.startsWith('/(app)')) {
           console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
           router.replace('/(auth)/login');
-        } else {
-          console.log('[ProtectedRoutes] No session on unprotected route, allowing access');
         }
       } else {
         if (pathname === '/' || pathname.startsWith('/(auth)') || pathname.startsWith('/(onboarding)')) {
           console.log('[ProtectedRoutes] Session exists on auth/root route, redirecting to home');
           router.replace('/(app)/(home)');
-        } else {
-          console.log('[ProtectedRoutes] Session exists on app route, allowing access');
         }
       }
     } else {

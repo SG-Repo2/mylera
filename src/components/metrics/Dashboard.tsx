@@ -271,6 +271,11 @@ export const Dashboard = React.memo(function Dashboard({
     fetchData();
   }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
 
+  useEffect(() => {
+    console.log('[Dashboard] useEffect - fetchData triggered');
+    fetchData();
+  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
       const status = await requestHealthPermissions();

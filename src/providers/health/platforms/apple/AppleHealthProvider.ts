@@ -287,7 +287,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
     const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
     const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
-    return {
+    const healthMetrics = {
       id: '',
       user_id: '',
       date: now.toISOString().split('T')[0],
@@ -305,6 +305,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
+
+    console.log('[AppleHealthProvider] getMetrics - Aggregated metrics:', healthMetrics);
+
+    return healthMetrics;
   }
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {

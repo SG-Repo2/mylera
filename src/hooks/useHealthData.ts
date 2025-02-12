@@ -37,7 +37,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const syncHealthData = useCallback(async () => {
     if (!isMounted.current) return;
     
+    console.log('[useHealthData] syncHealthData - Starting sync');
     setLoading(true);
+    console.log('[useHealthData] syncHealthData - Setting loading to true');
     setError(null);
 
     try {
@@ -151,6 +153,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       console.error('[useHealthData] Health sync error:', err);
     } finally {
       if (isMounted.current) {
+        console.log('[useHealthData] syncHealthData - Setting loading to false in finally block');
         setLoading(false);
         setIsInitialized(true);
       }
