@@ -332,16 +332,13 @@ ALTER FUNCTION "public"."get_week_start"("date_input" "date") OWNER TO "postgres
 
 
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql"
     AS $$
 BEGIN
-  INSERT INTO public.user_profiles (id, display_name, show_profile)
-  VALUES (
-    new.id,
-    'User ' || substr(new.id::text, 1, 8),
-    true
-  );
-  RETURN new;
+  -- Logic to create a new profile entry for the user
+  INSERT INTO public.user_profiles (id, created_at, updated_at)
+  VALUES (NEW.id, NOW(), NOW());
+  RETURN NEW;
 END;
 $$;
 
