@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, Alert, Platform } from 'react-native';
+import { View, Text, Button, StyleSheet, Alert, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 import { useAuth } from '@/src/providers/AuthProvider';
@@ -7,14 +7,29 @@ import { theme } from '@/src/theme/theme';
 
 export default function HealthSetupScreen() {
     const router = useRouter();
-    const { requestHealthPermissions, healthPermissionStatus, error } = useAuth();
+    const { requestHealthPermissions, healthPermissionStatus, error, session, loading: authLoading } = useAuth();
     const [status, setStatus] = useState<string>('Awaiting user action...');
     const [retryCount, setRetryCount] = useState(0);
     const [initError, setInitError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
 
-    // Effect to handle initial health permission status
+    // Check for valid session
     useEffect(() => {
-        if (healthPermissionStatus === 'granted') {
+        console.log('[HealthSetup] Checking session state:', { session, authLoading });
+        if (!authLoading) {
+            if (!session) {
+                console.log('[HealthSetup] No session found, redirecting to login');
+                router.replace('/(auth)/login');
+            } else {
+                setLoading(false);
+            }
+        }
+    }, [session, authLoading]);
+
+    // Effect to handle health permission status
+    useEffect(() => {
+        if (!loading && healthPermissionStatus === 'granted') {
+            console.log('[HealthSetup] Health permissions already granted, proceeding to home');
             router.replace('/(app)/(home)');
         } else if (healthPermissionStatus === 'denied' && retryCount > 2) {
             if (Platform.OS === 'android') {
@@ -23,7 +38,7 @@ export default function HealthSetupScreen() {
                 setStatus('Health permissions have been denied. Please enable them in your device settings.');
             }
         }
-    }, [healthPermissionStatus, retryCount, router]);
+    }, [healthPermissionStatus, retryCount, loading]);
 
     const handleSetupHealth = async () => {
         try {
@@ -95,6 +110,14 @@ export default function HealthSetupScreen() {
         );
     };
 
+    if (loading || authLoading) {
+        return (
+            <View style={[styles.container, styles.centerContent]}>
+                <ActivityIndicator size="large" color={theme.colors.primary} />
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Health Integration Setup</Text>
@@ -130,6 +153,7 @@ export default function HealthSetupScreen() {
                 <Button
                     title={retryCount > 0 ? "Retry Health Setup" : "Set up Health Integration"}
                     onPress={handleSetupHealth}
+                    disabled={loading || authLoading}
                 />
 
                 <View style={styles.skipButtonContainer}>
@@ -137,6 +161,7 @@ export default function HealthSetupScreen() {
                         title="Skip for now"
                         onPress={handleSkip}
                         color="#666"
+                        disabled={loading || authLoading}
                     />
                 </View>
             </View>
@@ -190,5 +215,9 @@ const styles = StyleSheet.create({
     },
     skipButtonContainer: {
         marginTop: 12,
+    },
+    centerContent: {
+        justifyContent: 'center',
+        alignItems: 'center',
     },
 });

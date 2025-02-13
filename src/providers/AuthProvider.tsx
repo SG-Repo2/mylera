@@ -12,7 +12,8 @@ import { PermissionStatus } from './health/types/permissions';
 import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
-import { leaderboardService } from '@/src/services/leaderboardService';
+import { Platform } from 'react-native';
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -96,12 +97,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       avatarUri?: string | null;
     }
   ) => {
+    let blob: Blob | null = null;
+    let uploadedFilePath: string | null = null;
+
     try {
+      console.log('[AuthProvider] Starting registration process');
       setError(null);
       setLoading(true);
 
-      // First create the user account
-      const { data, error } = await supabase.auth.signUp({
+      let avatarUrl = null;
+      if (profile.avatarUri) {
+        console.log('[AuthProvider] Processing avatar upload');
+        try {
+          const response = await fetch(profile.avatarUri);
+          if (!response.ok) throw new Error('Failed to fetch image');
+          
+          blob = await response.blob();
+          if (!blob) throw new Error('Failed to create blob from image');
+
+          // Generate a unique filename with user-specific prefix
+          const timestamp = Date.now();
+          const fileName = `temp_${timestamp}.jpg`;
+          uploadedFilePath = `avatars/${fileName}`;
+
+          console.log('[AuthProvider] Uploading avatar to storage:', uploadedFilePath);
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(uploadedFilePath, blob, {
+              contentType: 'image/jpeg',
+              upsert: false
+            });
+
+          if (uploadError) {
+            console.error('[AuthProvider] Avatar upload error:', uploadError);
+            throw uploadError;
+          }
+
+          const { data: urlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(uploadedFilePath);
+
+          avatarUrl = urlData?.publicUrl;
+          console.log('[AuthProvider] Avatar uploaded successfully:', avatarUrl);
+        } catch (uploadErr) {
+          console.error('[AuthProvider] Avatar upload failed:', uploadErr);
+          throw new Error('Failed to upload profile picture');
+        }
+      }
+
+      console.log('[AuthProvider] Creating user account');
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -109,68 +154,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: profile.displayName,
             deviceType: profile.deviceType,
             measurementSystem: profile.measurementSystem,
+            avatarUrl
           },
         },
       });
 
-      if (error) throw error;
+      if (signUpError) {
+        console.error('[AuthProvider] Signup error:', signUpError);
+        throw signUpError;
+      }
       if (!data.user) throw new Error('User creation failed');
 
-      // Handle avatar upload first if provided
-      let avatarUrl = null;
-      if (profile.avatarUri) {
-        try {
-          avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-        } catch (avatarErr) {
-          console.error('Avatar upload failed:', avatarErr);
-          // Continue registration but with null avatar
-        }
-      }
-
-      // Create initial profile
-      await leaderboardService.updateUserProfile(data.user.id, {
-        display_name: profile.displayName,
-        device_type: profile.deviceType,
-        measurement_system: profile.measurementSystem,
-        show_profile: false,
-        avatar_url: avatarUrl
-      });
-
-      // Initialize health provider for new user
-      if (data.user) {
-        console.log('[AuthProvider] User created, attempting auto-login...');
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
+      console.log('[AuthProvider] Creating user profile');
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .insert({
+          id: data.user.id,
+          display_name: profile.displayName,
+          device_type: profile.deviceType,
+          measurement_system: profile.measurementSystem,
+          avatar_url: avatarUrl,
+          show_profile: false
         });
-        
-        if (signInError) {
-          console.error('[AuthProvider] Auto-login failed:', signInError);
-          throw signInError;
-        }
-        
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
-        
-        // Initialize the appropriate health provider based on device type
-        const provider = HealthProviderFactory.getProvider(profile.deviceType);
-        
-        // If it's a Fitbit device, handle OAuth flow
-        if (profile.deviceType === 'fitbit') {
-          console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
-          const status = await provider.requestPermissions();
-          if (status !== 'granted') {
-            throw new Error('Fitbit permissions not granted');
-          }
-        }
-        
-        await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+
+      if (profileError) {
+        console.error('[AuthProvider] Profile creation error:', profileError);
+        throw profileError;
       }
+
+      console.log('[AuthProvider] Registration completed successfully');
+      // Return void instead of the user
+      return;
+
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('[AuthProvider] Registration error:', err);
+      
+      // Cleanup uploaded file if registration failed
+      if (uploadedFilePath) {
+        try {
+          console.log('[AuthProvider] Cleaning up uploaded file:', uploadedFilePath);
+          await supabase.storage
+            .from('avatars')
+            .remove([uploadedFilePath]);
+        } catch (cleanupErr) {
+          console.error('[AuthProvider] Failed to cleanup uploaded file:', cleanupErr);
+        }
+      }
+
       const mappedError = mapAuthError(err);
       setError(mappedError);
       throw err;
     } finally {
+      // Cleanup blob
+      if (blob && Platform.OS !== 'web') {
+        blob = null;
+      }
       setLoading(false);
     }
   };

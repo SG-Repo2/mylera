@@ -15,6 +15,7 @@ import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/val
 import { theme } from '@/src/theme/theme';
 import * as ImagePicker from 'expo-image-picker';
 import { leaderboardService } from '@/src/services/leaderboardService';
+import { supabase } from '@/src/services/supabaseClient';
 
 // Step type for multi-step form
 type RegistrationStep = 'credentials' | 'profile';
@@ -95,7 +96,6 @@ export default function RegisterScreen() {
       return () => {
         BackHandler.removeEventListener('hardwareBackPress', onBackPress);
         if (avatar) {
-          URL.revokeObjectURL(avatar);
           setAvatar(null);
         }
       };
@@ -195,9 +195,21 @@ export default function RegisterScreen() {
       if (avatar) {
         console.log('[Register] Attempting to upload avatar');
         try {
+          // Verify the avatar URI is still valid
+          const checkFile = await fetch(avatar);
+          if (!checkFile.ok) {
+            throw new Error('Avatar file is no longer accessible');
+          }
+
           const tempId = `temp_${Date.now()}`;
           console.log('[Register] Generated temp ID for avatar:', tempId);
-          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
+          
+          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar)
+            .catch(error => {
+              console.error('[Register] Avatar upload error details:', error);
+              throw new Error('Failed to upload profile picture. Please try again.');
+            });
+
           console.log('[Register] Avatar uploaded successfully:', avatarUrl);
         } catch (avatarErr) {
           console.error('[Register] Avatar upload failed:', avatarErr);
@@ -213,15 +225,39 @@ export default function RegisterScreen() {
         avatarUri: avatarUrl
       });
 
-      await register(email, password, {
-        displayName,
-        deviceType: deviceType as 'os' | 'fitbit',
-        measurementSystem,
-        avatarUri: avatarUrl
-      });
+      try {
+        await register(email, password, {
+          displayName,
+          deviceType: deviceType as 'os' | 'fitbit',
+          measurementSystem,
+          avatarUri: avatarUrl
+        });
+        
+        // Navigate to health setup after successful registration
+        router.replace('/(onboarding)/health-setup');
+      } catch (registerError) {
+        console.error('[Register] Registration error:', registerError);
+        
+        // If we uploaded an avatar but registration failed, try to clean it up
+        if (avatarUrl) {
+          try {
+            // Extract file path from URL
+            const url = new URL(avatarUrl);
+            const filePath = url.pathname.split('/').slice(-2).join('/');
+            await supabase.storage
+              .from('avatars')
+              .remove([filePath]);
+            console.log('[Register] Cleaned up avatar after failed registration');
+          } catch (cleanupError) {
+            console.error('[Register] Failed to cleanup avatar:', cleanupError);
+          }
+        }
+        
+        throw registerError;
+      }
 
     } catch (err) {
-      console.error('[Register] Registration error:', err);
+      console.error('[Register] Error:', err);
       setLocalError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
     } finally {
       setIsUploading(false);

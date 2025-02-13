@@ -21,7 +21,7 @@ function ProtectedRoutes() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const { height, width } = useWindowDimensions(); // Use for dynamic dimensions
+  const { height, width } = useWindowDimensions();
 
   useEffect(() => {
     console.log('[ProtectedRoutes] Navigation check triggered:', {
@@ -31,16 +31,14 @@ function ProtectedRoutes() {
     });
 
     if (!loading) {
-      if (!session) {
-        if (pathname === '/' || pathname.startsWith('/(app)')) {
-          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
-          router.replace('/(auth)/login');
-        }
-      } else {
-        if (pathname === '/' || pathname.startsWith('/(auth)') || pathname.startsWith('/(onboarding)')) {
-          console.log('[ProtectedRoutes] Session exists on auth/root route, redirecting to home');
-          router.replace('/(app)/(home)');
-        }
+      // Only protect app routes and handle root redirects
+      if (pathname === '/') {
+        // Root path: redirect based on session
+        router.replace(session ? '/(app)/(home)' : '/(auth)/login');
+      } else if (pathname.startsWith('/(app)') && !session) {
+        // Protect app routes only
+        console.log('[ProtectedRoutes] No session on protected route, redirecting to login');
+        router.replace('/(auth)/login');
       }
     } else {
       console.log('[ProtectedRoutes] Still loading, skipping navigation check');

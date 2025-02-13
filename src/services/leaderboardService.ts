@@ -197,15 +197,27 @@ export const leaderboardService = {
       if (!userId) throw new Error('No user ID provided');
 
       console.log('[LeaderboardService] Fetching image from URI');
-      response = await fetch(uri);
+      try {
+        response = await fetch(uri);
+      } catch (fetchError) {
+        console.error('[LeaderboardService] Fetch error:', fetchError);
+        throw new Error('Failed to fetch image from URI');
+      }
+
       if (!response.ok) {
-        console.error('[LeaderboardService] Failed to fetch image:', response.status, response.statusText);
-        throw new Error('Failed to fetch image');
+        console.error('[LeaderboardService] Bad response:', response.status, response.statusText);
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
       }
       
       console.log('[LeaderboardService] Creating blob from response');
-      blob = await response.blob();
-      if (!blob) throw new Error('Failed to create blob from image');
+      try {
+        blob = await response.blob();
+      } catch (blobError) {
+        console.error('[LeaderboardService] Blob creation error:', blobError);
+        throw new Error('Failed to create blob from image');
+      }
+
+      if (!blob) throw new Error('Blob creation returned null');
       
       const mimeType = response.headers.get('content-type') || 'image/jpeg';
       const fileExt = mimeType.split('/')[1] || 'jpg';
@@ -216,42 +228,62 @@ export const leaderboardService = {
       console.log('[LeaderboardService] Uploading to Supabase storage:', {
         bucket: 'avatars',
         filePath,
-        mimeType
+        mimeType,
+        blobSize: blob.size
       });
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, blob, {
-          contentType: mimeType,
-          cacheControl: '3600',
-          upsert: true
-        });
+      try {
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, blob, {
+            contentType: mimeType,
+            cacheControl: '3600',
+            upsert: true
+          });
 
-      if (uploadError) {
-        console.error('[LeaderboardService] Supabase upload error:', uploadError);
-        throw uploadError;
+        if (uploadError) {
+          console.error('[LeaderboardService] Supabase upload error:', uploadError);
+          throw uploadError;
+        }
+
+        if (!uploadData) {
+          console.error('[LeaderboardService] Upload succeeded but no data returned');
+          throw new Error('Upload succeeded but no data returned');
+        }
+
+        console.log('[LeaderboardService] Getting public URL for uploaded file');
+        const { data: urlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        if (!urlData?.publicUrl) {
+          console.error('[LeaderboardService] Failed to get public URL');
+          throw new Error('Failed to get public URL for uploaded avatar');
+        }
+
+        console.log('[LeaderboardService] Successfully got public URL:', urlData.publicUrl);
+        return urlData.publicUrl;
+
+      } catch (storageError) {
+        console.error('[LeaderboardService] Storage operation failed:', storageError);
+        throw new Error(`Storage operation failed: ${storageError instanceof Error ? storageError.message : 'Unknown error'}`);
       }
-      if (!uploadData) throw new Error('Upload succeeded but no data returned');
-
-      console.log('[LeaderboardService] Getting public URL for uploaded file');
-      const { data: urlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      if (!urlData?.publicUrl) {
-        throw new Error('Failed to get public URL for uploaded avatar');
-      }
-
-      console.log('[LeaderboardService] Successfully got public URL:', urlData.publicUrl);
-      return urlData.publicUrl;
 
     } catch (error) {
       console.error('[LeaderboardService] Avatar upload failed:', error);
       throw error;
     } finally {
+      // Clean up resources
       if (Platform.OS !== 'web') {
-        console.log('[LeaderboardService] Cleaning up blob');
-        blob = null;
+        try {
+          if (blob && typeof blob.close === 'function') {
+            await blob.close();
+          }
+          blob = null;
+          console.log('[LeaderboardService] Resources cleaned up');
+        } catch (cleanupError) {
+          console.warn('[LeaderboardService] Cleanup error:', cleanupError);
+        }
       }
     }
   },
