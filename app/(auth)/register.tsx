@@ -5,11 +5,11 @@
   	•	localError handles client-side validation errors separately from server-side or Supabase errors (error from AuthProvider).
 	•	If the request is successful (no error from the auth context), we navigate the user to /login or another screen.
  */
-import React, { useState } from 'react';
-import { View, ScrollView, Image, Pressable, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, ScrollView, Image, Pressable, StyleSheet, BackHandler } from 'react-native';
 import { Text, TextInput, Button, Surface, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { theme } from '@/src/theme/theme';
@@ -68,27 +68,80 @@ export default function RegisterScreen() {
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
   const [avatar, setAvatar] = useState<string | null>(null);
   const [localError, setLocalError] = useState('');
+  const [isPickerActive, setIsPickerActive] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Cleanup effect
+  useEffect(() => {
+    return () => {
+      if (avatar) {
+        setAvatar(null);
+      }
+    };
+  }, []);
+
+  // Handle navigation state
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => {
+        if (isPickerActive) {
+          return true;
+        }
+        return false;
+      };
+
+      BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+      return () => {
+        BackHandler.removeEventListener('hardwareBackPress', onBackPress);
+        if (avatar) {
+          URL.revokeObjectURL(avatar);
+          setAvatar(null);
+        }
+      };
+    }, [isPickerActive, avatar])
+  );
 
   const handleAvatarPick = async () => {
+    console.log('[Register] Starting avatar pick process');
     if (!email) {
       setLocalError('Please enter your email first');
       return;
     }
 
+    let pickerResult = null;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
+      setIsPickerActive(true);
+      console.log('[Register] Requesting media library permissions');
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        console.log('[Register] Media library permission denied');
+        setLocalError('Permission to access media library was denied');
+        return;
+      }
+
+      console.log('[Register] Launching image picker');
+      pickerResult = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.5,
+        exif: false,
       });
 
-      if (!result.canceled && result.assets[0].uri) {
-        // Store the URI temporarily - it will be uploaded during registration
-        setAvatar(result.assets[0].uri);
-      }
+      console.log('[Register] Picker result:', JSON.stringify(pickerResult, null, 2));
+
     } catch (err) {
-      setLocalError('Failed to select avatar image');
+      console.error('[Register] Avatar selection error:', err);
+      setLocalError('Failed to select image. Please try again.');
+    } finally {
+      setIsPickerActive(false);
+    }
+
+    if (!pickerResult?.canceled && pickerResult?.assets?.[0]?.uri) {
+      console.log('[Register] Setting avatar URI:', pickerResult.assets[0].uri);
+      setAvatar(pickerResult.assets[0].uri);
     }
   };
 
@@ -128,6 +181,7 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    console.log('[Register] Starting registration process');
     setLocalError('');
     
     if (!validateProfile()) {
@@ -135,21 +189,30 @@ export default function RegisterScreen() {
     }
 
     try {
+      setIsUploading(true);
       let avatarUrl = null;
       
-      // If an avatar was selected, upload it first
       if (avatar) {
+        console.log('[Register] Attempting to upload avatar');
         try {
-          // Create a temporary ID for the avatar
-          const tempId = `temp-${Date.now()}`;
+          const tempId = `temp_${Date.now()}`;
+          console.log('[Register] Generated temp ID for avatar:', tempId);
           avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
+          console.log('[Register] Avatar uploaded successfully:', avatarUrl);
         } catch (avatarErr) {
-          console.error('Failed to upload avatar:', avatarErr);
-          // Continue registration without avatar if upload fails
+          console.error('[Register] Avatar upload failed:', avatarErr);
+          setLocalError('Failed to upload profile picture. Please try again.');
+          return;
         }
       }
 
-      // Register with additional profile data
+      console.log('[Register] Calling register with profile data:', {
+        displayName,
+        deviceType,
+        measurementSystem,
+        avatarUri: avatarUrl
+      });
+
       await register(email, password, {
         displayName,
         deviceType: deviceType as 'os' | 'fitbit',
@@ -157,13 +220,11 @@ export default function RegisterScreen() {
         avatarUri: avatarUrl
       });
 
-      // If successful, AuthProvider will handle the navigation to health-setup
     } catch (err) {
-      if (err instanceof Error) {
-        setLocalError(err.message);
-      } else {
-        setLocalError('An unexpected error occurred during registration.');
-      }
+      console.error('[Register] Registration error:', err);
+      setLocalError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
   };
 

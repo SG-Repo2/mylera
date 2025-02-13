@@ -10,6 +10,7 @@ import {
 import { healthMetrics } from '@/src/config/healthMetrics';
 import type { MetricType } from '@/src/types/metrics';
 import type { DailyMetricScore } from '@/src/types/schemas';
+import { Platform } from 'react-native';
 
 const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
   return metrics.reduce((total, metric) => {
@@ -186,38 +187,53 @@ export const leaderboardService = {
   },
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {
+    console.log('[LeaderboardService] Starting avatar upload for user:', userId);
+    let response = null;
+    let blob = null;
+    
     try {
-      // Convert URI to Blob with explicit type
-      const response = await fetch(uri);
-      if (!response.ok) throw new Error('Failed to fetch image');
+      // Validate input
+      if (!uri) throw new Error('No image URI provided');
+      if (!userId) throw new Error('No user ID provided');
+
+      console.log('[LeaderboardService] Fetching image from URI');
+      response = await fetch(uri);
+      if (!response.ok) {
+        console.error('[LeaderboardService] Failed to fetch image:', response.status, response.statusText);
+        throw new Error('Failed to fetch image');
+      }
       
-      const blob = await response.blob();
+      console.log('[LeaderboardService] Creating blob from response');
+      blob = await response.blob();
       if (!blob) throw new Error('Failed to create blob from image');
       
-      // Generate a unique filename with fallback extension
-      const fileExt = uri.split('.').pop() || 'jpg';
+      const mimeType = response.headers.get('content-type') || 'image/jpeg';
+      const fileExt = mimeType.split('/')[1] || 'jpg';
+      
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
+      
+      console.log('[LeaderboardService] Uploading to Supabase storage:', {
+        bucket: 'avatars',
+        filePath,
+        mimeType
+      });
 
-      // Upload to Supabase Storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, blob, {
-          contentType: blob.type || 'image/jpeg',
+          contentType: mimeType,
           cacheControl: '3600',
           upsert: true
         });
 
       if (uploadError) {
-        console.error('Upload error:', uploadError);
+        console.error('[LeaderboardService] Supabase upload error:', uploadError);
         throw uploadError;
       }
+      if (!uploadData) throw new Error('Upload succeeded but no data returned');
 
-      if (!uploadData) {
-        throw new Error('Upload succeeded but no data returned');
-      }
-
-      // Get the public URL
+      console.log('[LeaderboardService] Getting public URL for uploaded file');
       const { data: urlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
@@ -226,10 +242,17 @@ export const leaderboardService = {
         throw new Error('Failed to get public URL for uploaded avatar');
       }
 
+      console.log('[LeaderboardService] Successfully got public URL:', urlData.publicUrl);
       return urlData.publicUrl;
+
     } catch (error) {
-      console.error('Error uploading avatar:', error);
+      console.error('[LeaderboardService] Avatar upload failed:', error);
       throw error;
+    } finally {
+      if (Platform.OS !== 'web') {
+        console.log('[LeaderboardService] Cleaning up blob');
+        blob = null;
+      }
     }
   },
 

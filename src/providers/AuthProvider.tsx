@@ -97,10 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   ) => {
     try {
-      console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
 
+      // First create the user account
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -109,27 +109,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: profile.displayName,
             deviceType: profile.deviceType,
             measurementSystem: profile.measurementSystem,
-            avatarUri: profile.avatarUri,
           },
         },
       });
 
       if (error) throw error;
+      if (!data.user) throw new Error('User creation failed');
 
-      // Handle avatar upload if provided
-      if (data.user && profile.avatarUri) {
+      // Handle avatar upload first if provided
+      let avatarUrl = null;
+      if (profile.avatarUri) {
         try {
-          const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-          // Update user profile with avatar URL
-          await leaderboardService.updateUserProfile(data.user.id, {
-            ...profile,
-            avatar_url: avatarUrl
-          });
-        } catch (uploadError) {
-          console.error('Avatar upload failed:', uploadError);
-          // Don't throw here - the user is still registered, just without an avatar
+          avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
+        } catch (avatarErr) {
+          console.error('Avatar upload failed:', avatarErr);
+          // Continue registration but with null avatar
         }
       }
+
+      // Create initial profile
+      await leaderboardService.updateUserProfile(data.user.id, {
+        display_name: profile.displayName,
+        device_type: profile.deviceType,
+        measurement_system: profile.measurementSystem,
+        show_profile: false,
+        avatar_url: avatarUrl
+      });
 
       // Initialize health provider for new user
       if (data.user) {
@@ -161,12 +166,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {
-      console.error('[AuthProvider] Registration error:', err);
+      console.error('Registration error:', err);
       const mappedError = mapAuthError(err);
-      console.log('[AuthProvider] Mapped error:', mappedError);
       setError(mappedError);
+      throw err;
     } finally {
-      console.log('[AuthProvider] Registration process complete. Setting loading to false');
       setLoading(false);
     }
   };
