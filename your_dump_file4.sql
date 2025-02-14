@@ -246,6 +246,36 @@ $$;
 ALTER FUNCTION "public"."check_auth_user_exists"("user_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_display_name" "text", "p_device_type" "text", "p_measurement_system" "text", "p_avatar_url" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  INSERT INTO public.user_profiles (
+    id,
+    display_name,
+    device_type,
+    measurement_system,
+    avatar_url,
+    show_profile,
+    created_at,
+    updated_at
+  ) VALUES (
+    p_user_id,
+    p_display_name,
+    p_device_type,
+    p_measurement_system,
+    p_avatar_url,
+    false,
+    now(),
+    now()
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_display_name" "text", "p_device_type" "text", "p_measurement_system" "text", "p_avatar_url" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."ensure_auth_user_exists"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -332,12 +362,12 @@ ALTER FUNCTION "public"."get_week_start"("date_input" "date") OWNER TO "postgres
 
 
 CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 BEGIN
-  -- Logic to create a new profile entry for the user
-  INSERT INTO public.user_profiles (id, created_at, updated_at)
-  VALUES (NEW.id, NOW(), NOW());
+  INSERT INTO public.user_profiles (id)
+  VALUES (NEW.id)
+  ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
 $$;
@@ -472,6 +502,22 @@ $$;
 
 
 ALTER FUNCTION "public"."update_metric_scores"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_profile_avatar"("p_user_id" "uuid", "p_avatar_url" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE public.user_profiles
+  SET 
+    avatar_url = p_avatar_url,
+    updated_at = now()
+  WHERE id = p_user_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_profile_avatar"("p_user_id" "uuid", "p_avatar_url" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_updated_at_column"() RETURNS "trigger"

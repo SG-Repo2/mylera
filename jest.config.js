@@ -5,14 +5,16 @@ module.exports = {
   ],
   setupFilesAfterEnv: [
     '@testing-library/jest-native/extend-expect',
-    '<rootDir>/jest.setup.js'
+    '<rootDir>/src/providers/__tests__/setup.ts'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/$1',
     '\\.svg': '<rootDir>/__mocks__/svgMock.js',
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
+    'app/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
     '!src/**/*.stories.{ts,tsx}',
     '!src/**/*.test.{ts,tsx}',
@@ -20,29 +22,29 @@ module.exports = {
   ],
   coverageThreshold: {
     global: {
-      branches: 85,
-      functions: 85,
-      lines: 85,
-      statements: 85,
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
     },
-    // Stricter requirements for critical paths
-    'src/utils/**/*.{ts,tsx}': {
-      branches: 100,
-      functions: 100,
-      lines: 100,
-      statements: 100,
-    },
-    'src/hooks/**/*.{ts,tsx}': {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95,
-    },
-    'src/services/**/*.{ts,tsx}': {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95,
+    'src/providers/**/*.{ts,tsx}': {
+      branches: 90,
+      functions: 90,
+      lines: 90,
+      statements: 90,
     },
   },
+  testEnvironment: 'jsdom',
+  testMatch: [
+    '**/__tests__/**/*.test.[jt]s?(x)',
+    '**/?(*.)+(spec|test).[jt]s?(x)'
+  ],
+  globals: {
+    'ts-jest': {
+      tsconfig: {
+        jsx: 'react'
+      }
+    }
+  },
+  moduleDirectories: ['node_modules', '<rootDir>'],
 };

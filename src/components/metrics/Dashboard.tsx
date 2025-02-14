@@ -223,47 +223,59 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async () => {
-    if (!isInitialized) return;
+    if (!isInitialized) {
+        console.log('[Dashboard] Not initialized, skipping fetch');
+        return;
+    }
     
     try {
-      console.log('Dashboard fetching data for:', { userId, date });
-      const [totals, metricScores, rank] = await Promise.all([
-        metricsService.getDailyTotals(date),
-        metricsService.getDailyMetrics(userId, date),
-        leaderboardService.getUserRank(userId, date)
-      ]);
-      
-      console.log('Daily totals:', totals);
-      console.log('Metric scores:', metricScores);
-      
-      const totalPoints = calculateTotalPoints(metricScores);
-      
-      const userTotal = {
-        id: `${userId}-${date}`,
-        user_id: userId,
-        date: date,
-        total_points: totalPoints,
-        metrics_completed: metricScores.length,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      setDailyTotal(userTotal);
-      
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
-        userTotal,
-        userId,
-        date
-      );
-      console.log('Transformed metrics:', transformedMetrics);
-      
-      setHealthMetrics(transformedMetrics);
-      setUserRank(rank);
-      setFetchError(null);
+        console.log('Dashboard fetching data for:', { userId, date });
+        const [totals, metricScores, rank] = await Promise.all([
+            metricsService.getDailyTotals(date),
+            metricsService.getDailyMetrics(userId, date),
+            leaderboardService.getUserRank(userId)
+        ]);
+        
+        // Handle case where metrics are not yet available
+        if (!metricScores || metricScores.length === 0) {
+            console.log('[Dashboard] No metrics available yet');
+            setHealthMetrics(null);
+            setDailyTotal(null);
+            setUserRank(0);
+            return;
+        }
+
+        console.log('Daily totals:', totals);
+        console.log('Metric scores:', metricScores);
+        
+        const totalPoints = calculateTotalPoints(metricScores);
+        
+        const userTotal = {
+            id: `${userId}-${date}`,
+            user_id: userId,
+            date: date,
+            total_points: totalPoints,
+            metrics_completed: metricScores.length,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+        setDailyTotal(userTotal);
+        
+        const transformedMetrics = transformMetricsToHealthMetrics(
+            metricScores,
+            userTotal,
+            userId,
+            date
+        );
+        console.log('Transformed metrics:', transformedMetrics);
+        
+        setHealthMetrics(transformedMetrics);
+        setUserRank(rank);
+        setFetchError(null);
     } catch (err) {
-      console.error('Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
+        console.error('Error fetching metrics:', err);
+        setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+        setErrorDialogVisible(true);
     }
   }, [userId, date, isInitialized]);
 

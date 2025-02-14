@@ -28,45 +28,57 @@ export class HealthProviderFactory {
     }
   }
 
-  private static initializeProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
+  private static async initializeProvider(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
     try {
-      this.validatePlatform(deviceType);
-
-      if (deviceType === 'fitbit') {
-        this.platform = 'fitbit';
-        this.instance = new FitbitHealthProvider();
-      } else if (Platform.OS === 'ios') {
-        this.platform = 'apple';
-        this.instance = new AppleHealthProvider();
+      let provider: HealthProvider;
+      
+      if (Platform.OS === 'ios') {
+        provider = new AppleHealthProvider();
+      } else if (Platform.OS === 'android') {
+        provider = new GoogleHealthProvider();
       } else {
-        this.platform = 'google';
-        this.instance = new GoogleHealthProvider();
+        throw new HealthProviderError('Unsupported platform');
       }
 
-      return this.instance;
+      // Ensure provider is properly instantiated before initialization
+      if (!provider || typeof provider.initialize !== 'function') {
+        throw new HealthProviderError('Invalid provider instance');
+      }
+
+      await provider.initialize();
+      this.instance = provider;
+      return provider;
     } catch (error) {
-      this.instance = null;
-      this.platform = null;
-      throw new HealthProviderError(
-        `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    } finally {
-      this.isInitializing = false;
+      console.error('[HealthProviderFactory] Provider initialization failed:', error);
+      throw error;
     }
   }
 
-  static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
-    if (this.instance) {
-      return this.instance;
-    }
+  static async getProvider(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
+    try {
+      if (this.instance) {
+        return this.instance;
+      }
 
-    if (this.isInitializing) {
-      throw new HealthProviderError('Provider initialization already in progress');
-    }
+      if (this.isInitializing) {
+        throw new HealthProviderError('Provider initialization already in progress');
+      }
 
-    this.isInitializing = true;
-    const provider = this.initializeProvider(deviceType);
-    return provider;
+      this.isInitializing = true;
+      const provider = await this.initializeProvider(deviceType);
+      
+      // Initialize permissions immediately after provider creation
+      if (provider) {
+        await provider.initialize();
+      }
+      
+      return provider;
+    } catch (error) {
+      console.error('[HealthProviderFactory] Error getting provider:', error);
+      throw error;
+    } finally {
+      this.isInitializing = false;
+    }
   }
 
   static getPlatform(): HealthPlatform {

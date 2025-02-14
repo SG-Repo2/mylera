@@ -24,26 +24,41 @@ function ProtectedRoutes() {
   const { height, width } = useWindowDimensions();
 
   useEffect(() => {
-    console.log('[ProtectedRoutes] Navigation check triggered:', {
-      loading,
+    // Skip protection checks during initial load
+    if (loading) {
+      console.log('[ProtectedRoutes] Initial loading, skipping navigation check');
+      return;
+    }
+
+    console.log('[ProtectedRoutes] Checking route protection:', {
+      pathname,
       hasSession: !!session,
-      pathname
+      loading
     });
 
-    if (!loading) {
-      // Only protect app routes and handle root redirects
-      if (pathname === '/') {
-        // Root path: redirect based on session
-        router.replace(session ? '/(app)/(home)' : '/(auth)/login');
-      } else if (pathname.startsWith('/(app)') && !session) {
-        // Protect app routes only
-        console.log('[ProtectedRoutes] No session on protected route, redirecting to login');
+    // Handle different route groups
+    if (pathname.startsWith('/(auth)')) {
+      // Auth routes: Only redirect if user is already authenticated
+      if (session) {
+        console.log('[ProtectedRoutes] Authenticated user accessing auth route, redirecting to home');
+        router.replace('/(app)/(home)');
+      }
+    } else if (pathname.startsWith('/(app)')) {
+      // App routes: Require authentication
+      if (!session) {
+        console.log('[ProtectedRoutes] Unauthenticated user accessing app route, redirecting to login');
         router.replace('/(auth)/login');
       }
-    } else {
-      console.log('[ProtectedRoutes] Still loading, skipping navigation check');
+    } else if (pathname.startsWith('/(onboarding)')) {
+      // Onboarding routes: Allow only during registration flow
+      console.log('[ProtectedRoutes] Onboarding route accessed');
+    } else if (pathname === '/') {
+      // Root route: Redirect based on auth status
+      const target = session ? '/(app)/(home)' : '/(auth)/login';
+      console.log(`[ProtectedRoutes] Root route accessed, redirecting to ${target}`);
+      router.replace(target);
     }
-  }, [loading, session, router, pathname]);
+  }, [session, loading, pathname]);
 
   if (loading) {
     return (

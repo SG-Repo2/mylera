@@ -1,10 +1,3 @@
-/**
- * Key points:
-	•	We store both session and user to manage app logic that might require more than a session token.
-	•	The loading state helps display UI feedback (e.g., spinners) while auth actions are in progress.
-	•	The error state is updated when any registration, login, or logout operation fails.
-	•	We expose register, login, and logout for the rest of the app to consume.
- */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
@@ -13,6 +6,7 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { Platform } from 'react-native';
+import { leaderboardService } from '../services/leaderboardService';
 
 interface AuthContextType {
   session: Session | null;
@@ -90,62 +84,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (
     email: string, 
     password: string, 
-    profile: {
-      displayName: string;
-      deviceType: 'os' | 'fitbit';
-      measurementSystem: 'metric' | 'imperial';
-      avatarUri?: string | null;
-    }
+    profile: RegisterProfileData
   ) => {
-    let blob: Blob | null = null;
-    let uploadedFilePath: string | null = null;
-
     try {
       console.log('[AuthProvider] Starting registration process');
       setError(null);
       setLoading(true);
 
-      let avatarUrl = null;
-      if (profile.avatarUri) {
-        console.log('[AuthProvider] Processing avatar upload');
-        try {
-          const response = await fetch(profile.avatarUri);
-          if (!response.ok) throw new Error('Failed to fetch image');
-          
-          blob = await response.blob();
-          if (!blob) throw new Error('Failed to create blob from image');
-
-          // Generate a unique filename with user-specific prefix
-          const timestamp = Date.now();
-          const fileName = `temp_${timestamp}.jpg`;
-          uploadedFilePath = `avatars/${fileName}`;
-
-          console.log('[AuthProvider] Uploading avatar to storage:', uploadedFilePath);
-          const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(uploadedFilePath, blob, {
-              contentType: 'image/jpeg',
-              upsert: false
-            });
-
-          if (uploadError) {
-            console.error('[AuthProvider] Avatar upload error:', uploadError);
-            throw uploadError;
-          }
-
-          const { data: urlData } = supabase.storage
-            .from('avatars')
-            .getPublicUrl(uploadedFilePath);
-
-          avatarUrl = urlData?.publicUrl;
-          console.log('[AuthProvider] Avatar uploaded successfully:', avatarUrl);
-        } catch (uploadErr) {
-          console.error('[AuthProvider] Avatar upload failed:', uploadErr);
-          throw new Error('Failed to upload profile picture');
-        }
-      }
-
-      console.log('[AuthProvider] Creating user account');
+      // Step 1: Create user account
+      console.log('[AuthProvider] Creating Supabase auth account');
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -153,62 +100,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             displayName: profile.displayName,
             deviceType: profile.deviceType,
-            measurementSystem: profile.measurementSystem,
-            avatarUrl
+            measurementSystem: profile.measurementSystem
           },
         },
       });
 
-      if (signUpError) {
-        console.error('[AuthProvider] Signup error:', signUpError);
-        throw signUpError;
-      }
+      if (signUpError) throw signUpError;
       if (!data.user) throw new Error('User creation failed');
 
+      // Step 2: Check if profile exists
+      const { data: existingProfile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', data.user.id)
+        .single();
+
+      if (existingProfile) {
+        throw new Error('Profile already exists');
+      }
+
+      // Step 2: Handle avatar upload separately
+      let avatarUrl = null;
+      if (profile.avatarUri) {
+        console.log('[AuthProvider] Starting avatar upload');
+        try {
+          avatarUrl = await leaderboardService.uploadAvatar(
+            data.user.id, 
+            profile.avatarUri
+          );
+          console.log('[AuthProvider] Avatar upload successful:', avatarUrl);
+        } catch (avatarError) {
+          console.error('[AuthProvider] Avatar upload failed:', avatarError);
+          // Continue with registration but log the error
+        }
+      }
+
+      // Step 3: Create profile with avatar URL if available
       console.log('[AuthProvider] Creating user profile');
       const { error: profileError } = await supabase
         .from('user_profiles')
         .insert({
           id: data.user.id,
           display_name: profile.displayName,
-          device_type: profile.deviceType,
+          device_type: profile.deviceType === 'os' ? 'OS' : 'fitbit',
           measurement_system: profile.measurementSystem,
           avatar_url: avatarUrl,
           show_profile: false
         });
 
-      if (profileError) {
-        console.error('[AuthProvider] Profile creation error:', profileError);
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       console.log('[AuthProvider] Registration completed successfully');
-      // Return void instead of the user
       return;
 
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[AuthProvider] Registration error:', err);
-      
-      // Cleanup uploaded file if registration failed
-      if (uploadedFilePath) {
-        try {
-          console.log('[AuthProvider] Cleaning up uploaded file:', uploadedFilePath);
-          await supabase.storage
-            .from('avatars')
-            .remove([uploadedFilePath]);
-        } catch (cleanupErr) {
-          console.error('[AuthProvider] Failed to cleanup uploaded file:', cleanupErr);
-        }
+      if (err && typeof err === 'object' && 'code' in err && err.code === '23505') {
+        const error = new Error('Account already exists. Please try logging in.');
+        setError(error.message);
+        throw error;
       }
-
       const mappedError = mapAuthError(err);
       setError(mappedError);
       throw err;
     } finally {
-      // Cleanup blob
-      if (blob && Platform.OS !== 'web') {
-        blob = null;
-      }
       setLoading(false);
     }
   };
@@ -233,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthProvider] login - Login successful');
 
       // After successful login, check health permissions
-      const provider = HealthProviderFactory.getProvider();
+      const provider = await HealthProviderFactory.getProvider();
       const permissionState = await provider.checkPermissionsStatus();
       setHealthPermissionStatus(permissionState.status);
 
@@ -266,7 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         try {
           console.log('[AuthProvider] logout - Cleaning up health provider');
-          const provider = HealthProviderFactory.getProvider();
+          const provider = await HealthProviderFactory.getProvider();
           await provider.cleanup?.();
         } catch (healthError) {
           console.error('[AuthProvider] logout - Error cleaning up health provider:', healthError);
@@ -316,7 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const provider = HealthProviderFactory.getProvider();
+      const provider = await HealthProviderFactory.getProvider();
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       return status;

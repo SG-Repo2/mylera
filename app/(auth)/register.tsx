@@ -16,6 +16,10 @@ import { theme } from '@/src/theme/theme';
 import * as ImagePicker from 'expo-image-picker';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { supabase } from '@/src/services/supabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const FORM_STATE_KEY = '@register_form_state';
+const AVATAR_URI_KEY = '@register_avatar_uri';
 
 // Step type for multi-step form
 type RegistrationStep = 'credentials' | 'profile';
@@ -25,10 +29,11 @@ interface DeviceOptionProps {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   isSelected: boolean;
   onSelect: () => void;
+  testID?: string;
 }
 
-const DeviceOption = ({ title, icon, isSelected, onSelect }: DeviceOptionProps) => (
-  <Pressable onPress={onSelect}>
+const DeviceOption = ({ title, icon, isSelected, onSelect, testID }: DeviceOptionProps) => (
+  <Pressable onPress={onSelect} testID={testID}>
     <Surface style={[
       styles.deviceOption,
       isSelected && styles.deviceOptionSelected
@@ -75,9 +80,10 @@ export default function RegisterScreen() {
   // Cleanup effect
   useEffect(() => {
     return () => {
-      if (avatar) {
-        setAvatar(null);
-      }
+      // Cleanup on unmount
+      setIsUploading(false);
+      setAvatar(null);
+      AsyncStorage.removeItem(AVATAR_URI_KEY).catch(console.error);
     };
   }, []);
 
@@ -102,6 +108,8 @@ export default function RegisterScreen() {
     }, [isPickerActive, avatar])
   );
 
+  const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+
   const handleAvatarPick = async () => {
     console.log('[Register] Starting avatar pick process');
     if (!email) {
@@ -123,25 +131,37 @@ export default function RegisterScreen() {
 
       console.log('[Register] Launching image picker');
       pickerResult = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.5,
         exif: false,
+        base64: true, // Get base64 to check file size
       });
 
-      console.log('[Register] Picker result:', JSON.stringify(pickerResult, null, 2));
+      console.log('[Register] Picker result received');
+
+      if (!pickerResult?.canceled && pickerResult?.assets?.[0]) {
+        const selectedAsset = pickerResult.assets[0];
+        
+        // Check file size using base64 length
+        if (selectedAsset.base64) {
+          const sizeInBytes = (selectedAsset.base64.length * 0.75);
+          if (sizeInBytes > MAX_IMAGE_SIZE) {
+            throw new Error('Selected image is too large. Please choose an image under 5MB.');
+          }
+        }
+
+        console.log('[Register] Setting avatar URI:', selectedAsset.uri);
+        setAvatar(selectedAsset.uri);
+      }
 
     } catch (err) {
       console.error('[Register] Avatar selection error:', err);
-      setLocalError('Failed to select image. Please try again.');
+      setLocalError(err instanceof Error ? err.message : 'Failed to select image. Please try again.');
+      setAvatar(null); // Clear any partially set avatar
     } finally {
       setIsPickerActive(false);
-    }
-
-    if (!pickerResult?.canceled && pickerResult?.assets?.[0]?.uri) {
-      console.log('[Register] Setting avatar URI:', pickerResult.assets[0].uri);
-      setAvatar(pickerResult.assets[0].uri);
     }
   };
 
@@ -166,8 +186,8 @@ export default function RegisterScreen() {
       setLocalError('Please enter a display name');
       return false;
     }
-    if (!deviceType) {
-      setLocalError('Please select a device type');
+    if (!deviceType || !['os', 'fitbit'].includes(deviceType)) {
+      setLocalError('Please select a device type (OS or Fitbit)');
       return false;
     }
     return true;
@@ -181,86 +201,38 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    console.log('[Register] Starting registration process');
-    setLocalError('');
-    
-    if (!validateProfile()) {
-      return;
-    }
-
     try {
-      setIsUploading(true);
-      let avatarUrl = null;
-      
-      if (avatar) {
-        console.log('[Register] Attempting to upload avatar');
-        try {
-          // Verify the avatar URI is still valid
-          const checkFile = await fetch(avatar);
-          if (!checkFile.ok) {
-            throw new Error('Avatar file is no longer accessible');
-          }
+        if (loading || isUploading) return;
+        
+        setIsUploading(true);
+        console.log('[Register] Starting registration process');
 
-          const tempId = `temp_${Date.now()}`;
-          console.log('[Register] Generated temp ID for avatar:', tempId);
-          
-          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar)
-            .catch(error => {
-              console.error('[Register] Avatar upload error details:', error);
-              throw new Error('Failed to upload profile picture. Please try again.');
-            });
-
-          console.log('[Register] Avatar uploaded successfully:', avatarUrl);
-        } catch (avatarErr) {
-          console.error('[Register] Avatar upload failed:', avatarErr);
-          setLocalError('Failed to upload profile picture. Please try again.');
-          return;
-        }
-      }
-
-      console.log('[Register] Calling register with profile data:', {
-        displayName,
-        deviceType,
-        measurementSystem,
-        avatarUri: avatarUrl
-      });
-
-      try {
         await register(email, password, {
-          displayName,
-          deviceType: deviceType as 'os' | 'fitbit',
-          measurementSystem,
-          avatarUri: avatarUrl
+            displayName,
+            deviceType: deviceType as 'os' | 'fitbit',
+            measurementSystem,
+            avatarUri: avatar
         });
-        
-        // Navigate to health setup after successful registration
+
+        // Clear sensitive data
+        setPassword('');
+        setConfirmPassword('');
+        setAvatar(null);
+
+        // Clear stored form data
+        await Promise.all([
+            AsyncStorage.removeItem(FORM_STATE_KEY),
+            AsyncStorage.removeItem(AVATAR_URI_KEY)
+        ]);
+
+        console.log('[Register] Registration successful, proceeding to health setup');
         router.replace('/(onboarding)/health-setup');
-      } catch (registerError) {
-        console.error('[Register] Registration error:', registerError);
-        
-        // If we uploaded an avatar but registration failed, try to clean it up
-        if (avatarUrl) {
-          try {
-            // Extract file path from URL
-            const url = new URL(avatarUrl);
-            const filePath = url.pathname.split('/').slice(-2).join('/');
-            await supabase.storage
-              .from('avatars')
-              .remove([filePath]);
-            console.log('[Register] Cleaned up avatar after failed registration');
-          } catch (cleanupError) {
-            console.error('[Register] Failed to cleanup avatar:', cleanupError);
-          }
-        }
-        
-        throw registerError;
-      }
 
     } catch (err) {
-      console.error('[Register] Error:', err);
-      setLocalError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
+        console.error('[Register] Registration error:', err);
+        setLocalError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
-      setIsUploading(false);
+        setIsUploading(false);
     }
   };
 
@@ -281,6 +253,7 @@ export default function RegisterScreen() {
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            testID="email-input"
           />
           <TextInput
             style={styles.input}
@@ -288,6 +261,7 @@ export default function RegisterScreen() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry
+            testID="password-input"
           />
           <TextInput
             style={styles.input}
@@ -295,11 +269,13 @@ export default function RegisterScreen() {
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             secureTextEntry
+            testID="confirm-password-input"
           />
           <Button 
             mode="contained"
             onPress={handleNextStep}
             style={styles.button}
+            testID="next-button"
           >
             Next
           </Button>
@@ -312,6 +288,7 @@ export default function RegisterScreen() {
             placeholder="Display Name"
             value={displayName}
             onChangeText={setDisplayName}
+            testID="display-name-input"
           />
 
           <Text style={styles.sectionTitle}>Select Your Device</Text>
@@ -320,12 +297,14 @@ export default function RegisterScreen() {
             icon="cellphone"
             isSelected={deviceType === 'os'}
             onSelect={() => setDeviceType('os')}
+            testID="os-device-option"
           />
           <DeviceOption
             title="Fitbit"
             icon="watch"
             isSelected={deviceType === 'fitbit'}
             onSelect={() => setDeviceType('fitbit')}
+            testID="fitbit-device-option"
           />
 
           <Text style={styles.sectionTitle}>Measurement System</Text>
@@ -333,33 +312,42 @@ export default function RegisterScreen() {
             <Button
               mode={measurementSystem === 'metric' ? 'contained' : 'outlined'}
               onPress={() => setMeasurementSystem('metric')}
+              testID="metric-button"
             >
               Metric
             </Button>
             <Button
               mode={measurementSystem === 'imperial' ? 'contained' : 'outlined'}
               onPress={() => setMeasurementSystem('imperial')}
+              testID="imperial-button"
             >
               Imperial
             </Button>
           </View>
 
           <Text style={styles.sectionTitle}>Profile Picture (Optional)</Text>
-          <Pressable onPress={handleAvatarPick} style={styles.avatarContainer}>
+          <Pressable 
+            onPress={handleAvatarPick} 
+            style={styles.avatarContainer}
+            testID="avatar-picker"
+          >
             {avatar ? (
               <Image source={{ uri: avatar }} style={styles.avatar} />
             ) : (
-              <MaterialCommunityIcons name="camera-plus" size={32} color={theme.colors.primary} />
+              <View testID="avatar-placeholder">
+                <MaterialCommunityIcons name="camera-plus" size={32} color={theme.colors.primary} />
+              </View>
             )}
           </Pressable>
 
           {loading ? (
-            <ActivityIndicator />
+            <ActivityIndicator testID="loading-indicator" />
           ) : (
             <Button 
               mode="contained"
               onPress={handleRegister}
               style={styles.button}
+              testID="create-account-button"
             >
               Create Account
             </Button>
@@ -371,6 +359,7 @@ export default function RegisterScreen() {
         mode="text"
         onPress={() => router.push('/(auth)/login')}
         style={styles.button}
+        testID="login-link"
       >
         Already have an account? Login
       </Button>
