@@ -1,3 +1,11 @@
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Determine which .env file to load. 
+// By default, we'll use .env.test, unless you set ENVFILE in your environment.
+const envFile = process.env.ENVFILE || '.env.test';
+dotenv.config({ path: path.resolve(__dirname, envFile) });
+
 module.exports = {
   expo: {
     name: "mylera",

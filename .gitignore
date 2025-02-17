@@ -58,3 +58,4 @@ src/services/__mocks__
 src/__tests__/
 database_schema.sql
 my_dump.sql
+.env.prod
