@@ -53,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       }
       
+      console.log('[AuthProvider] Initial session check complete. Setting loading to false');
       setLoading(false);
     });
 
@@ -70,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setHealthPermissionStatus(null);
       }
       
+      console.log('[AuthProvider] Auth state changed:', { session, user: session?.user });
       setLoading(false);
     });
 
@@ -96,7 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const { data, error } = await supabase.auth.signUp({
+      console.log('[AuthProvider] Calling supabase.auth.signUp...');
+      const signUpData = {
         email,
         password,
         options: {
@@ -107,19 +110,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             avatarUri: profile.avatarUri,
           },
         },
-      });
+      };
+      console.log('[AuthProvider] signUpData:', signUpData);
+      const { data, error } = await supabase.auth.signUp(signUpData);
+      console.log('[AuthProvider] supabase.auth.signUp complete');
 
-      if (error) throw error;
+      if (error) {
+        console.error('[AuthProvider] supabase.auth.signUp error:', error);
+        throw error;
+      }
 
       // Handle avatar upload if provided
       if (data.user && profile.avatarUri) {
         try {
+          console.log('[AuthProvider] Calling leaderboardService.uploadAvatar...');
           const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
+          console.log('[AuthProvider] leaderboardService.uploadAvatar complete');
           // Update user profile with avatar URL
+          console.log('[AuthProvider] Calling leaderboardService.updateUserProfile...');
           await leaderboardService.updateUserProfile(data.user.id, {
             ...profile,
             avatar_url: avatarUrl
           });
+          console.log('[AuthProvider] leaderboardService.updateUserProfile complete');
+          console.log('[AuthProvider] User profile updated successfully');
         } catch (uploadError) {
           console.error('Avatar upload failed:', uploadError);
           // Don't throw here - the user is still registered, just without an avatar
@@ -129,10 +143,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Initialize health provider for new user
       if (data.user) {
         console.log('[AuthProvider] User created, attempting auto-login...');
+        console.log('[AuthProvider] Calling supabase.auth.signInWithPassword...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
         });
+        console.log('[AuthProvider] supabase.auth.signInWithPassword complete');
         
         if (signInError) {
           console.error('[AuthProvider] Auto-login failed:', signInError);
@@ -163,6 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       console.log('[AuthProvider] Registration process complete. Setting loading to false');
       setLoading(false);
+      console.log('[AuthProvider] setLoading(false) in register');
     }
   };
 
@@ -191,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(mapAuthError(err));
     } finally {
       setLoading(false);
+      console.log('[AuthProvider] setLoading(false) in login');
     }
   };
 
@@ -240,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(mapAuthError(err));
     } finally {
       setLoading(false);
+      console.log('[AuthProvider] setLoading(false) in logout');
     }
   };
 

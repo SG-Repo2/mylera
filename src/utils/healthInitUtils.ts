@@ -31,21 +31,32 @@ export async function initializeHealthProviderForUser(
         .eq('id', userId)
         .single();
 
-      if (userError) throw userError;
-      if (!userData) throw new Error('User profile not found');
+      if (userError) {
+        console.error('[HealthProvider] Error fetching user profile:', userError);
+        throw userError;
+      }
+      if (!userData) {
+        console.warn('[HealthProvider] User profile not found');
+        throw new Error('User profile not found');
+      }
 
       const deviceType = userData.device_type as 'os' | 'fitbit';
       
       // Initialize the appropriate provider based on device type
       const provider = HealthProviderFactory.getProvider(deviceType);
-      await provider.initialize();
-      const permissionState = await provider.checkPermissionsStatus();
-      
-      // Log successful initialization
-      console.log('[HealthProvider] Successfully initialized health provider');
-      
-      setHealthStatus(permissionState.status);
-      return;
+      try {
+        await provider.initialize();
+        const permissionState = await provider.checkPermissionsStatus();
+        
+        // Log successful initialization
+        console.log('[HealthProvider] Successfully initialized health provider');
+        
+        setHealthStatus(permissionState.status);
+        return;
+      } catch (providerError) {
+        console.error('[HealthProvider] Error initializing provider:', providerError);
+        throw providerError;
+      }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown error during initialization');
       console.warn(
