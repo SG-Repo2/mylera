@@ -1,18 +1,20 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
-import { 
-  ActivityIndicator, 
-  View, 
-  StyleSheet, 
+import {
+  ActivityIndicator,
+  View,
+  StyleSheet,
   SafeAreaView,
   Platform,
   StatusBar,
-  Dimensions,
+  Text,
   useWindowDimensions
 } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
+
+type InitializationState = 'auth' | 'permissions' | 'health_services' | 'ready';
 
 // Get status bar height for proper spacing
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;

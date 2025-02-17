@@ -90,4 +90,8 @@ export class PermissionManager {
     await this.updatePermissionState('denied', [permission]);
     throw new HealthProviderPermissionError(permission, error?.message);
   }
+
+  getUserId(): string {
+    return this.userId;
+  }
 }

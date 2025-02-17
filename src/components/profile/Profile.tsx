@@ -176,6 +176,7 @@ export function Profile() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
+        allowsMultipleSelection: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {

@@ -10,7 +10,7 @@ import {
 import { healthMetrics } from '@/src/config/healthMetrics';
 import type { MetricType } from '@/src/types/metrics';
 import type { DailyMetricScore } from '@/src/types/schemas';
-
+import * as FileSystem from 'expo-file-system';
 const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
   return metrics.reduce((total, metric) => {
     const config = healthMetrics[metric.metric_type];
@@ -187,30 +187,53 @@ export const leaderboardService = {
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {
     try {
-      // Convert URI to Blob with explicit type
-      const response = await fetch(uri);
-      if (!response.ok) throw new Error('Failed to fetch image');
-      
-      const blob = await response.blob();
-      if (!blob) throw new Error('Failed to create blob from image');
-      
-      // Generate a unique filename with fallback extension
-      const fileExt = uri.split('.').pop() || 'jpg';
+      // Get file info
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist');
+      }
+
+      // Check file size (limit to 5MB)
+      if (fileInfo.size && fileInfo.size > 5 * 1024 * 1024) {
+        throw new Error('File size exceeds 5MB limit');
+      }
+
+      // Read the file as base64
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Convert base64 to blob
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onload = () => {
+          resolve(xhr.response);
+        };
+        xhr.onerror = () => {
+          reject(new Error('Failed to convert file'));
+        };
+        xhr.responseType = 'blob';
+        xhr.open('GET', `data:image/jpeg;base64,${base64}`, true);
+        xhr.send(null);
+      });
+
+      // Determine file extension from URI
+      const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      // Upload to Supabase Storage
+      // Upload to Supabase Storage with proper content type
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, blob, {
-          contentType: blob.type || 'image/jpeg',
+          contentType: `image/${fileExt}`,
           cacheControl: '3600',
           upsert: true
         });
 
       if (uploadError) {
         console.error('Upload error:', uploadError);
-        throw uploadError;
+        throw new Error(`Failed to upload avatar: ${uploadError.message}`);
       }
 
       if (!uploadData) {
@@ -229,7 +252,10 @@ export const leaderboardService = {
       return urlData.publicUrl;
     } catch (error) {
       console.error('Error uploading avatar:', error);
-      throw error;
+      if (error instanceof Error) {
+        throw new Error(`Avatar upload failed: ${error.message}`);
+      }
+      throw new Error('Avatar upload failed with unknown error');
     }
   },
 

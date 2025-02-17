@@ -76,11 +76,20 @@ export default function RegisterScreen() {
     }
 
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
+      // Request permission first
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        setLocalError('Permission to access media library was denied');
+        return;
+      }
+
+      let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
+        allowsMultipleSelection: false,
       });
 
       if (!result.canceled && result.assets[0].uri) {

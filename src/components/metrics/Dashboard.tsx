@@ -21,7 +21,6 @@ type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
 interface DashboardProps {
-  provider: HealthProvider;
   userId: string;
   date?: string;
   showAlerts?: boolean;
@@ -179,7 +178,6 @@ const transformMetricsToHealthMetrics = (
 };
 
 export const Dashboard = React.memo(function Dashboard({
-  provider,
   userId,
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
@@ -197,8 +195,9 @@ export const Dashboard = React.memo(function Dashboard({
     loading,
     error,
     syncHealthData,
-    isInitialized
-  } = useHealthData(provider, userId);
+    isInitialized,
+    provider
+  } = useHealthData(userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
@@ -287,7 +286,7 @@ export const Dashboard = React.memo(function Dashboard({
     syncHealthData();
   }, [syncHealthData]);
 
-  if (loading) {
+  if (loading || !provider) {
     return <LoadingView />;
   }
 
@@ -296,10 +295,10 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView 
+    <SafeAreaView
       style={[
-        styles.container, 
-        { 
+        styles.container,
+        {
           backgroundColor: theme.colors.background,
           paddingTop: Platform.OS === 'ios' ? 0 : 4
         }
@@ -331,12 +330,22 @@ export const Dashboard = React.memo(function Dashboard({
           />
         }
       >
-        {healthMetrics && (
-          <MetricCardList 
-            metrics={healthMetrics} 
+        {healthMetrics && provider ? (
+          <MetricCardList
+            metrics={healthMetrics}
             showAlerts={showAlerts}
             provider={provider}
           />
+        ) : (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator
+              size={Platform.OS === 'ios' ? 'large' : 48}
+              color={theme.colors.primary}
+            />
+            <Text style={styles.loadingText}>
+              Initializing health services...
+            </Text>
+          </View>
         )}
       </ScrollView>
 

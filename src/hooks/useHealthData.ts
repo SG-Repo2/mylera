@@ -2,93 +2,104 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
+import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
+import {
+  HealthProviderFactory,
+  HealthErrorCode,
+  type HealthPlatform
+} from '../providers/health/factory/HealthProviderFactory';
+import { supabase } from '../services/supabaseClient';
+
+interface HealthProviderError extends Error {
+  code: HealthErrorCode;
+  details?: Record<string, unknown>;
+}
+
+function isHealthProviderError(error: unknown): error is HealthProviderError {
+  return error instanceof Error &&
+    'code' in error &&
+    Object.values(HealthErrorCode).includes((error as any).code);
+}
+
+export type LoadingState = 'idle' | 'initializing' | 'requesting_permissions' | 'syncing' | 'error';
 
 /**
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
- * 
- * @param provider - Platform-specific health provider instance (Apple HealthKit or Google Health Connect)
+ * Uses HealthProviderFactory to manage provider lifecycle and permissions.
+ *
  * @param userId - Unique identifier of the user for permission management
  * @returns Object containing:
- *  - loading: Boolean indicating if a sync operation is in progress
+ *  - loading: Boolean indicating if any operation is in progress (backward compatibility)
+ *  - loadingState: Detailed state of the current operation ('idle' | 'initializing' | 'requesting_permissions' | 'syncing' | 'error')
  *  - error: Error object if the last operation failed, null otherwise
  *  - syncHealthData: Function to manually trigger a health data sync
- * 
+ *  - isInitialized: Boolean indicating if the health provider is fully initialized
+ *  - provider: Current HealthProvider instance or null if not initialized
+ *
  * @example
  * ```tsx
- * const { loading, error, syncHealthData } = useHealthData(healthProvider, userId);
- * 
- * // Handle loading state
- * if (loading) return <LoadingSpinner />;
- * 
- * // Handle error state
- * if (error) return <ErrorView error={error} />;
- * 
+ * const { loadingState, error, syncHealthData } = useHealthData(userId);
+ *
+ * // Handle different loading states
+ * switch (loadingState) {
+ *   case 'initializing':
+ *     return <LoadingSpinner message="Initializing health services..." />;
+ *   case 'requesting_permissions':
+ *     return <LoadingSpinner message="Requesting health permissions..." />;
+ *   case 'syncing':
+ *     return <LoadingSpinner message="Syncing health data..." />;
+ *   case 'error':
+ *     return <ErrorView error={error} />;
+ * }
+ *
  * // Trigger manual sync
  * const handleRefresh = () => syncHealthData();
  * ```
  */
-export const useHealthData = (provider: HealthProvider, userId: string) => {
-  const [loading, setLoading] = useState(true);
+export const useHealthData = (userId: string) => {
+  const [loadingState, setLoadingState] = useState<LoadingState>('idle');
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
+  const providerRef = useRef<HealthProvider | null>(null);
 
   const syncHealthData = useCallback(async () => {
     if (!isMounted.current) return;
     
-    setLoading(true);
+    setLoadingState('initializing');
     setError(null);
 
     try {
-      // Initialize provider first
-      try {
-        await provider.initialize();
-      } catch (err) {
-        const originalMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[useHealthData] Health initialization error:', err);
-        
-        // More user-friendly error message
-        const errorMessage = originalMessage.includes('not available')
-          ? 'Health Connect is not available. Please ensure it is installed and set up on your device.'
-          : 'Unable to connect to health services. Please check your device settings and try again.';
-        
-        setError(new Error(errorMessage));
-        setLoading(false);
-        return; // Exit early on initialization failure
-      }
-
-      // Initialize permissions
-      await provider.initializePermissions(userId);
-
-      // Only proceed with permission checks if initialization succeeded
-      try {
-        const permissionState = await provider.checkPermissionsStatus();
-        if (permissionState.status !== 'granted') {
-          console.log('[useHealthData] Requesting health permissions...');
-          const granted = await provider.requestPermissions();
-          if (granted !== 'granted') {
-            throw new Error(
-              'Health permissions are required to track your fitness metrics. ' +
-              'Please grant permissions in your device settings.'
-            );
-          }
+      // Use the enhanced initialization flow
+      await initializeHealthProviderForUser(userId, (status) => {
+        if (status === 'not_determined') {
+          setLoadingState('requesting_permissions');
         }
-      } catch (permError) {
-        console.error('[useHealthData] Permission error:', permError);
-        const isPermissionDenied = permError instanceof Error &&
-          (permError.message.includes('permission') || permError.message.includes('denied'));
-        
-        throw new Error(
-          isPermissionDenied
-            ? 'Unable to access health data. Please check your permissions in device settings.'
-            : 'There was a problem accessing health services. Please try again.'
-        );
+      });
+
+      // Get the initialized provider
+      const { data: userData } = await supabase
+        .from('user_profiles')
+        .select('device_type')
+        .eq('id', userId)
+        .single();
+
+      if (!userData) {
+        throw new Error('User profile not found');
       }
 
+      const deviceType = userData.device_type as 'os' | 'fitbit';
+      providerRef.current = await HealthProviderFactory.getProvider(deviceType, userId);
+
+      setLoadingState('syncing');
       console.log('[useHealthData] Permissions granted, fetching health data...');
-      // Get health data and update scores
-      const healthData = await provider.getMetrics();
+      
+      if (!providerRef.current) {
+        throw new Error('Health provider not initialized');
+      }
+
+      const healthData = await providerRef.current.getMetrics();
       
       // Only update specific health metrics
       const healthMetrics: MetricType[] = [
@@ -128,34 +139,63 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       }
 
     } catch (err) {
-      let errorMessage: string;
-      
-      // Handle specific error types with user-friendly messages
-      if (err instanceof Error) {
+      setLoadingState('error');
+      console.error('[useHealthData] Health sync error:', err);
+
+      // Handle HealthProviderError with specific error codes
+      if (isHealthProviderError(err)) {
+        const platform = HealthProviderFactory.getPlatform();
+        const platformName = platform === 'apple' ? 'Apple Health' :
+                           platform === 'google' ? 'Google Health Connect' :
+                           'Fitbit';
+
+        switch (err.code) {
+          case HealthErrorCode.INITIALIZATION_FAILED:
+            setError(new Error(`Unable to initialize ${platformName}. Please check your device settings and try again.`));
+            break;
+          case HealthErrorCode.PROVIDER_NOT_INITIALIZED:
+            setError(new Error(`${platformName} is not properly initialized. Please restart the app.`));
+            break;
+          case HealthErrorCode.INITIALIZATION_IN_PROGRESS:
+            setError(new Error(`${platformName} is still initializing. Please wait...`));
+            break;
+          case HealthErrorCode.UNSUPPORTED_PLATFORM:
+            setError(new Error(`${platformName} is not supported on your device.`));
+            break;
+          case HealthErrorCode.CLEANUP_FAILED:
+            setError(new Error(`Failed to cleanup ${platformName} connection. Please restart the app.`));
+            break;
+          default:
+            setError(new Error(err.message));
+        }
+
+        // Log detailed error information for debugging
+        console.error('[useHealthData] Health provider error:', {
+          code: err.code,
+          message: err.message,
+          details: err.details,
+          platform
+        });
+      } else if (err instanceof Error) {
         if (err.name === 'MetricsAuthError') {
-          errorMessage = 'Your session has expired. Please sign in again.';
-        } else if (err.message.includes('permission')) {
-          errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
+          setError(new Error('Your session has expired. Please sign in again.'));
         } else if (err.message.includes('network') || err.message.includes('timeout')) {
-          errorMessage = 'Network error. Please check your connection and try again.';
+          setError(new Error('Network error. Please check your connection and try again.'));
+        } else if (err.message.includes('permission')) {
+          setError(new Error('Unable to access health data. Please check your permissions in device settings.'));
         } else {
-          // Use the error message if it's user-friendly, otherwise use a generic message
-          errorMessage = err.message.includes('health') ? err.message :
-            'Unable to sync health data. Please try again later.';
+          setError(new Error(err.message));
         }
       } else {
-        errorMessage = 'An unexpected error occurred. Please try again.';
+        setError(new Error('An unexpected error occurred. Please try again.'));
       }
-      
-      setError(new Error(errorMessage));
-      console.error('[useHealthData] Health sync error:', err);
     } finally {
       if (isMounted.current) {
-        setLoading(false);
+        setLoadingState('idle');
         setIsInitialized(true);
       }
     }
-  }, [provider, userId]);
+  }, [userId]);
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
@@ -163,7 +203,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
-      setLoading(false);
+      setLoadingState('idle');
       setIsInitialized(true);
       return;
     }
@@ -172,11 +212,21 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     
     return () => {
       isMounted.current = false;
-      if (provider.cleanup) {
-        provider.cleanup();
+      if (providerRef.current?.cleanup) {
+        providerRef.current.cleanup();
       }
     };
   }, [syncHealthData, userId]);
 
-  return { loading, error, syncHealthData, isInitialized };
+  // Compute loading boolean for backward compatibility
+  const loading = loadingState !== 'idle';
+
+  return {
+    loading,
+    loadingState,
+    error,
+    syncHealthData,
+    isInitialized,
+    provider: providerRef.current // Expose provider for components that need direct access
+  };
 };

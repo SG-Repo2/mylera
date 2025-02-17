@@ -1,84 +1,67 @@
-import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
+import {
+  HealthProviderFactory,
+  HealthErrorCode
+} from '../providers/health/factory/HealthProviderFactory';
 import type { PermissionStatus } from '../providers/health/types/permissions';
-import { mapAuthError } from './errorUtils';
+import { mapAuthError, mapHealthProviderError } from './errorUtils';
 import { supabase } from '../services/supabaseClient';
-
-const MAX_INIT_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
-
-/**
- * Delay utility for retry mechanism
- */
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Initialize health provider for a given user and update permission status
- * Includes retry logic and enhanced error handling
+ * Uses HealthProviderFactory's built-in retry logic and error handling
  */
 export async function initializeHealthProviderForUser(
   userId: string,
   setHealthStatus: (status: PermissionStatus) => void
 ): Promise<void> {
-  let retries = 0;
-  let lastError: Error | null = null;
+  try {
+    // Get user's device type from Supabase
+    const { data: userData, error: userError } = await supabase
+      .from('user_profiles')
+      .select('device_type')
+      .eq('id', userId)
+      .single();
 
-  while (retries < MAX_INIT_RETRIES) {
-    try {
-      // Get user's device type from Supabase
-      const { data: userData, error: userError } = await supabase
-        .from('user_profiles')
-        .select('device_type')
-        .eq('id', userId)
-        .single();
-
-      if (userError) {
-        console.error('[HealthProvider] Error fetching user profile:', userError);
-        throw userError;
-      }
-      if (!userData) {
-        console.warn('[HealthProvider] User profile not found');
-        throw new Error('User profile not found');
-      }
-
-      const deviceType = userData.device_type as 'os' | 'fitbit';
-      
-      // Initialize the appropriate provider based on device type
-      const provider = HealthProviderFactory.getProvider(deviceType);
-      try {
-        await provider.initialize();
-        const permissionState = await provider.checkPermissionsStatus();
-        
-        // Log successful initialization
-        console.log('[HealthProvider] Successfully initialized health provider');
-        
-        setHealthStatus(permissionState.status);
-        return;
-      } catch (providerError) {
-        console.error('[HealthProvider] Error initializing provider:', providerError);
-        throw providerError;
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown error during initialization');
-      console.warn(
-        `[HealthProvider] Initialization attempt ${retries + 1}/${MAX_INIT_RETRIES} failed:`,
-        lastError.message
-      );
-      
-      if (retries < MAX_INIT_RETRIES - 1) {
-        await delay(RETRY_DELAY_MS);
-      }
-      retries++;
+    if (userError) {
+      console.error('[HealthProvider] Error fetching user profile:', userError);
+      throw new Error(mapAuthError(userError));
     }
-  }
+    
+    if (!userData) {
+      console.warn('[HealthProvider] User profile not found');
+      setHealthStatus('not_determined');
+      throw new Error('User profile not found. Please complete your profile setup.');
+    }
 
-  // If we've exhausted all retries, log the error and set status to not_determined
-  console.error(
-    '[HealthProvider] Failed to initialize after multiple attempts:',
-    lastError?.message
-  );
-  
-  const errorMessage = lastError ? mapAuthError(lastError) : 'Failed to initialize health provider';
-  console.error('[HealthProvider]', errorMessage);
-  
-  setHealthStatus('not_determined');
+    const deviceType = userData.device_type as 'os' | 'fitbit';
+    
+    // Use the enhanced HealthProviderFactory to get and initialize the provider
+    const provider = await HealthProviderFactory.getProvider(deviceType, userId);
+    
+    // Check permissions status after initialization
+    const permissionState = await provider.checkPermissionsStatus();
+    console.log('[HealthProvider] Successfully initialized health provider');
+    
+    setHealthStatus(permissionState.status);
+    
+    // If permissions aren't granted, request them
+    if (permissionState.status !== 'granted') {
+      console.log('[HealthProvider] Requesting health permissions...');
+      const newStatus = await provider.requestPermissions();
+      setHealthStatus(newStatus);
+    }
+
+  } catch (error) {
+    console.error('[HealthProvider] Error during health provider initialization:', error);
+    
+    // Map the error to a user-friendly message based on the platform
+    const platform = HealthProviderFactory.getPlatform();
+    const errorMessage = error instanceof Error
+      ? mapHealthProviderError(error, platform)
+      : 'Failed to initialize health provider';
+    
+    console.error('[HealthProvider]', errorMessage);
+    setHealthStatus('not_determined');
+    throw new Error(errorMessage);
+  }
 }
