@@ -160,13 +160,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthProvider] Auto-login successful, initializing health provider');
 
         // Initialize the appropriate health provider based on device type
-        const provider = HealthProviderFactory.getProvider(profile.deviceType);
+        const provider = await HealthProviderFactory.getProvider(profile.deviceType);
 
         // If it's a Fitbit device, handle OAuth flow
         if (profile.deviceType === 'fitbit') {
           console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
-          const status = await provider.requestPermissions();
-          if (status !== 'granted') {
+          const permissionState = await provider.checkPermissionsStatus();
+          if (permissionState.status !== 'granted') {
             throw new Error('Fitbit permissions not granted');
           }
         }
@@ -201,7 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (signInError) throw signInError;
 
       // After successful login, check health permissions
-      const provider = HealthProviderFactory.getProvider();
+      const provider = await HealthProviderFactory.getProvider();
       const permissionState = await provider.checkPermissionsStatus();
       setHealthPermissionStatus(permissionState.status);
     } catch (err) {
@@ -231,8 +231,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Clean up health provider state
       if (user) {
         try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.cleanup?.();
+          const provider = await HealthProviderFactory.getProvider();
+          if (provider.cleanup) {
+            await provider.cleanup();
+          }
         } catch (healthError) {
           console.error('Error cleaning up health provider:', healthError);
           // Don't block logout on health cleanup error
@@ -274,10 +276,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const provider = HealthProviderFactory.getProvider();
-      const status = await provider.requestPermissions();
-      setHealthPermissionStatus(status);
-      return status;
+      const provider = await HealthProviderFactory.getProvider();
+      const permissionState = await provider.checkPermissionsStatus();
+      setHealthPermissionStatus(permissionState.status);
+      return permissionState.status;
     } catch (err) {
       console.error('[AuthProvider] Health permissions error:', err);
       let message = 'Failed to request health permissions';

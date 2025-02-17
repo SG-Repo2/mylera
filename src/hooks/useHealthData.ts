@@ -6,7 +6,6 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import {
   HealthProviderFactory,
   HealthErrorCode,
-  type HealthPlatform,
 } from '../providers/health/factory/HealthProviderFactory';
 import { supabase } from '../services/supabaseClient';
 
