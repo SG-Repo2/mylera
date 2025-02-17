@@ -7,10 +7,46 @@ const createStyles = (theme: MD3Theme) =>
     container: {
       flex: 1,
     },
+    errorDialog: {
+      borderRadius: 24,
+    },
+    errorDialogActions: {
+      justifyContent: 'center',
+      paddingBottom: 8,
+    },
+    errorDialogButton: {
+      fontSize: 16,
+      fontWeight: '600',
+      letterSpacing: 0.5,
+      padding: 12,
+    },
+    errorDialogContent: {
+      fontSize: 16,
+      letterSpacing: 0.25,
+      lineHeight: 24,
+      textAlign: 'center',
+    },
+    errorDialogTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      letterSpacing: 0.5,
+      textAlign: 'center',
+    },
+    headerContainer: {
+      backgroundColor: theme.colors.surface,
+      height: 44,
+      justifyContent: 'center',
+    },
+    headerContent: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+    },
     headerWrapper: {
+      borderRadius: 12,
       marginHorizontal: 16,
       marginTop: 8,
-      borderRadius: 12,
       overflow: 'hidden',
       ...Platform.select({
         ios: {
@@ -24,59 +60,13 @@ const createStyles = (theme: MD3Theme) =>
         },
       }),
     },
-    headerContainer: {
-      height: 44,
-      backgroundColor: theme.colors.surface,
-      justifyContent: 'center',
-    },
-    headerContent: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 12,
-    },
-    logo: {
-      height: 24,
-      width: 72,
-      resizeMode: 'contain',
-    },
-    statsContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
-    statItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.colors.primaryContainer,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 12,
-    },
-    statText: {
-      color: theme.colors.primary,
-      fontSize: 13,
-      fontWeight: '600',
-      letterSpacing: 0.25,
-    },
-    statLabel: {
-      color: theme.colors.onSurfaceVariant,
-      fontSize: 13,
-      marginRight: 4,
-    },
-    loadingContainer: {
-      flex: 1,
-      backgroundColor: theme.colors.background,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
     loadingCard: {
+      alignItems: 'center',
       backgroundColor: theme.colors.surface,
       borderRadius: 24,
+      maxWidth: 320,
       padding: 24,
       width: '85%',
-      maxWidth: 320,
-      alignItems: 'center',
       ...Platform.select({
         ios: {
           shadowColor: '#000',
@@ -89,45 +79,55 @@ const createStyles = (theme: MD3Theme) =>
         },
       }),
     },
+    loadingContainer: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.background,
+      flex: 1,
+      justifyContent: 'center',
+    },
     loadingText: {
-      marginTop: 16,
       color: theme.colors.onSurfaceVariant,
-      textAlign: 'center',
       fontSize: 16,
       fontWeight: '500',
+      marginTop: 16,
+      textAlign: 'center',
+    },
+    logo: {
+      height: 24,
+      resizeMode: 'contain',
+      width: 72,
+    },
+    scrollContent: {
+      paddingBottom: 32,
+      paddingHorizontal: 16,
+      paddingTop: 16,
     },
     scrollView: {
       flex: 1,
     },
-    scrollContent: {
-      paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: 32,
+    statItem: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.primaryContainer,
+      borderRadius: 12,
+      flexDirection: 'row',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
     },
-    errorDialog: {
-      borderRadius: 24,
+    statLabel: {
+      color: theme.colors.onSurfaceVariant,
+      fontSize: 13,
+      marginRight: 4,
     },
-    errorDialogTitle: {
-      textAlign: 'center',
-      fontSize: 20,
+    statText: {
+      color: theme.colors.primary,
+      fontSize: 13,
       fontWeight: '600',
-      letterSpacing: 0.5,
-    },
-    errorDialogContent: {
-      textAlign: 'center',
-      fontSize: 16,
-      lineHeight: 24,
       letterSpacing: 0.25,
     },
-    errorDialogActions: {
-      justifyContent: 'center',
-      paddingBottom: 8,
-    },
-    errorDialogButton: {
-      padding: 12,
-      fontSize: 16,
-      fontWeight: '600',
-      letterSpacing: 0.5,
+    statsContainer: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 8,
     },
   });
 

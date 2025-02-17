@@ -6,7 +6,7 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import {
   HealthProviderFactory,
   HealthErrorCode,
-  type HealthPlatform
+  type HealthPlatform,
 } from '../providers/health/factory/HealthProviderFactory';
 import { supabase } from '../services/supabaseClient';
 
@@ -16,9 +16,11 @@ interface HealthProviderError extends Error {
 }
 
 function isHealthProviderError(error: unknown): error is HealthProviderError {
-  return error instanceof Error &&
+  return (
+    error instanceof Error &&
     'code' in error &&
-    Object.values(HealthErrorCode).includes((error as any).code);
+    Object.values(HealthErrorCode).includes((error as any).code)
+  );
 }
 
 export type LoadingState = 'idle' | 'initializing' | 'requesting_permissions' | 'syncing' | 'error';
@@ -66,13 +68,13 @@ export const useHealthData = (userId: string) => {
 
   const syncHealthData = useCallback(async () => {
     if (!isMounted.current) return;
-    
+
     setLoadingState('initializing');
     setError(null);
 
     try {
       // Use the enhanced initialization flow
-      await initializeHealthProviderForUser(userId, (status) => {
+      await initializeHealthProviderForUser(userId, status => {
         if (status === 'not_determined') {
           setLoadingState('requesting_permissions');
         }
@@ -94,13 +96,13 @@ export const useHealthData = (userId: string) => {
 
       setLoadingState('syncing');
       console.log('[useHealthData] Permissions granted, fetching health data...');
-      
+
       if (!providerRef.current) {
         throw new Error('Health provider not initialized');
       }
 
       const healthData = await providerRef.current.getMetrics();
-      
+
       // Only update specific health metrics
       const healthMetrics: MetricType[] = [
         'steps',
@@ -109,11 +111,11 @@ export const useHealthData = (userId: string) => {
         'heart_rate',
         'basal_calories',
         'flights_climbed',
-        'exercise'
+        'exercise',
       ];
-      
+
       // Update each health metric that has a value
-      let failedMetrics: string[] = [];
+      const failedMetrics: string[] = [];
       const updates = healthMetrics.map(async metric => {
         const value = healthData[metric];
         if (typeof value === 'number') {
@@ -137,7 +139,6 @@ export const useHealthData = (userId: string) => {
       if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
         console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
       }
-
     } catch (err) {
       setLoadingState('error');
       console.error('[useHealthData] Health sync error:', err);
@@ -145,16 +146,25 @@ export const useHealthData = (userId: string) => {
       // Handle HealthProviderError with specific error codes
       if (isHealthProviderError(err)) {
         const platform = HealthProviderFactory.getPlatform();
-        const platformName = platform === 'apple' ? 'Apple Health' :
-                           platform === 'google' ? 'Google Health Connect' :
-                           'Fitbit';
+        const platformName =
+          platform === 'apple'
+            ? 'Apple Health'
+            : platform === 'google'
+              ? 'Google Health Connect'
+              : 'Fitbit';
 
         switch (err.code) {
           case HealthErrorCode.INITIALIZATION_FAILED:
-            setError(new Error(`Unable to initialize ${platformName}. Please check your device settings and try again.`));
+            setError(
+              new Error(
+                `Unable to initialize ${platformName}. Please check your device settings and try again.`
+              )
+            );
             break;
           case HealthErrorCode.PROVIDER_NOT_INITIALIZED:
-            setError(new Error(`${platformName} is not properly initialized. Please restart the app.`));
+            setError(
+              new Error(`${platformName} is not properly initialized. Please restart the app.`)
+            );
             break;
           case HealthErrorCode.INITIALIZATION_IN_PROGRESS:
             setError(new Error(`${platformName} is still initializing. Please wait...`));
@@ -163,7 +173,9 @@ export const useHealthData = (userId: string) => {
             setError(new Error(`${platformName} is not supported on your device.`));
             break;
           case HealthErrorCode.CLEANUP_FAILED:
-            setError(new Error(`Failed to cleanup ${platformName} connection. Please restart the app.`));
+            setError(
+              new Error(`Failed to cleanup ${platformName} connection. Please restart the app.`)
+            );
             break;
           default:
             setError(new Error(err.message));
@@ -174,7 +186,7 @@ export const useHealthData = (userId: string) => {
           code: err.code,
           message: err.message,
           details: err.details,
-          platform
+          platform,
         });
       } else if (err instanceof Error) {
         if (err.name === 'MetricsAuthError') {
@@ -182,7 +194,11 @@ export const useHealthData = (userId: string) => {
         } else if (err.message.includes('network') || err.message.includes('timeout')) {
           setError(new Error('Network error. Please check your connection and try again.'));
         } else if (err.message.includes('permission')) {
-          setError(new Error('Unable to access health data. Please check your permissions in device settings.'));
+          setError(
+            new Error(
+              'Unable to access health data. Please check your permissions in device settings.'
+            )
+          );
         } else {
           setError(new Error(err.message));
         }
@@ -200,16 +216,16 @@ export const useHealthData = (userId: string) => {
   // Sync on mount and cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
-    
+
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
       setLoadingState('idle');
       setIsInitialized(true);
       return;
     }
-    
+
     syncHealthData();
-    
+
     return () => {
       isMounted.current = false;
       if (providerRef.current?.cleanup) {
@@ -227,6 +243,6 @@ export const useHealthData = (userId: string) => {
     error,
     syncHealthData,
     isInitialized,
-    provider: providerRef.current // Expose provider for components that need direct access
+    provider: providerRef.current, // Expose provider for components that need direct access
   };
 };

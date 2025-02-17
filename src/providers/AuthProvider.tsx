@@ -40,19 +40,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
+  const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(
+    null
+  );
 
   useEffect(() => {
     // Check initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session ?? null);
       setUser(session?.user ?? null);
-      
+
       // Initialize health provider if user is logged in
       if (session?.user) {
         await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       }
-      
+
       console.log('[AuthProvider] Initial session check complete. Setting loading to false');
       setLoading(false);
     });
@@ -63,14 +65,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       // Handle health permissions on auth state change
       if (session?.user) {
         await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
       } else {
         setHealthPermissionStatus(null);
       }
-      
+
       console.log('[AuthProvider] Auth state changed:', { session, user: session?.user });
       setLoading(false);
     });
@@ -84,8 +86,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Handle user registration
    */
   const register = async (
-    email: string, 
-    password: string, 
+    email: string,
+    password: string,
     profile: {
       displayName: string;
       deviceType: 'os' | 'fitbit';
@@ -130,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[AuthProvider] Calling leaderboardService.updateUserProfile...');
           await leaderboardService.updateUserProfile(data.user.id, {
             ...profile,
-            avatar_url: avatarUrl
+            avatar_url: avatarUrl,
           });
           console.log('[AuthProvider] leaderboardService.updateUserProfile complete');
           console.log('[AuthProvider] User profile updated successfully');
@@ -146,20 +148,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthProvider] Calling supabase.auth.signInWithPassword...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
-          password
+          password,
         });
         console.log('[AuthProvider] supabase.auth.signInWithPassword complete');
-        
+
         if (signInError) {
           console.error('[AuthProvider] Auto-login failed:', signInError);
           throw signInError;
         }
-        
+
         console.log('[AuthProvider] Auto-login successful, initializing health provider');
-        
+
         // Initialize the appropriate health provider based on device type
         const provider = HealthProviderFactory.getProvider(profile.deviceType);
-        
+
         // If it's a Fitbit device, handle OAuth flow
         if (profile.deviceType === 'fitbit') {
           console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
@@ -168,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             throw new Error('Fitbit permissions not granted');
           }
         }
-        
+
         await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {
@@ -202,7 +204,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const provider = HealthProviderFactory.getProvider();
       const permissionState = await provider.checkPermissionsStatus();
       setHealthPermissionStatus(permissionState.status);
-
     } catch (err) {
       console.error('Login error:', err);
       setError(mapAuthError(err));
@@ -246,7 +247,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setUser(null);
       setHealthPermissionStatus(null);
-      
     } catch (err) {
       console.error('Logout error:', err);
       if (err instanceof Error && err.message.includes('42501')) {
@@ -281,7 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('[AuthProvider] Health permissions error:', err);
       let message = 'Failed to request health permissions';
-      
+
       if (err instanceof Error) {
         // Standardize error messages for consistent UI handling
         if (err.message.includes('not available')) {
@@ -292,7 +292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           message = err.message;
         }
       }
-      
+
       setError(message);
       setHealthPermissionStatus('denied');
       return 'denied';

@@ -9,13 +9,7 @@ module.exports = {
     'prettier',
   ],
   parser: '@typescript-eslint/parser',
-  plugins: [
-    '@typescript-eslint',
-    'react',
-    'react-native',
-    'react-hooks',
-    'prettier'
-  ],
+  plugins: ['@typescript-eslint', 'react', 'react-native', 'react-hooks', 'prettier'],
   parserOptions: {
     ecmaFeatures: {
       jsx: true,
@@ -45,10 +39,13 @@ module.exports = {
     {
       files: ['*.ts', '*.tsx'],
       rules: {
-        '@typescript-eslint/explicit-function-return-type': ['warn', {
-          allowExpressions: true,
-          allowTypedFunctionExpressions: true,
-        }],
+        '@typescript-eslint/explicit-function-return-type': [
+          'warn',
+          {
+            allowExpressions: true,
+            allowTypedFunctionExpressions: true,
+          },
+        ],
       },
     },
     {

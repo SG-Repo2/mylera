@@ -38,7 +38,9 @@ export default function LoginScreen() {
         router.replace('/(onboarding)/health-setup');
       } else if (healthPermissionStatus === 'denied') {
         // User has explicitly denied health permissions
-        setLocalError('Health permissions are required to use this app. Please enable them in your device settings.');
+        setLocalError(
+          'Health permissions are required to use this app. Please enable them in your device settings.'
+        );
       } else {
         // Health permissions are granted, proceed to main app
         router.replace('/(app)/(home)');
@@ -69,11 +71,7 @@ export default function LoginScreen() {
         secureTextEntry
       />
 
-      {loading ? (
-        <ActivityIndicator />
-      ) : (
-        <Button title="Sign In" onPress={handleLogin} />
-      )}
+      {loading ? <ActivityIndicator /> : <Button title="Sign In" onPress={handleLogin} />}
 
       <Button
         title="Don't have an account? Register"
@@ -89,21 +87,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 16,
   },
-  title: {
-    fontSize: 24,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  input: {
-    height: 40,
-    borderColor: 'gray',
-    borderWidth: 1,
-    marginBottom: 12,
-    paddingHorizontal: 8,
-  },
   errorText: {
     color: 'red',
     marginBottom: 8,
+    textAlign: 'center',
+  },
+  input: {
+    borderColor: 'gray',
+    borderWidth: 1,
+    height: 40,
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+  title: {
+    fontSize: 24,
+    marginBottom: 16,
     textAlign: 'center',
   },
 });

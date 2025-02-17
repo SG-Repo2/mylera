@@ -1,11 +1,11 @@
 import { supabase } from './supabaseClient';
 import { PostgrestResponse } from '@supabase/supabase-js';
-import { 
-  LeaderboardEntry, 
+import {
+  LeaderboardEntry,
   DailyTotal,
   WeeklyTotal,
   UserProfile,
-  LeaderboardTimeframe
+  LeaderboardTimeframe,
 } from '@/src/types/leaderboard';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import type { MetricType } from '@/src/types/metrics';
@@ -37,13 +37,17 @@ function getWeekStart(date: Date): string {
 }
 
 export const leaderboardService = {
-  subscribeToLeaderboard(date: string, timeframe: LeaderboardTimeframe, onUpdate: (entries: LeaderboardEntry[]) => void) {
+  subscribeToLeaderboard(
+    date: string,
+    timeframe: LeaderboardTimeframe,
+    onUpdate: (entries: LeaderboardEntry[]) => void
+  ) {
     console.log(`Setting up ${timeframe} leaderboard subscription for date:`, date);
-    
+
     const table = timeframe === 'daily' ? 'daily_totals' : 'weekly_totals';
     const dateField = timeframe === 'daily' ? 'date' : 'week_start';
     const dateValue = timeframe === 'daily' ? date : getWeekStart(new Date(date));
-    
+
     return supabase
       .channel(`${timeframe}-leaderboard-${date}`)
       .on(
@@ -56,20 +60,21 @@ export const leaderboardService = {
         },
         async () => {
           // Fetch updated data when changes occur
-          const entries = timeframe === 'daily' 
-            ? await this.getDailyLeaderboard(date)
-            : await this.getWeeklyLeaderboard(date);
+          const entries =
+            timeframe === 'daily'
+              ? await this.getDailyLeaderboard(date)
+              : await this.getWeeklyLeaderboard(date);
           onUpdate(entries);
         }
       )
-      .subscribe((status) => {
+      .subscribe(status => {
         console.log(`${timeframe} leaderboard subscription status:`, status);
       });
   },
 
   async getDailyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
     console.log('Fetching daily leaderboard for date:', date);
-    
+
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
@@ -86,11 +91,11 @@ export const leaderboardService = {
       });
 
       // Calculate points using the same function as Dashboard
-      const userPoints = new Map<string, { total: number, completed: number }>();
+      const userPoints = new Map<string, { total: number; completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
           total: calculateTotalPoints(metrics),
-          completed: metrics.length
+          completed: metrics.length,
         });
       });
 
@@ -112,7 +117,7 @@ export const leaderboardService = {
             total_points: points.total,
             metrics_completed: points.completed,
             rank: index + 1,
-            show: profile?.show_profile !== false
+            show: profile?.show_profile !== false,
           };
         })
         .sort((a, b) => b.total_points - a.total_points)
@@ -228,7 +233,7 @@ export const leaderboardService = {
         .upload(filePath, blob, {
           contentType: `image/${fileExt}`,
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
         });
 
       if (uploadError) {
@@ -241,9 +246,7 @@ export const leaderboardService = {
       }
 
       // Get the public URL
-      const { data: urlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
       if (!urlData?.publicUrl) {
         throw new Error('Failed to get public URL for uploaded avatar');
@@ -262,7 +265,7 @@ export const leaderboardService = {
   async getWeeklyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
     console.log('Fetching weekly leaderboard for date:', date);
     const weekStart = getWeekStart(new Date(date));
-    
+
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
@@ -280,11 +283,11 @@ export const leaderboardService = {
       });
 
       // Calculate points using the same function as Dashboard
-      const userPoints = new Map<string, { total: number, completed: number }>();
+      const userPoints = new Map<string, { total: number; completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
           total: calculateTotalPoints(metrics),
-          completed: metrics.length
+          completed: metrics.length,
         });
       });
 
@@ -306,7 +309,7 @@ export const leaderboardService = {
             total_points: points.total,
             metrics_completed: points.completed,
             rank: index + 1,
-            show: profile?.show_profile !== false
+            show: profile?.show_profile !== false,
           };
         })
         .sort((a, b) => b.total_points - a.total_points)

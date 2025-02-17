@@ -8,7 +8,7 @@ import {
   Platform,
   StatusBar,
   Text,
-  useWindowDimensions
+  useWindowDimensions,
 } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 import { PaperProvider } from 'react-native-paper';
@@ -29,7 +29,7 @@ function ProtectedRoutes() {
     console.log('[ProtectedRoutes] Navigation check triggered:', {
       loading,
       hasSession: !!session,
-      pathname
+      pathname,
     });
 
     if (!loading) {
@@ -41,7 +41,11 @@ function ProtectedRoutes() {
           console.log('[ProtectedRoutes] No session on unprotected route, allowing access');
         }
       } else {
-        if (pathname === '/' || pathname.startsWith('/(auth)') || pathname.startsWith('/(onboarding)')) {
+        if (
+          pathname === '/' ||
+          pathname.startsWith('/(auth)') ||
+          pathname.startsWith('/(onboarding)')
+        ) {
           console.log('[ProtectedRoutes] Session exists on auth/root route, redirecting to home');
           router.replace('/(app)/(home)');
         } else {
@@ -55,15 +59,10 @@ function ProtectedRoutes() {
 
   if (loading) {
     return (
-      <SafeAreaView 
-        style={[
-          styles.loaderContainer, 
-          { backgroundColor: theme.colors.background }
-        ]}
-      >
-        <ActivityIndicator 
-          size={Platform.OS === 'ios' ? 'large' : 48} 
-          color={theme.colors.primary} 
+      <SafeAreaView style={[styles.loaderContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator
+          size={Platform.OS === 'ios' ? 'large' : 48}
+          color={theme.colors.primary}
         />
       </SafeAreaView>
     );
@@ -80,13 +79,13 @@ export default function RootLayout() {
           barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
           backgroundColor={theme.colors.background}
         />
-        <SafeAreaView 
+        <SafeAreaView
           style={[
-            styles.container, 
-            { 
+            styles.container,
+            {
               backgroundColor: theme.colors.background,
-              paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0
-            }
+              paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0,
+            },
           ]}
         >
           <ProtectedRoutes />

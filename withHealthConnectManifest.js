@@ -1,12 +1,11 @@
 const { withAndroidManifest } = require('@expo/config-plugins');
 
-const withHealthConnectManifest = (config) => {
-  return withAndroidManifest(config, (config) => {
+const withHealthConnectManifest = config => {
+  return withAndroidManifest(config, config => {
     const manifest = config.modResults;
     if (manifest && manifest.application && manifest.application[0]) {
       const mainActivity = manifest.application[0].activity.find(
-        (activity) =>
-          activity['$'] && activity['$']['android:name'] === '.MainActivity'
+        activity => activity['$'] && activity['$']['android:name'] === '.MainActivity'
       );
       if (mainActivity) {
         if (!mainActivity['intent-filter']) {
@@ -23,17 +22,12 @@ const withHealthConnectManifest = (config) => {
 
         // Add deep linking intent filter for both schemes
         mainActivity['intent-filter'].push({
-          action: [
-            { $: { 'android:name': 'android.intent.action.VIEW' } }
-          ],
+          action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
           category: [
             { $: { 'android:name': 'android.intent.category.DEFAULT' } },
-            { $: { 'android:name': 'android.intent.category.BROWSABLE' } }
+            { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
           ],
-          data: [
-            { $: { 'android:scheme': 'mylera' } },
-            { $: { 'android:scheme': 'exp+mylera' } }
-          ]
+          data: [{ $: { 'android:scheme': 'mylera' } }, { $: { 'android:scheme': 'exp+mylera' } }],
         });
       }
     }

@@ -60,11 +60,7 @@ export interface HealthProvider {
    * @returns Raw health data organized by metric type
    * @throws {Error} If data fetching fails
    */
-  fetchRawMetrics(
-    startDate: Date,
-    endDate: Date,
-    types: MetricType[]
-  ): Promise<RawHealthData>;
+  fetchRawMetrics(startDate: Date, endDate: Date, types: MetricType[]): Promise<RawHealthData>;
 
   /**
    * Normalize raw health data into a standardized format.
@@ -72,10 +68,7 @@ export interface HealthProvider {
    * @param type - Type of metric to normalize
    * @returns Array of normalized metrics
    */
-  normalizeMetrics(
-    rawData: RawHealthData,
-    type: MetricType
-  ): NormalizedMetric[];
+  normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[];
 
   /**
    * Get aggregated health metrics for the current day.

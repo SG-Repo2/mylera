@@ -46,7 +46,10 @@ describe('useHealthData', () => {
 
   it('should initialize and sync health data on mount', async () => {
     // Setup mock implementations
-    mockProvider.checkPermissionsStatus.mockResolvedValue({ status: 'granted', lastChecked: Date.now() });
+    mockProvider.checkPermissionsStatus.mockResolvedValue({
+      status: 'granted',
+      lastChecked: Date.now(),
+    });
     mockProvider.getMetrics.mockResolvedValue({
       id: '',
       user_id: '',
@@ -87,7 +90,10 @@ describe('useHealthData', () => {
 
   it('should handle permission denial', async () => {
     // Setup mock to simulate permission denial
-    mockProvider.checkPermissionsStatus.mockResolvedValue({ status: 'not_determined', lastChecked: Date.now() });
+    mockProvider.checkPermissionsStatus.mockResolvedValue({
+      status: 'not_determined',
+      lastChecked: Date.now(),
+    });
     mockProvider.requestPermissions.mockResolvedValue('denied');
 
     // Render the hook
@@ -106,15 +112,18 @@ describe('useHealthData', () => {
 
   it('should cleanup on unmount', () => {
     const { unmount } = renderHook(() => useHealthData(mockProvider, mockUserId));
-    
+
     unmount();
-    
+
     expect(mockProvider.cleanup).toHaveBeenCalled();
   });
 
   it('should allow manual sync', async () => {
     // Setup initial state
-    mockProvider.checkPermissionsStatus.mockResolvedValue({ status: 'granted', lastChecked: Date.now() });
+    mockProvider.checkPermissionsStatus.mockResolvedValue({
+      status: 'granted',
+      lastChecked: Date.now(),
+    });
     const mockMetrics = {
       id: '',
       user_id: '',

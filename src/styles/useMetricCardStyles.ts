@@ -3,12 +3,21 @@ import { useTheme, MD3Theme } from 'react-native-paper';
 
 const createStyles = (theme: MD3Theme) =>
   StyleSheet.create({
-    cardWrapper: {
-      minHeight: 160,
-      aspectRatio: 1,
+    cardContent: {
+      gap: 10,
+      height: '100%',
+      justifyContent: 'space-between',
+      padding: 14,
+    },
+    cardContentWrapper: {
+      backgroundColor: 'transparent',
+      borderRadius: 20,
+      height: '100%',
+      overflow: 'hidden',
     },
     cardShadowWrapper: {
       borderRadius: 20,
+      elevation: 3,
       height: '100%',
       shadowColor: '#000',
       shadowOffset: {
@@ -17,16 +26,19 @@ const createStyles = (theme: MD3Theme) =>
       },
       shadowOpacity: 0.1,
       shadowRadius: 4,
-      elevation: 3,
     },
-    cardContentWrapper: {
+    cardWrapper: {
+      aspectRatio: 1,
+      minHeight: 160,
+    },
+    detailCardContent: {
+      backgroundColor: 'transparent',
       borderRadius: 20,
       overflow: 'hidden',
-      height: '100%',
-      backgroundColor: 'transparent',
     },
     detailCardShadow: {
       borderRadius: 20,
+      elevation: 3,
       marginHorizontal: 16,
       marginVertical: 8,
       shadowColor: '#000',
@@ -36,26 +48,10 @@ const createStyles = (theme: MD3Theme) =>
       },
       shadowOpacity: 0.1,
       shadowRadius: 4,
-      elevation: 3,
-    },
-    detailCardContent: {
-      borderRadius: 20,
-      overflow: 'hidden',
-      backgroundColor: 'transparent',
-    },
-    ripple: {
-      borderRadius: 20,
-      height: '100%',
-    },
-    cardContent: {
-      padding: 14,
-      gap: 10,
-      height: '100%',
-      justifyContent: 'space-between',
     },
     headerRow: {
-      flexDirection: 'row',
       alignItems: 'center',
+      flexDirection: 'row',
       gap: 10,
     },
     iconContainer: {
@@ -74,47 +70,51 @@ const createStyles = (theme: MD3Theme) =>
       shadowRadius: 3,
       elevation: 4,
     },
-    title: {
-      flex: 1,
-      fontSize: 15,
-      fontWeight: '600',
+    pointsText: {
+      fontSize: 12,
+      fontWeight: '500',
+      opacity: 0.7,
+      textAlign: 'right',
     },
-    valueContainer: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      gap: 6,
-    },
-    value: {
-      fontWeight: '700',
-      fontSize: 28,
-    },
-    unit: {
-      fontWeight: '600',
-      opacity: 0.8,
+    progressBar: {
+      backgroundColor: 'rgba(0,0,0,0.05)',
+      borderRadius: 3,
+      height: 6,
     },
     progressContainer: {
       gap: 6,
-    },
-    progressBar: {
-      height: 6,
-      backgroundColor: 'rgba(0,0,0,0.05)',
-      borderRadius: 3,
     },
     progressInfo: {
       flexDirection: 'column',
       gap: 4,
     },
     progressText: {
-      textAlign: 'right',
       fontSize: 12,
       opacity: 0.7,
+      textAlign: 'right',
     },
-    pointsText: {
-      textAlign: 'right',
-      fontSize: 12,
-      opacity: 0.7,
-      fontWeight: '500',
-    }
+    ripple: {
+      borderRadius: 20,
+      height: '100%',
+    },
+    title: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    unit: {
+      fontWeight: '600',
+      opacity: 0.8,
+    },
+    value: {
+      fontSize: 28,
+      fontWeight: '700',
+    },
+    valueContainer: {
+      alignItems: 'baseline',
+      flexDirection: 'row',
+      gap: 6,
+    },
   });
 
 export const useMetricCardStyles = () => {

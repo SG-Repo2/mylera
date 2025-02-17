@@ -37,18 +37,20 @@ export const MetricCard = React.memo(function MetricCard({
   color,
   onPress,
   showAlert,
-  measurementSystem: propMeasurementSystem
+  measurementSystem: propMeasurementSystem,
 }: MetricCardProps) {
   const styles = useMetricCardStyles();
   const theme = useTheme();
   const { user } = useAuth();
-  const measurementSystem = propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
-  
+  const measurementSystem =
+    propMeasurementSystem ||
+    ((user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem);
+
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
   const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
   const percentage = Math.round(progress * 100);
-  
+
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
   const glowAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -65,7 +67,7 @@ export const MetricCard = React.memo(function MetricCard({
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   }, [scaleAnim, glowAnim]);
 
@@ -82,7 +84,7 @@ export const MetricCard = React.memo(function MetricCard({
         toValue: 0,
         duration: 300,
         useNativeDriver: true,
-      })
+      }),
     ]).start();
   }, [scaleAnim, glowAnim]);
 
@@ -95,35 +97,32 @@ export const MetricCard = React.memo(function MetricCard({
       return '(1 per)';
     }
     if (increment < 1) {
-      return `(${Math.round(1/increment)} per)`;
+      return `(${Math.round(1 / increment)} per)`;
     }
     return `(1 per ${increment})`;
   };
 
   return (
-    <Animated.View 
+    <Animated.View
       style={[
         styles.cardWrapper,
         {
           transform: [{ scale: scaleAnim }],
           shadowOpacity: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.1, 0.25]
+            outputRange: [0.1, 0.25],
           }),
           shadowColor: color,
           shadowOffset: { width: 0, height: 2 },
           shadowRadius: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [4, 8]
+            outputRange: [4, 8],
           }),
-        }
+        },
       ]}
     >
-      <Surface 
-        style={[
-          styles.cardShadowWrapper, 
-          { backgroundColor: theme.colors.surface }
-        ]} 
+      <Surface
+        style={[styles.cardShadowWrapper, { backgroundColor: theme.colors.surface }]}
         elevation={2}
       >
         <View style={styles.cardContentWrapper}>
@@ -139,31 +138,42 @@ export const MetricCard = React.memo(function MetricCard({
                 <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
                   <MaterialCommunityIcons name={icon} size={24} color="white" />
                 </Surface>
-                <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
+                <Text
+                  variant="labelLarge"
+                  style={[styles.title, { color: theme.colors.onSurface }]}
+                >
                   {title}
                 </Text>
               </View>
-              
+
               <View style={styles.valueContainer}>
-                <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                <Text
+                  variant="displaySmall"
+                  style={[styles.value, { color: theme.colors.onSurface }]}
+                >
                   {formattedValue}
                 </Text>
-                <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
+                <Text
+                  variant="labelMedium"
+                  style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}
+                >
                   {displayUnit}
                 </Text>
               </View>
 
               <View style={styles.progressContainer}>
-                <ProgressBar
-                  progress={progress}
-                  color={color}
-                  style={styles.progressBar}
-                />
+                <ProgressBar progress={progress} color={color} style={styles.progressBar} />
                 <View style={styles.progressInfo}>
-                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text
+                    variant="labelSmall"
+                    style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}
+                  >
                     {percentage}% of goal
                   </Text>
-                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text
+                    variant="labelSmall"
+                    style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}
+                  >
                     {points} pts {getPointsText()} {displayUnit}
                   </Text>
                 </View>

@@ -4,7 +4,7 @@ export async function verifyHealthPermission(
 ): Promise<boolean> {
   try {
     const permissionState = await provider.checkPermissionsStatus();
-    
+
     if (permissionState.status !== 'granted') {
       console.warn(`[HealthProvider] Permission not granted for ${permissionType}`);
       return false;

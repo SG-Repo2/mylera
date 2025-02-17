@@ -7,5 +7,5 @@ export const HEALTH_PERMISSIONS: Permission[] = [
   { accessType: 'read', recordType: 'HeartRate' },
   { accessType: 'read', recordType: 'FloorsClimbed' },
   { accessType: 'read', recordType: 'BasalMetabolicRate' },
-  { accessType: 'read', recordType: 'ExerciseSession' }
+  { accessType: 'read', recordType: 'ExerciseSession' },
 ];

@@ -30,7 +30,7 @@ function generatePoints(): number {
 
 async function updateDailyTotals(userIds: string[]) {
   console.log(`Updating daily totals for ${userIds.length} users...`);
-  
+
   // First, delete all test data
   const { error: deleteError } = await supabase
     .from('daily_totals')
@@ -47,10 +47,10 @@ async function updateDailyTotals(userIds: string[]) {
   const dailyTotals = userIds.map((userId, index) => {
     // Base score between 50-150
     const baseScore = 50 + Math.floor(Math.random() * 100);
-    
+
     // Add some variation but keep top users slightly ahead
     const positionBonus = Math.max(0, Math.floor((userIds.length - index) / 2));
-    
+
     return {
       user_id: userId,
       date: TEST_DATE,
@@ -58,7 +58,7 @@ async function updateDailyTotals(userIds: string[]) {
       metrics_completed: Math.floor(Math.random() * 4) + 1, // 1-4 metrics completed
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      is_test_data: false
+      is_test_data: false,
     };
   });
 
@@ -66,12 +66,10 @@ async function updateDailyTotals(userIds: string[]) {
   dailyTotals.sort((a, b) => b.total_points - a.total_points);
 
   // Use upsert to handle both insert and update cases
-  const { error } = await supabase
-    .from('daily_totals')
-    .upsert(dailyTotals, {
-      onConflict: 'user_id,date',
-      ignoreDuplicates: false
-    });
+  const { error } = await supabase.from('daily_totals').upsert(dailyTotals, {
+    onConflict: 'user_id,date',
+    ignoreDuplicates: false,
+  });
 
   if (error) {
     console.error('Error updating daily totals:', error);
@@ -79,21 +77,19 @@ async function updateDailyTotals(userIds: string[]) {
   }
 
   console.log('Successfully updated daily totals with realistic values');
-  
+
   // Log the top 5 scores for verification
   console.log('\nTop 5 Scores:');
-  dailyTotals
-    .slice(0, 5)
-    .forEach((total, i) => {
-      console.log(`${i + 1}. ${total.total_points} points (${total.metrics_completed} metrics completed)`);
-    });
+  dailyTotals.slice(0, 5).forEach((total, i) => {
+    console.log(
+      `${i + 1}. ${total.total_points} points (${total.metrics_completed} metrics completed)`
+    );
+  });
 }
 async function verifyAndFixData() {
   // First check user profiles
-  const { data: profiles, error: profileError } = await supabase
-    .from('user_profiles')
-    .select('*');
-  
+  const { data: profiles, error: profileError } = await supabase.from('user_profiles').select('*');
+
   if (profileError) throw profileError;
   console.log(`Found ${profiles.length} user profiles`);
 
@@ -101,7 +97,10 @@ async function verifyAndFixData() {
   const { error: updateError } = await supabase
     .from('user_profiles')
     .update({ show_profile: true })
-    .in('id', profiles.map(p => p.id));
+    .in(
+      'id',
+      profiles.map(p => p.id)
+    );
 
   if (updateError) throw updateError;
   console.log('Updated all profiles to be visible');
@@ -114,22 +113,17 @@ async function verifyAndFixData() {
     metrics_completed: Math.floor(Math.random() * 5) + 1,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    is_test_data: false  // Set to false to bypass RLS policy
+    is_test_data: false, // Set to false to bypass RLS policy
   }));
 
   // Clear existing totals
-  const { error: deleteError } = await supabase
-    .from('daily_totals')
-    .delete()
-    .eq('date', TEST_DATE);
+  const { error: deleteError } = await supabase.from('daily_totals').delete().eq('date', TEST_DATE);
 
   if (deleteError) throw deleteError;
   console.log('Cleared existing daily totals');
 
   // Insert new totals
-  const { error: insertError } = await supabase
-    .from('daily_totals')
-    .insert(dailyTotals);
+  const { error: insertError } = await supabase.from('daily_totals').insert(dailyTotals);
 
   if (insertError) throw insertError;
   console.log('Inserted new daily totals');
@@ -137,26 +131,28 @@ async function verifyAndFixData() {
   // Verify the results
   const { data: finalTotals, error: verifyError } = await supabase
     .from('daily_totals')
-    .select(`
+    .select(
+      `
       *,
       user_profiles (
         id,
         display_name,
         show_profile
       )
-    `)
+    `
+    )
     .eq('date', TEST_DATE);
 
   if (verifyError) throw verifyError;
   console.log('Final daily totals:', finalTotals);
 }
 
-
 async function verifyDataPersistence() {
   // Check user profiles
   const { data: profiles, error: profileError } = await supabase
     .from('user_profiles')
-    .select(`
+    .select(
+      `
       id,
       display_name,
       show_profile,
@@ -165,7 +161,8 @@ async function verifyDataPersistence() {
         metrics_completed,
         is_test_data
       )
-    `)
+    `
+    )
     .eq('daily_totals.date', TEST_DATE);
 
   if (profileError) throw profileError;
@@ -184,7 +181,6 @@ async function verifyDataPersistence() {
   });
 }
 
-
 async function main() {
   try {
     // First verify database connection
@@ -192,7 +188,7 @@ async function main() {
     const { data: testData, error: testError } = await supabase
       .from('user_profiles')
       .select('count');
-      
+
     if (testError) throw testError;
     console.log('Successfully connected to Supabase');
 

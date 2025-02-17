@@ -1,5 +1,10 @@
 import { BaseHealthProvider } from '../../types/provider';
-import type { HealthMetrics, RawHealthData, RawHealthMetric, NormalizedMetric } from '../../types/metrics';
+import type {
+  HealthMetrics,
+  RawHealthData,
+  RawHealthMetric,
+  NormalizedMetric,
+} from '../../types/metrics';
 import { METRIC_UNITS } from '../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
 import type { PermissionState, PermissionStatus } from '../../types/permissions';
@@ -11,7 +16,7 @@ import { supabase } from '../../../../services/supabaseClient';
 const STORAGE_KEY = {
   ACCESS_TOKEN: 'fitbit_access_token',
   REFRESH_TOKEN: 'fitbit_refresh_token',
-  TOKEN_EXPIRY: 'fitbit_token_expiry'
+  TOKEN_EXPIRY: 'fitbit_token_expiry',
 };
 
 export class FitbitHealthProvider extends BaseHealthProvider {
@@ -61,7 +66,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       });
 
       const result = await request.promptAsync(discovery);
-      
+
       if (result.type === 'success' && result.params.code) {
         // Exchange code for token using Supabase Edge Function
         const { data, error } = await supabase.functions.invoke('fitbit-token-exchange', {
@@ -84,7 +89,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
 
         this.accessToken = data.access_token;
         this.refreshToken = data.refresh_token;
-        this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+        this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
 
         if (this.permissionManager) {
           await this.permissionManager.updatePermissionState('granted');
@@ -123,7 +128,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
 
       this.accessToken = data.access_token;
       this.refreshToken = data.refresh_token;
-      this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+      this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     } catch (error) {
       throw new Error(`Failed to refresh token: ${error}`);
     }
@@ -160,7 +165,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${this.accessToken}`,
+        Authorization: `Bearer ${this.accessToken}`,
       },
     });
     if (!response.ok) {
@@ -175,14 +180,13 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    * For simplicity, this implementation assumes that the startDate and endDate
    * fall on the same day. Fitbit’s daily endpoints are used to fetch raw metrics.
    */
-  async fetchRawMetrics(
-    startDate: Date,
-    endDate: Date,
-    types: string[]
-  ): Promise<RawHealthData> {
+  async fetchRawMetrics(startDate: Date, endDate: Date, types: string[]): Promise<RawHealthData> {
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
-      throw new HealthProviderPermissionError('Fitbit', 'Permission not granted for Fitbit data access');
+      throw new HealthProviderPermissionError(
+        'Fitbit',
+        'Permission not granted for Fitbit data access'
+      );
     }
     await this.ensureInitialized();
 
@@ -191,7 +195,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     const rawData: RawHealthData = {};
 
     await Promise.all(
-      types.map(async (type) => {
+      types.map(async type => {
         switch (type) {
           case 'steps':
             rawData.steps = await this.fetchStepsRaw(dateStr);
@@ -233,7 +237,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
         endDate: `${item.dateTime}T23:59:59.999Z`,
         value: Number(item.value),
         unit: 'count',
-        sourceBundle: 'com.fitbit.api'
+        sourceBundle: 'com.fitbit.api',
       }));
     }
     return [];
@@ -249,7 +253,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
         endDate: `${item.dateTime}T23:59:59.999Z`,
         value: Number(item.value),
         unit: METRIC_UNITS.DISTANCE,
-        sourceBundle: 'com.fitbit.api'
+        sourceBundle: 'com.fitbit.api',
       }));
     }
     return [];
@@ -265,7 +269,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
         endDate: `${item.dateTime}T23:59:59.999Z`,
         value: Number(item.value),
         unit: METRIC_UNITS.CALORIES,
-        sourceBundle: 'com.fitbit.api'
+        sourceBundle: 'com.fitbit.api',
       }));
     }
     return [];
@@ -282,7 +286,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
         // Here we use restingHeartRate if available; otherwise default to 0.
         value: item.value.restingHeartRate ? Number(item.value.restingHeartRate) : 0,
         unit: METRIC_UNITS.HEART_RATE,
-        sourceBundle: 'com.fitbit.api'
+        sourceBundle: 'com.fitbit.api',
       }));
     }
     return [];
@@ -291,37 +295,43 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   private async fetchBasalCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
     // Fitbit does not provide a direct endpoint for basal calories.
     // Return a placeholder (zero value) for now.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.CALORIES,
-      sourceBundle: 'com.fitbit.api'
-    }];
+    return [
+      {
+        startDate: `${dateStr}T00:00:00.000Z`,
+        endDate: `${dateStr}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.CALORIES,
+        sourceBundle: 'com.fitbit.api',
+      },
+    ];
   }
 
   private async fetchFlightsClimbedRaw(dateStr: string): Promise<RawHealthMetric[]> {
     // There is no direct Fitbit endpoint for flights climbed.
     // Return a placeholder (zero value) for now.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.COUNT,
-      sourceBundle: 'com.fitbit.api'
-    }];
+    return [
+      {
+        startDate: `${dateStr}T00:00:00.000Z`,
+        endDate: `${dateStr}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.COUNT,
+        sourceBundle: 'com.fitbit.api',
+      },
+    ];
   }
 
   private async fetchExerciseRaw(dateStr: string): Promise<RawHealthMetric[]> {
     // For this example, we assume no dedicated exercise endpoint.
     // You might consider using "active minutes" or another metric.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.EXERCISE,
-      sourceBundle: 'com.fitbit.api'
-    }];
+    return [
+      {
+        startDate: `${dateStr}T00:00:00.000Z`,
+        endDate: `${dateStr}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.EXERCISE,
+        sourceBundle: 'com.fitbit.api',
+      },
+    ];
   }
 
   /**
@@ -334,72 +344,107 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     switch (type) {
       case 'steps':
         if (rawData.steps) {
-          metrics.push(...rawData.steps.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.STEPS,
-            type: 'steps'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.steps.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.STEPS,
+                  type: 'steps',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'distance':
         if (rawData.distance) {
-          metrics.push(...rawData.distance.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.DISTANCE,
-            type: 'distance'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.distance.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.DISTANCE,
+                  type: 'distance',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'calories':
         if (rawData.calories) {
-          metrics.push(...rawData.calories.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.CALORIES,
-            type: 'calories'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.calories.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.CALORIES,
+                  type: 'calories',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'heart_rate':
         if (rawData.heart_rate) {
-          metrics.push(...rawData.heart_rate.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.HEART_RATE,
-            type: 'heart_rate'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.heart_rate.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.HEART_RATE,
+                  type: 'heart_rate',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'basal_calories':
         if (rawData.basal_calories) {
-          metrics.push(...rawData.basal_calories.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.CALORIES,
-            type: 'basal_calories'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.basal_calories.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.CALORIES,
+                  type: 'basal_calories',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'flights_climbed':
         if (rawData.flights_climbed) {
-          metrics.push(...rawData.flights_climbed.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.COUNT,
-            type: 'flights_climbed'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.flights_climbed.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.COUNT,
+                  type: 'flights_climbed',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
       case 'exercise':
         if (rawData.exercise) {
-          metrics.push(...rawData.exercise.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.EXERCISE,
-            type: 'exercise'
-          } as NormalizedMetric)));
+          metrics.push(
+            ...rawData.exercise.map(
+              raw =>
+                ({
+                  timestamp: raw.endDate,
+                  value: raw.value,
+                  unit: METRIC_UNITS.EXERCISE,
+                  type: 'exercise',
+                }) as NormalizedMetric
+            )
+          );
         }
         break;
     }
@@ -414,11 +459,15 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   async getMetrics(): Promise<HealthMetrics> {
     const now = new Date();
     const startOfDay = DateUtils.getStartOfDay(now);
-    const rawData = await this.fetchRawMetrics(
-      startOfDay,
-      now,
-      ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-    );
+    const rawData = await this.fetchRawMetrics(startOfDay, now, [
+      'steps',
+      'distance',
+      'calories',
+      'heart_rate',
+      'basal_calories',
+      'flights_climbed',
+      'exercise',
+    ]);
 
     const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
     const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));

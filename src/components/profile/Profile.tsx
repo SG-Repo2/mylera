@@ -67,7 +67,7 @@ export function Profile() {
           };
 
           await leaderboardService.updateUserProfile(user.id, defaultProfile);
-          
+
           // Retry loading the profile
           const newProfile = await leaderboardService.getUserProfile(user.id);
           if (newProfile) {
@@ -86,7 +86,9 @@ export function Profile() {
         if (err.message.includes('42501')) {
           setError(new Error('Unable to access profile. Please check your permissions.'));
         } else if (err.message.includes('PGRST200')) {
-          setError(new Error('Profile service is temporarily unavailable. Please try again later.'));
+          setError(
+            new Error('Profile service is temporarily unavailable. Please try again later.')
+          );
         } else {
           setError(err);
         }
@@ -125,11 +127,15 @@ export function Profile() {
         console.warn('Profile saved but reload failed:', reloadErr);
         // Don't throw here - the save was successful even if reload failed
         // Just update local state
-        setProfile(prev => prev ? {
-          ...prev,
-          display_name: trimmedName || null,
-          show_profile: showProfile,
-        } : null);
+        setProfile(prev =>
+          prev
+            ? {
+                ...prev,
+                display_name: trimmedName || null,
+                show_profile: showProfile,
+              }
+            : null
+        );
       }
     } catch (err) {
       console.error('Error saving profile:', err);
@@ -137,7 +143,9 @@ export function Profile() {
         if (err.message.includes('42501')) {
           setError(new Error('You do not have permission to update this profile.'));
         } else if (err.message.includes('PGRST200')) {
-          setError(new Error('Profile service is temporarily unavailable. Please try again later.'));
+          setError(
+            new Error('Profile service is temporarily unavailable. Please try again later.')
+          );
         } else {
           setError(err);
         }
@@ -160,10 +168,10 @@ export function Profile() {
 
   const handleAvatarUpdate = async () => {
     if (!user) return;
-    
+
     try {
       setLoading(true);
-      
+
       // Request permissions first
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -188,7 +196,7 @@ export function Profile() {
         try {
           // Upload the image
           const publicUrl = await leaderboardService.uploadAvatar(user.id, asset.uri);
-          
+
           if (!publicUrl) {
             throw new Error('Failed to get public URL for uploaded avatar');
           }
@@ -196,7 +204,7 @@ export function Profile() {
           // Update profile with new avatar URL
           await leaderboardService.updateUserProfile(user.id, {
             ...profile,
-            avatar_url: publicUrl
+            avatar_url: publicUrl,
           });
 
           // Reload profile
@@ -239,10 +247,7 @@ export function Profile() {
         <View style={styles.avatarSection}>
           <Pressable style={styles.avatarWrapper} onPress={handleAvatarUpdate}>
             {profile?.avatar_url ? (
-              <Image 
-                source={{ uri: profile.avatar_url }} 
-                style={styles.avatar}
-              />
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>
@@ -269,13 +274,8 @@ export function Profile() {
             />
           ) : (
             <View style={styles.displayNameContainer}>
-              <Text style={styles.displayName}>
-                {displayName || 'Anonymous User'}
-              </Text>
-              <Pressable
-                style={styles.editNameButton}
-                onPress={() => setEditingName(!editingName)}
-              >
+              <Text style={styles.displayName}>{displayName || 'Anonymous User'}</Text>
+              <Pressable style={styles.editNameButton} onPress={() => setEditingName(!editingName)}>
                 <MaterialCommunityIcons
                   name={editingName ? 'close' : 'pencil'}
                   size={20}
@@ -304,36 +304,38 @@ export function Profile() {
           <Text style={styles.settingLabel}>Use Imperial Units</Text>
           <Switch
             value={profile?.measurement_system === 'imperial'}
-            onValueChange={async (useImperial) => {
+            onValueChange={async useImperial => {
               if (profile && user) {
                 const newSystem = useImperial ? 'imperial' : 'metric';
                 try {
                   // Update Supabase profile
                   await leaderboardService.updateUserProfile(user.id, {
                     ...profile,
-                    measurement_system: newSystem
+                    measurement_system: newSystem,
                   });
-                  
+
                   // Update local state
                   setProfile({
                     ...profile,
-                    measurement_system: newSystem
+                    measurement_system: newSystem,
                   });
-                  
+
                   // Update user metadata through Supabase
                   const { error: updateError } = await supabase.auth.updateUser({
-                    data: { measurementSystem: newSystem }
+                    data: { measurementSystem: newSystem },
                   });
-                  
+
                   if (updateError) {
                     throw updateError;
                   }
-                  
+
                   // Reload profile to ensure consistency
                   loadProfile();
                 } catch (err) {
                   console.error('Error updating measurement system:', err);
-                  setError(err instanceof Error ? err : new Error('Failed to update measurement system'));
+                  setError(
+                    err instanceof Error ? err : new Error('Failed to update measurement system')
+                  );
                 }
               }
             }}
@@ -366,12 +368,7 @@ export function Profile() {
         </Pressable>
 
         <Pressable style={styles.signOutButton} onPress={handleSignOut}>
-          <MaterialCommunityIcons
-            name="logout"
-            size={20}
-            color="#FFF"
-            style={styles.buttonIcon}
-          />
+          <MaterialCommunityIcons name="logout" size={20} color="#FFF" style={styles.buttonIcon} />
           <Text style={styles.buttonText}>Sign Out</Text>
         </Pressable>
       </View>
@@ -380,21 +377,103 @@ export function Profile() {
 }
 
 const styles = StyleSheet.create({
-  settingBorder: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+  avatar: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 45,
+    height: 90,
+    width: 90,
+  },
+  avatarPlaceholder: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: 45,
+    height: 90,
+    justifyContent: 'center',
+    width: 90,
+  },
+  avatarSection: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness,
+    elevation: 1,
+    marginBottom: spacing.xl,
+    padding: spacing.lg,
+  },
+  avatarText: {
+    ...theme.fonts.headlineMedium,
+    color: theme.colors.onPrimary,
+  },
+  avatarWrapper: {
+    position: 'relative',
+  },
+  buttonContainer: {
+    gap: spacing.sm,
+    paddingHorizontal: 16,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonIcon: {
+    marginRight: spacing.sm,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  centered: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
   },
   container: {
-    flex: 1,
     backgroundColor: theme.colors.background,
+    flex: 1,
   },
   contentContainer: {
     paddingBottom: 40,
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
+  displayName: {
+    ...theme.fonts.titleLarge,
+    color: theme.colors.onSurface,
+  },
+  displayNameContainer: {
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+  },
+  editAvatarButton: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: 16,
+    bottom: 0,
+    height: 32,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 0,
+    width: 32,
+  },
+  editNameButton: {
+    marginLeft: 8,
+    padding: 8,
+  },
+  email: {
+    ...theme.fonts.bodyLarge,
+    color: theme.colors.onSurfaceVariant,
+  },
+  errorText: {
+    ...theme.fonts.bodySmall,
+    color: theme.colors.error,
+    marginTop: spacing.xs,
+  },
+  form: {
+    gap: spacing.md,
   },
   header: {
     marginBottom: spacing.xl,
@@ -403,157 +482,75 @@ const styles = StyleSheet.create({
     ...theme.fonts.headlineMedium,
     color: theme.colors.onBackground,
   },
-  errorText: {
-    ...theme.fonts.bodySmall,
-    color: theme.colors.error,
-    marginTop: spacing.xs,
+  input: {
+    ...theme.fonts.titleLarge,
+    borderBottomColor: theme.colors.primary,
+    borderBottomWidth: 2,
+    color: theme.colors.onSurface,
+    minWidth: 200,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
-  section: {
-    marginBottom: spacing.xl,
+  nameSection: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    marginBottom: spacing.md,
+  },
+  profileCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.roundness,
-    padding: spacing.lg,
     elevation: 1,
+    marginBottom: 16,
+    marginHorizontal: 16,
+    padding: spacing.lg,
+  },
+  saveButton: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.roundness,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    padding: spacing.md,
+  },
+  section: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness,
+    elevation: 1,
+    marginBottom: spacing.xl,
+    padding: spacing.lg,
   },
   sectionTitle: {
     ...theme.fonts.titleLarge,
     color: theme.colors.onSurface,
     marginBottom: spacing.md,
   },
-  form: {
-    gap: spacing.md,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  profileCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: spacing.lg,
-    elevation: 1,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: spacing.lg,
-    elevation: 1,
-  },
-  avatarWrapper: {
-    position: 'relative',
-  },
-  avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: theme.colors.primary,
-  },
-  avatarPlaceholder: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    ...theme.fonts.headlineMedium,
-    color: theme.colors.onPrimary,
-  },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: theme.colors.primary,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  editNameButton: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  email: {
-    ...theme.fonts.bodyLarge,
-    color: theme.colors.onSurfaceVariant,
-  },
-  settingsCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    elevation: 1,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
+  settingBorder: {
+    borderTopColor: '#E5E7EB',
+    borderTopWidth: 1,
   },
   settingLabel: {
     ...theme.fonts.bodyLarge,
     color: theme.colors.onSurface,
   },
-  buttonContainer: {
-    paddingHorizontal: 16,
-    gap: spacing.sm,
-  },
-  saveButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.roundness,
-    padding: spacing.md,
-    flexDirection: 'row',
+  settingRow: {
     alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+  },
+  settingsCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness,
+    elevation: 1,
+    marginBottom: 16,
+    marginHorizontal: 16,
   },
   signOutButton: {
+    alignItems: 'center',
     backgroundColor: theme.colors.error,
     borderRadius: theme.roundness,
-    padding: spacing.md,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonIcon: {
-    marginRight: spacing.sm,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  displayNameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-  },
-  displayName: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
-  },
-  input: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
-    borderBottomWidth: 2,
-    borderBottomColor: theme.colors.primary,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    minWidth: 200,
+    padding: spacing.md,
   },
 });

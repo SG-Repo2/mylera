@@ -89,11 +89,11 @@ jest.mock('react-native', () => {
   mockAppState.addEventListener = jest.fn((event, callback) => {
     mockAppState.addListener(event, callback);
     return {
-      remove: jest.fn()
+      remove: jest.fn(),
     };
   });
 
-  const createMockComponent = (name) => {
+  const createMockComponent = name => {
     const Component = ({ children, testID, ...props }) => {
       return {
         $$typeof: Symbol.for('react.element'),
@@ -114,9 +114,9 @@ jest.mock('react-native', () => {
         if (obj.android) return obj.android;
         return obj.default;
       }),
-      setPlatform: function(platform) {
+      setPlatform: function (platform) {
         this.OS = platform;
-      }
+      },
     },
     NativeAnimatedHelper: {
       addListener: jest.fn(),
@@ -162,9 +162,10 @@ jest.mock('react-native', () => {
               const index = inputRange.findIndex(x => x >= input) - 1;
               if (index < 0) return outputRange[0];
               if (index >= inputRange.length - 1) return outputRange[outputRange.length - 1];
-              const progress = (input - inputRange[index]) / (inputRange[index + 1] - inputRange[index]);
+              const progress =
+                (input - inputRange[index]) / (inputRange[index + 1] - inputRange[index]);
               return outputRange[index] + progress * (outputRange[index + 1] - outputRange[index]);
-            }
+            },
           };
         }
 
@@ -241,7 +242,6 @@ jest.mock('react-native-paper', () => ({
 }));
 // Mock asset requires
 jest.mock('./assets/images/favicon.png', () => 'mocked-favicon-path', { virtual: true });
-
 
 // Mock theme
 jest.mock('./src/theme/theme', () => ({

@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { MetricType} from '../types/schemas';
+import type { MetricType } from '../types/schemas';
 import { healthMetrics } from '../config/healthMetrics';
 
 // Error class for authentication/authorization errors
@@ -30,13 +30,13 @@ export const metricsService = {
     const endDateTime = new Date(endDate);
     const startDateTime = new Date(endDate);
     startDateTime.setDate(startDateTime.getDate() - 6); // Get 7 days including end date
-    
+
     // Format dates in YYYY-MM-DD format using local timezone
     const startDateStr = startDateTime.toLocaleDateString('en-CA'); // en-CA gives YYYY-MM-DD format
     const endDateStr = endDateTime.toLocaleDateString('en-CA');
-    
+
     console.log('Date range:', { startDateStr, endDateStr });
-    
+
     const { data, error } = await supabase
       .from('daily_metric_scores')
       .select('date, value')
@@ -51,7 +51,7 @@ export const metricsService = {
 
     // Log the data for debugging
     console.log('Historical data for', metricType, ':', data);
-    
+
     return data || [];
   },
 
@@ -59,14 +59,16 @@ export const metricsService = {
   async getDailyTotals(date: string) {
     const { data, error } = await supabase
       .from('daily_totals')
-      .select(`
+      .select(
+        `
         *,
         user_profiles (
           display_name,
           avatar_url,
           show_profile
         )
-      `)
+      `
+      )
       .eq('date', date)
       .eq('is_test_data', false)
       .order('total_points', { ascending: false });
@@ -82,7 +84,7 @@ export const metricsService = {
       metricType,
       value,
       valueType: typeof value,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     // Verify user is authenticated
@@ -98,17 +100,17 @@ export const metricsService = {
 
     const today = new Date().toISOString().split('T')[0];
     const config = healthMetrics[metricType];
-    
+
     console.log('[MetricsService] Metric config:', {
       metricType,
       defaultGoal: config.defaultGoal,
-      unit: config.unit
+      unit: config.unit,
     });
-    
+
     // Calculate points and goal status based on environment
     let goalReached = false;
     let points = 0;
-    
+
     if (__DEV__) {
       // Development scoring: simplified scoring for easier testing
       goalReached = value > 0;
@@ -123,9 +125,9 @@ export const metricsService = {
       goalReached,
       points,
       value,
-      defaultGoal: config.defaultGoal
+      defaultGoal: config.defaultGoal,
     });
-    
+
     // Prepare the metric data
     const metricData = {
       user_id: userId,
@@ -135,7 +137,7 @@ export const metricsService = {
       points,
       goal_reached: goalReached,
       updated_at: new Date().toISOString(),
-      is_test_data: false // Always false to avoid RLS policy violations
+      is_test_data: false, // Always false to avoid RLS policy violations
     };
 
     console.log('[MetricsService] Upserting metric data:', metricData);
@@ -144,10 +146,10 @@ export const metricsService = {
     const { data: upsertResult, error: metricError } = await supabase
       .from('daily_metric_scores')
       .upsert(metricData, {
-        onConflict: 'user_id,date,metric_type'
+        onConflict: 'user_id,date,metric_type',
       })
       .select();
-  
+
     if (metricError) {
       console.error('[MetricsService] Error upserting metric:', metricError);
       // Handle RLS policy violation
@@ -179,22 +181,25 @@ export const metricsService = {
     // Update daily total
     const { data: totalResult, error: totalError } = await supabase
       .from('daily_totals')
-      .upsert({
-        user_id: userId,
-        date: today,
-        total_points: totalPoints,
-        metrics_completed: metricsCompleted,
-        updated_at: new Date().toISOString(),
-        is_test_data: false
-      }, {
-        onConflict: 'user_id,date'
-      })
+      .upsert(
+        {
+          user_id: userId,
+          date: today,
+          total_points: totalPoints,
+          metrics_completed: metricsCompleted,
+          updated_at: new Date().toISOString(),
+          is_test_data: false,
+        },
+        {
+          onConflict: 'user_id,date',
+        }
+      )
       .select();
 
     console.log('[MetricsService] Daily total update result:', {
       totalPoints,
       metricsCompleted,
-      result: totalResult
+      result: totalResult,
     });
 
     if (totalError) {
@@ -204,5 +209,5 @@ export const metricsService = {
       }
       throw totalError;
     }
-  }
+  },
 };

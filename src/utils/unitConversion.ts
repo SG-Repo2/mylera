@@ -129,10 +129,7 @@ export function convertGoalToMetric(
 /**
  * Gets the default goal value for a metric type in the specified measurement system.
  */
-export function getDefaultGoal(
-  metricType: MetricType,
-  system: MeasurementSystem
-): number {
+export function getDefaultGoal(metricType: MetricType, system: MeasurementSystem): number {
   const metricGoals: Record<MetricType, number> = {
     steps: 10000,
     distance: 5000, // 5km in meters

@@ -41,7 +41,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     const fetchData = async () => {
       try {
         console.log('Fetching health data for:', { userId, metricType });
-        
+
         // Initialize provider
         await provider.initialize();
 
@@ -65,11 +65,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         console.log('Stored metrics:', storedMetrics);
 
         // Then get native health data for the full range
-        const rawData = await provider.fetchRawMetrics(
-          startDateTime,
-          endDateTime,
-          [metricType]
-        );
+        const rawData = await provider.fetchRawMetrics(startDateTime, endDateTime, [metricType]);
 
         const normalizedData = provider.normalizeMetrics(rawData, metricType);
         console.log('Native health data:', normalizedData);
@@ -83,9 +79,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         });
 
         // Create a map of stored metrics for quick lookup
-        const storedDataMap = new Map(
-          storedMetrics.map(metric => [metric.date, metric.value])
-        );
+        const storedDataMap = new Map(storedMetrics.map(metric => [metric.date, metric.value]));
 
         // Fill data starting from current day going back 6 days
         const filledData = [];
@@ -93,7 +87,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
           const d = new Date();
           d.setDate(d.getDate() + i);
           const dateStr = d.toLocaleDateString('en-CA');
-          
+
           // Prefer stored metric, fall back to native data
           let value = storedDataMap.get(dateStr);
           if (value === undefined) {
@@ -107,12 +101,12 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
               }
             }
           }
-          
+
           filledData.push({
             date: dateStr,
             value,
             dayName: getDayName(dateStr),
-            animation: new Animated.Value(0)
+            animation: new Animated.Value(0),
           });
           console.log(`${getDayName(dateStr)} (${dateStr}): ${value}`);
         }
@@ -133,12 +127,11 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
               stiffness: 180,
               damping: 12,
               mass: 0.8,
-            })
+            }),
           ])
         );
 
         Animated.stagger(40, animations).start();
-
       } catch (err) {
         if (!mounted) return;
         console.error('Error fetching health data:', err);
@@ -148,7 +141,9 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     };
 
     fetchData();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [metricType, userId, date, provider]);
 
   if (loading) {
@@ -183,7 +178,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
   const validData = data.map(d => ({
     ...d,
-    value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
+    value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0,
   }));
 
   const maxValue = Math.max(...validData.map(d => d.value));
@@ -212,7 +207,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
       <View style={styles.chartArea}>
         <View style={styles.gridContainer}>
-          {[0, 25, 50, 75, 100].map((percent) => (
+          {[0, 25, 50, 75, 100].map(percent => (
             <View
               key={percent}
               style={[
@@ -220,8 +215,8 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                 {
                   top: `${percent}%`,
                   backgroundColor: brandColors.primary,
-                  opacity: percent === 0 ? 0.15 : 0.05
-                }
+                  opacity: percent === 0 ? 0.15 : 0.05,
+                },
               ]}
             />
           ))}
@@ -230,60 +225,65 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         <View style={styles.barsContainer}>
           {validData.map((point, index) => {
             const normalizedValue = (point.value - yMin) / range;
-            const barHeight = Math.max(
-              Math.min(normalizedValue * chartHeight, chartHeight),
-              0
-            );
-            
+            const barHeight = Math.max(Math.min(normalizedValue * chartHeight, chartHeight), 0);
+
             const isToday = point.date === new Date().toLocaleDateString('en-CA');
             return (
               <View key={point.date} style={styles.barWrapper}>
                 <View style={styles.barLabelContainer}>
-                  <Text variant="bodySmall" style={[styles.barValue, { 
-                    color: theme.colors.onSurface,
-                    opacity: isToday ? 1 : 0.9
-                  }]}>
+                  <Text
+                    variant="bodySmall"
+                    style={[
+                      styles.barValue,
+                      {
+                        color: theme.colors.onSurface,
+                        opacity: isToday ? 1 : 0.9,
+                      },
+                    ]}
+                  >
                     {Math.round(point.value)}
                   </Text>
                 </View>
-                <Animated.View style={[styles.barContainer, {
-                  height: point.animation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, Math.max(barHeight, 1)],
-                  }),
-                  width: barWidth,
-                  backgroundColor: metricColor + '1A', // 10% opacity version for container
-                  transform: [{
-                    scaleY: point.animation.interpolate({
-                      inputRange: [0, 0.8, 0.9, 1],
-                      outputRange: [0.3, 1.05, 1.02, 1],
-                    })
-                  }],
-                  transformOrigin: 'bottom'
-                }]}>
+                <Animated.View
+                  style={[
+                    styles.barContainer,
+                    {
+                      height: point.animation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, Math.max(barHeight, 1)],
+                      }),
+                      width: barWidth,
+                      backgroundColor: metricColor + '1A', // 10% opacity version for container
+                      transform: [
+                        {
+                          scaleY: point.animation.interpolate({
+                            inputRange: [0, 0.8, 0.9, 1],
+                            outputRange: [0.3, 1.05, 1.02, 1],
+                          }),
+                        },
+                      ],
+                      transformOrigin: 'bottom',
+                    },
+                  ]}
+                >
                   <Svg height="100%" width="100%">
-                    <Rect
-                      x="0"
-                      y="0"
-                      width="100%"
-                      height="100%"
-                      rx={4}
-                      ry={4}
-                      fill={metricColor}
-                    />
+                    <Rect x="0" y="0" width="100%" height="100%" rx={4} ry={4} fill={metricColor} />
                   </Svg>
                 </Animated.View>
-                <Text variant="bodySmall" style={[
-                  styles.dayLabel,
-                  { color: theme.colors.onSurface },
-                  isToday && { 
-                    fontWeight: '600',
-                    opacity: 1
-                  },
-                  !isToday && {
-                    opacity: 0.7
-                  }
-                ]}>
+                <Text
+                  variant="bodySmall"
+                  style={[
+                    styles.dayLabel,
+                    { color: theme.colors.onSurface },
+                    isToday && {
+                      fontWeight: '600',
+                      opacity: 1,
+                    },
+                    !isToday && {
+                      opacity: 0.7,
+                    },
+                  ]}
+                >
                   {point.dayName}
                 </Text>
               </View>
@@ -296,61 +296,17 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 }
 
 const styles = StyleSheet.create({
-  container: {
-    height: 280,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 16,
+  barContainer: {
+    borderRadius: 4,
+    elevation: 2,
+    marginBottom: 8,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 1,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  yAxisLabels: {
-    position: 'absolute',
-    left: 0,
-    top: 10,
-    bottom: 30,
-    width: 40,
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingLeft: 8,
-  },
-  chartArea: {
-    flex: 1,
-    marginLeft: 40,
-    width: Dimensions.get('window').width - 48,
-    backgroundColor: '#FFFFFF',
-  },
-  gridContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  gridLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-  },
-  barsContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingBottom: 20,
-    paddingHorizontal: 8,
-  },
-  barWrapper: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    height: '100%',
+    shadowRadius: 2,
   },
   barLabelContainer: {
     marginBottom: 4,
@@ -359,20 +315,64 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  barContainer: {
-    marginBottom: 8,
-    borderRadius: 4,
+  barWrapper: {
+    alignItems: 'center',
+    height: '100%',
+    justifyContent: 'flex-end',
+  },
+  barsContainer: {
+    alignItems: 'flex-end',
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 20,
+    paddingHorizontal: 8,
+  },
+  chartArea: {
+    backgroundColor: '#FFFFFF',
+    flex: 1,
+    marginLeft: 40,
+    width: Dimensions.get('window').width - 48,
+  },
+  container: {
+    alignItems: 'center',
+    borderRadius: 16,
+    elevation: 3,
+    height: 280,
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 1,
+      height: 2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 4,
   },
   dayLabel: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  gridContainer: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  gridLine: {
+    height: 1,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  yAxisLabels: {
+    alignItems: 'flex-start',
+    bottom: 30,
+    justifyContent: 'space-between',
+    left: 0,
+    paddingLeft: 8,
+    position: 'absolute',
+    top: 10,
+    width: 40,
   },
 });

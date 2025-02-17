@@ -10,14 +10,9 @@ import { Animated } from 'react-native';
 
 const LoadingScreen = React.memo(() => {
   const insets = useSafeAreaInsets();
-  
+
   return (
-    <Animated.View 
-      style={[
-        styles.loadingContainer,
-        { paddingTop: insets.top }
-      ]}
-    >
+    <Animated.View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
       <Surface style={styles.loadingCard} elevation={3}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </Surface>
@@ -39,20 +34,16 @@ export default function HomeScreen() {
   }
 
   return (
-    <Animated.View 
+    <Animated.View
       style={[
-        styles.container, 
+        styles.container,
         {
           backgroundColor: theme.colors.background,
-          paddingTop: Platform.OS === 'android' ? insets.top : 0
-        }
+          paddingTop: Platform.OS === 'android' ? insets.top : 0,
+        },
       ]}
     >
-      <Dashboard
-        provider={provider}
-        userId={user.id}
-        showAlerts={true}
-      />
+      <Dashboard provider={provider} userId={user.id} showAlerts={true} />
     </Animated.View>
   );
 }
@@ -61,19 +52,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   loadingCard: {
+    alignItems: 'center',
     backgroundColor: theme.colors.surface,
     borderRadius: 24,
+    maxWidth: 320,
     padding: 24,
     width: '85%',
-    maxWidth: 320,
-    alignItems: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -85,5 +70,11 @@ const styles = StyleSheet.create({
         elevation: 4,
       },
     }),
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.background,
+    flex: 1,
+    justifyContent: 'center',
   },
 });

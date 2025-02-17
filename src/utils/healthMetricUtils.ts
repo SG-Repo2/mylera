@@ -18,7 +18,7 @@ export function aggregateMetrics(metrics: NormalizedMetric[]): number {
   console.log('[healthMetricUtils] Aggregating metrics:', {
     metricCount: metrics.length,
     metricType: metrics[0]?.type,
-    rawValues: metrics.map(m => m.value)
+    rawValues: metrics.map(m => m.value),
   });
 
   if (!metrics.length) {
@@ -34,7 +34,7 @@ export function aggregateMetrics(metrics: NormalizedMetric[]): number {
     console.log('[healthMetricUtils] Heart rate average:', { sum, count: metrics.length, average });
     return average;
   }
-  
+
   // Sum for other metrics
   const total = Math.round(
     metrics.reduce((acc, m) => acc + (typeof m.value === 'number' ? m.value : 0), 0)
@@ -42,7 +42,7 @@ export function aggregateMetrics(metrics: NormalizedMetric[]): number {
   console.log('[healthMetricUtils] Metric sum:', {
     type: metric.type,
     total,
-    unit: metric.unit
+    unit: metric.unit,
   });
   return total;
 }

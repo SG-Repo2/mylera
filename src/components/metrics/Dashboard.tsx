@@ -1,5 +1,13 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
+import {
+  View,
+  ScrollView,
+  RefreshControl,
+  SafeAreaView,
+  Image,
+  Animated,
+  Platform,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,16 +37,12 @@ interface DashboardProps {
 const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  
+
   return (
     <View style={styles.headerContainer}>
       <View style={styles.headerContent}>
-        <Image
-          source={require('@/assets/images/myLeraBanner.png')}
-          style={styles.logo}
-        />
+        <Image source={require('@/assets/images/myLeraBanner.png')} style={styles.logo} />
         <View style={styles.statsContainer}>
-
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
@@ -52,10 +56,10 @@ const LoadingView = React.memo(() => {
   const styles = useDashboardStyles();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  
+
   const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
   const spinAnim = React.useRef(new Animated.Value(0)).current;
-  
+
   React.useEffect(() => {
     Animated.parallel([
       Animated.loop(
@@ -87,30 +91,27 @@ const LoadingView = React.memo(() => {
   }, []);
 
   return (
-    <View style={[
-      styles.loadingContainer,
-      { paddingTop: insets.top }
-    ]}>
+    <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
       <View style={styles.loadingCard}>
-        <Animated.View style={{
-          transform: [
-            { scale: pulseAnim },
-            {
-              rotate: spinAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0deg', '360deg']
-              })
-            }
-          ]
-        }}>
+        <Animated.View
+          style={{
+            transform: [
+              { scale: pulseAnim },
+              {
+                rotate: spinAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0deg', '360deg'],
+                }),
+              },
+            ],
+          }}
+        >
           <ActivityIndicator
             size={Platform.OS === 'ios' ? 'large' : 48}
             color={theme.colors.primary}
           />
         </Animated.View>
-        <Text style={styles.loadingText}>
-          Loading your health data...
-        </Text>
+        <Text style={styles.loadingText}>Loading your health data...</Text>
       </View>
     </View>
   );
@@ -129,13 +130,13 @@ const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
     } else {
       points = Math.floor(metric.value / config.pointIncrement.value);
       points = Math.min(points, config.pointIncrement.maxPoints);
-      
+
       // Cap bonus points at 25 for goal achievements
       if (metric.value >= config.defaultGoal) {
         points = Math.min(points, 25);
       }
     }
-    
+
     return total + Math.round(points);
   }, 0);
 };
@@ -147,7 +148,7 @@ const transformMetricsToHealthMetrics = (
   date: string
 ): HealthMetrics => {
   const now = new Date().toISOString();
-  
+
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
     user_id: userId,
@@ -164,7 +165,7 @@ const transformMetricsToHealthMetrics = (
     streak_days: null,
     last_updated: now,
     created_at: now,
-    updated_at: now
+    updated_at: now,
   };
 
   metrics.forEach(metric => {
@@ -180,7 +181,7 @@ const transformMetricsToHealthMetrics = (
 export const Dashboard = React.memo(function Dashboard({
   userId,
   date = new Date().toISOString().split('T')[0],
-  showAlerts = true
+  showAlerts = true,
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
@@ -190,14 +191,8 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
-  
-  const {
-    loading,
-    error,
-    syncHealthData,
-    isInitialized,
-    provider
-  } = useHealthData(userId);
+
+  const { loading, error, syncHealthData, isInitialized, provider } = useHealthData(userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
@@ -223,20 +218,20 @@ export const Dashboard = React.memo(function Dashboard({
 
   const fetchData = useCallback(async () => {
     if (!isInitialized) return;
-    
+
     try {
       console.log('Dashboard fetching data for:', { userId, date });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
-        leaderboardService.getUserRank(userId, date)
+        leaderboardService.getUserRank(userId, date),
       ]);
-      
+
       console.log('Daily totals:', totals);
       console.log('Metric scores:', metricScores);
-      
+
       const totalPoints = calculateTotalPoints(metricScores);
-      
+
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
@@ -244,10 +239,10 @@ export const Dashboard = React.memo(function Dashboard({
         total_points: totalPoints,
         metrics_completed: metricScores.length,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
       setDailyTotal(userTotal);
-      
+
       const transformedMetrics = transformMetricsToHealthMetrics(
         metricScores,
         userTotal,
@@ -255,7 +250,7 @@ export const Dashboard = React.memo(function Dashboard({
         date
       );
       console.log('Transformed metrics:', transformedMetrics);
-      
+
       setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
@@ -291,7 +286,9 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   if (error || healthPermissionStatus === 'denied' || fetchError) {
-    return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
+    return (
+      <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />
+    );
   }
 
   return (
@@ -300,18 +297,18 @@ export const Dashboard = React.memo(function Dashboard({
         styles.container,
         {
           backgroundColor: theme.colors.background,
-          paddingTop: Platform.OS === 'ios' ? 0 : 4
-        }
+          paddingTop: Platform.OS === 'ios' ? 0 : 4,
+        },
       ]}
     >
       {dailyTotal && (
-        <Animated.View 
+        <Animated.View
           style={[
             styles.headerWrapper,
             {
               opacity: headerOpacity,
-              transform: [{ translateY: slideAnim }]
-            }
+              transform: [{ translateY: slideAnim }],
+            },
           ]}
         >
           <Header dailyTotal={dailyTotal} />
@@ -331,35 +328,29 @@ export const Dashboard = React.memo(function Dashboard({
         }
       >
         {healthMetrics && provider ? (
-          <MetricCardList
-            metrics={healthMetrics}
-            showAlerts={showAlerts}
-            provider={provider}
-          />
+          <MetricCardList metrics={healthMetrics} showAlerts={showAlerts} provider={provider} />
         ) : (
           <View style={styles.loadingContainer}>
             <ActivityIndicator
               size={Platform.OS === 'ios' ? 'large' : 48}
               color={theme.colors.primary}
             />
-            <Text style={styles.loadingText}>
-              Initializing health services...
-            </Text>
+            <Text style={styles.loadingText}>Initializing health services...</Text>
           </View>
         )}
       </ScrollView>
 
       <Portal>
-        <Dialog 
-          visible={errorDialogVisible} 
+        <Dialog
+          visible={errorDialogVisible}
           onDismiss={() => setErrorDialogVisible(false)}
           style={{
             borderRadius: 24,
             backgroundColor: theme.colors.surface,
           }}
         >
-          <Dialog.Title 
-            style={{ 
+          <Dialog.Title
+            style={{
               textAlign: 'center',
               color: theme.colors.error,
               fontSize: 20,
@@ -370,8 +361,8 @@ export const Dashboard = React.memo(function Dashboard({
             Error
           </Dialog.Title>
           <Dialog.Content>
-            <Text 
-              style={{ 
+            <Text
+              style={{
                 textAlign: 'center',
                 color: theme.colors.onSurface,
                 fontSize: 16,
@@ -383,9 +374,9 @@ export const Dashboard = React.memo(function Dashboard({
             </Text>
           </Dialog.Content>
           <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 8 }}>
-            <Text 
-              onPress={() => setErrorDialogVisible(false)} 
-              style={{ 
+            <Text
+              onPress={() => setErrorDialogVisible(false)}
+              style={{
                 color: theme.colors.primary,
                 padding: 12,
                 fontSize: 16,

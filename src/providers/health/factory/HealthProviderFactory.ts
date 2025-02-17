@@ -59,7 +59,7 @@ export class HealthProviderFactory {
     if (deviceType === 'fitbit') {
       return; // Fitbit is platform-independent
     }
-    
+
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
       throw new HealthProviderError(
         HealthErrorCode.UNSUPPORTED_PLATFORM,
@@ -74,7 +74,7 @@ export class HealthProviderFactory {
     userId?: string
   ): Promise<HealthProvider> {
     let lastError: Error | null = null;
-    
+
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         this.validatePlatform(deviceType);
@@ -108,7 +108,7 @@ export class HealthProviderFactory {
       } catch (error) {
         lastError = error as Error;
         console.error(`Health provider initialization attempt ${attempt} failed:`, error);
-        
+
         if (attempt < this.maxRetries) {
           const backoffDelay = this.retryDelay * Math.pow(2, attempt - 1);
           await this.delay(backoffDelay);
@@ -126,10 +126,7 @@ export class HealthProviderFactory {
     );
   }
 
-  static async getProvider(
-    deviceType?: 'os' | 'fitbit',
-    userId?: string
-  ): Promise<HealthProvider> {
+  static async getProvider(deviceType?: 'os' | 'fitbit', userId?: string): Promise<HealthProvider> {
     if (this.instance) {
       // If we already have an instance but userId is different, cleanup and reinitialize
       const currentManager = this.instance.getPermissionManager();
@@ -153,11 +150,13 @@ export class HealthProviderFactory {
       return provider;
     } catch (error) {
       console.error('Failed to get health provider:', error);
-      throw error instanceof HealthProviderError ? error : new HealthProviderError(
-        HealthErrorCode.INITIALIZATION_FAILED,
-        'Failed to get health provider',
-        { originalError: error instanceof Error ? error.message : 'Unknown error' }
-      );
+      throw error instanceof HealthProviderError
+        ? error
+        : new HealthProviderError(
+            HealthErrorCode.INITIALIZATION_FAILED,
+            'Failed to get health provider',
+            { originalError: error instanceof Error ? error.message : 'Unknown error' }
+          );
     } finally {
       this.isInitializing = false;
     }

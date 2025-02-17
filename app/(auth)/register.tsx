@@ -28,27 +28,17 @@ interface DeviceOptionProps {
 
 const DeviceOption = ({ title, icon, isSelected, onSelect }: DeviceOptionProps) => (
   <Pressable onPress={onSelect}>
-    <Surface style={[
-      styles.deviceOption,
-      isSelected && styles.deviceOptionSelected
-    ]}>
-      <MaterialCommunityIcons 
-        name={icon} 
-        size={24} 
-        color={isSelected ? theme.colors.primary : theme.colors.onSurface} 
+    <Surface style={[styles.deviceOption, isSelected && styles.deviceOptionSelected]}>
+      <MaterialCommunityIcons
+        name={icon}
+        size={24}
+        color={isSelected ? theme.colors.primary : theme.colors.onSurface}
       />
-      <Text style={[
-        styles.deviceOptionText,
-        isSelected && styles.deviceOptionTextSelected
-      ]}>
+      <Text style={[styles.deviceOptionText, isSelected && styles.deviceOptionTextSelected]}>
         {title}
       </Text>
       {isSelected && (
-        <MaterialCommunityIcons 
-          name="check-circle" 
-          size={24} 
-          color={theme.colors.primary} 
-        />
+        <MaterialCommunityIcons name="check-circle" size={24} color={theme.colors.primary} />
       )}
     </Surface>
   </Pressable>
@@ -57,7 +47,7 @@ const DeviceOption = ({ title, icon, isSelected, onSelect }: DeviceOptionProps) 
 export default function RegisterScreen() {
   const router = useRouter();
   const { register, error: authError, loading } = useAuth();
-  
+
   // Form state
   const [currentStep, setCurrentStep] = useState<RegistrationStep>('credentials');
   const [email, setEmail] = useState('');
@@ -78,13 +68,13 @@ export default function RegisterScreen() {
     try {
       // Request permission first
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
+
       if (status !== 'granted') {
         setLocalError('Permission to access media library was denied');
         return;
       }
 
-      let result = await ImagePicker.launchImageLibraryAsync({
+      const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
@@ -138,14 +128,14 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     setLocalError('');
-    
+
     if (!validateProfile()) {
       return;
     }
 
     try {
       let avatarUrl = null;
-      
+
       // If an avatar was selected, upload it first
       if (avatar) {
         try {
@@ -163,7 +153,7 @@ export default function RegisterScreen() {
         displayName,
         deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatarUrl
+        avatarUri: avatarUrl,
       });
 
       // If successful, AuthProvider will handle the navigation to health-setup
@@ -208,11 +198,7 @@ export default function RegisterScreen() {
             onChangeText={setConfirmPassword}
             secureTextEntry
           />
-          <Button 
-            mode="contained"
-            onPress={handleNextStep}
-            style={styles.button}
-          >
+          <Button mode="contained" onPress={handleNextStep} style={styles.button}>
             Next
           </Button>
         </View>
@@ -268,22 +254,14 @@ export default function RegisterScreen() {
           {loading ? (
             <ActivityIndicator />
           ) : (
-            <Button 
-              mode="contained"
-              onPress={handleRegister}
-              style={styles.button}
-            >
+            <Button mode="contained" onPress={handleRegister} style={styles.button}>
               Create Account
             </Button>
           )}
         </View>
       )}
 
-      <Button
-        mode="text"
-        onPress={() => router.push('/(auth)/login')}
-        style={styles.button}
-      >
+      <Button mode="text" onPress={() => router.push('/(auth)/login')} style={styles.button}>
         Already have an account? Login
       </Button>
     </ScrollView>
@@ -291,41 +269,38 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
+  avatar: {
+    borderRadius: 50,
+    height: '100%',
+    width: '100%',
+  },
+  avatarContainer: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 50,
+    height: 100,
+    justifyContent: 'center',
+    marginBottom: 12,
+    width: 100,
+  },
+  button: {
+    marginTop: 12,
+  },
   container: {
+    backgroundColor: theme.colors.background,
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 40,
-    backgroundColor: theme.colors.background,
-  },
-  title: {
-    ...theme.fonts.headlineMedium,
-    color: theme.colors.onBackground,
-    marginBottom: 16,
-  },
-  input: {
-    height: 40,
-    borderColor: theme.colors.outline,
-    borderWidth: 1,
-    marginBottom: 12,
-    paddingHorizontal: 8,
-    borderRadius: theme.roundness,
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.onSurface,
-  },
-  errorText: {
-    ...theme.fonts.bodySmall,
-    color: theme.colors.error,
-    marginBottom: 8,
   },
   deviceOption: {
-    padding: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
     alignItems: 'center',
+    borderColor: theme.colors.outline,
+    borderRadius: 12,
+    borderWidth: 2,
+    flexDirection: 'row',
     gap: 12,
     marginBottom: 12,
-    borderWidth: 2,
-    borderColor: theme.colors.outline,
+    padding: 16,
   },
   deviceOptionSelected: {
     backgroundColor: theme.colors.primaryContainer,
@@ -339,31 +314,34 @@ const styles = StyleSheet.create({
     ...theme.fonts.bodyMedium,
     color: theme.colors.primary,
   },
-  sectionTitle: {
-    ...theme.fonts.headlineSmall,
-    color: theme.colors.onBackground,
+  errorText: {
+    ...theme.fonts.bodySmall,
+    color: theme.colors.error,
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.outline,
+    borderRadius: theme.roundness,
+    borderWidth: 1,
+    color: theme.colors.onSurface,
+    height: 40,
     marginBottom: 12,
+    paddingHorizontal: 8,
   },
   measurementContainer: {
     flexDirection: 'row',
     gap: 12,
     marginBottom: 12,
   },
-  avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: theme.colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
+  sectionTitle: {
+    ...theme.fonts.headlineSmall,
+    color: theme.colors.onBackground,
     marginBottom: 12,
   },
-  avatar: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 50,
-  },
-  button: {
-    marginTop: 12,
+  title: {
+    ...theme.fonts.headlineMedium,
+    color: theme.colors.onBackground,
+    marginBottom: 16,
   },
 });

@@ -4,8 +4,8 @@ import { theme } from '@/src/theme/theme';
 
 export default function AppLayout() {
   return (
-    <Tabs 
-      screenOptions={{ 
+    <Tabs
+      screenOptions={{
         headerShown: false,
         tabBarStyle: {
           backgroundColor: theme.colors.surface,
@@ -19,34 +19,28 @@ export default function AppLayout() {
         tabBarLabelStyle: {
           fontFamily: 'Proxima Nova',
           fontSize: 12,
-        }
+        },
       }}
     >
       <Tabs.Screen
         name="(home)"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-sharp" color={color} size={24} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-sharp" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="leaderboard"
         options={{
           title: 'Leaderboard',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="stats-chart" color={color} size={24} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart" color={color} size={24} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-sharp" color={color} size={24} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-sharp" color={color} size={24} />,
         }}
       />
     </Tabs>

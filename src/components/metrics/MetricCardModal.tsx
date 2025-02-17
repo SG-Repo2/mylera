@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Animated, Pressable, ScrollView, Easing } from 'react-native';
-import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
+import {
+  Modal,
+  Portal,
+  Text,
+  IconButton,
+  useTheme,
+  Card,
+  ActivityIndicator,
+} from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { brandColors } from '@/src/theme/theme';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
@@ -36,33 +44,33 @@ interface HealthTip {
 const getHealthTip = (metricType: MetricType): HealthTip => {
   const tips: Record<MetricType, HealthTip> = {
     steps: {
-      tip: "Walking 10,000 steps a day can improve cardiovascular health and help maintain a healthy weight. Try taking the stairs instead of the elevator!",
-      icon: "walk"
+      tip: 'Walking 10,000 steps a day can improve cardiovascular health and help maintain a healthy weight. Try taking the stairs instead of the elevator!',
+      icon: 'walk',
     },
     distance: {
-      tip: "Regular walking or running can strengthen your bones and reduce the risk of osteoporosis. Start with small distances and gradually increase!",
-      icon: "run"
+      tip: 'Regular walking or running can strengthen your bones and reduce the risk of osteoporosis. Start with small distances and gradually increase!',
+      icon: 'run',
     },
     calories: {
-      tip: "A healthy calorie deficit of 500-750 calories per day can lead to sustainable weight loss of 1-1.5 pounds per week.",
-      icon: "fire"
+      tip: 'A healthy calorie deficit of 500-750 calories per day can lead to sustainable weight loss of 1-1.5 pounds per week.',
+      icon: 'fire',
     },
     exercise: {
-      tip: "Mix cardio with strength training for optimal health benefits. Aim for at least 150 minutes of moderate activity per week!",
-      icon: "weight-lifter"
+      tip: 'Mix cardio with strength training for optimal health benefits. Aim for at least 150 minutes of moderate activity per week!',
+      icon: 'weight-lifter',
     },
     heart_rate: {
-      tip: "Your resting heart rate is a good indicator of your cardiovascular fitness. A lower resting heart rate often means better cardiovascular health!",
-      icon: "heart-pulse"
+      tip: 'Your resting heart rate is a good indicator of your cardiovascular fitness. A lower resting heart rate often means better cardiovascular health!',
+      icon: 'heart-pulse',
     },
     basal_calories: {
-      tip: "Your basal metabolic rate accounts for about 60-75% of your daily calorie burn. Stay hydrated and get enough sleep to maintain a healthy metabolism!",
-      icon: "lightning-bolt"
+      tip: 'Your basal metabolic rate accounts for about 60-75% of your daily calorie burn. Stay hydrated and get enough sleep to maintain a healthy metabolism!',
+      icon: 'lightning-bolt',
     },
     flights_climbed: {
-      tip: "Taking the stairs is a great way to incorporate more physical activity into your daily routine. It helps strengthen your legs and improve endurance!",
-      icon: "stairs"
-    }
+      tip: 'Taking the stairs is a great way to incorporate more physical activity into your daily routine. It helps strengthen your legs and improve endurance!',
+      icon: 'stairs',
+    },
   };
   return tips[metricType];
 };
@@ -82,10 +90,14 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { user } = useAuth();
-  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
+  const measurementSystem = (user?.user_metadata?.measurementSystem ||
+    'metric') as MeasurementSystem;
   const [isLoading, setIsLoading] = useState(true);
-  const [trend, setTrend] = useState<{ direction: 'up' | 'down' | 'neutral', percentage: number } | null>(null);
-  
+  const [trend, setTrend] = useState<{
+    direction: 'up' | 'down' | 'neutral';
+    percentage: number;
+  } | null>(null);
+
   const translateY = React.useRef(new Animated.Value(500)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
   const contentOpacity = React.useRef(new Animated.Value(0)).current;
@@ -101,7 +113,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
       setTimeout(() => {
         setTrend({
           direction: Math.random() > 0.5 ? 'up' : 'down',
-          percentage: Math.round(Math.random() * 20)
+          percentage: Math.round(Math.random() * 20),
         });
         setIsLoading(false);
       }, 1000);
@@ -246,25 +258,14 @@ export const MetricModal: React.FC<MetricModalProps> = ({
           { paddingBottom: Math.max(insets.bottom, 20) },
         ]}
       >
-        <Animated.View 
-          style={[
-            styles.modalBackdrop,
-            { opacity: backdropOpacity }
-          ]}
-        >
-          <Pressable 
-            style={{ flex: 1 }} 
-            onPress={handleClose}
-          />
+        <Animated.View style={[styles.modalBackdrop, { opacity: backdropOpacity }]}>
+          <Pressable style={{ flex: 1 }} onPress={handleClose} />
         </Animated.View>
         <Animated.View
           style={[
             styles.modalContent,
             {
-              transform: [
-                { translateY },
-                { scale }
-              ],
+              transform: [{ translateY }, { scale }],
               opacity: contentOpacity,
               shadowOpacity: contentOpacity.interpolate({
                 inputRange: [0, 1],
@@ -273,24 +274,21 @@ export const MetricModal: React.FC<MetricModalProps> = ({
               shadowColor: theme.colors.shadow,
               shadowOffset: { width: 0, height: -2 },
               shadowRadius: 12,
-            }
+            },
           ]}
         >
-          <ScrollView 
-            style={{ width: '100%' }} 
+          <ScrollView
+            style={{ width: '100%' }}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
-            <IconButton
-              icon="close"
-              size={24}
-              onPress={handleClose}
-              style={styles.closeButton}
-            />
+            <IconButton icon="close" size={24} onPress={handleClose} style={styles.closeButton} />
 
             <View>
-              <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
+              <Text variant="headlineMedium" style={styles.modalTitle}>
+                {title}
+              </Text>
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: valueScale }] }}>
                   <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
@@ -304,10 +302,12 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                       size={20}
                       color={trend.direction === 'up' ? brandColors.primary : theme.colors.error}
                     />
-                    <Text style={[
-                      styles.trendText,
-                      trend.direction === 'up' ? styles.trendUp : styles.trendDown
-                    ]}>
+                    <Text
+                      style={[
+                        styles.trendText,
+                        trend.direction === 'up' ? styles.trendUp : styles.trendDown,
+                      ]}
+                    >
                       {trend.percentage}%
                     </Text>
                   </View>
@@ -316,19 +316,21 @@ export const MetricModal: React.FC<MetricModalProps> = ({
 
               <Card style={styles.healthTipCard}>
                 <Card.Content style={styles.healthTipContent}>
-                  <Animated.View style={[
-                    styles.healthTipGlow,
-                    {
-                      opacity: contentOpacity.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 0.08]
-                      })
-                    }
-                  ]} />
+                  <Animated.View
+                    style={[
+                      styles.healthTipGlow,
+                      {
+                        opacity: contentOpacity.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 0.08],
+                        }),
+                      },
+                    ]}
+                  />
                   <View style={styles.healthTipHeader}>
-                    <MaterialCommunityIcons 
-                      name={healthTip.icon} 
-                      size={24} 
+                    <MaterialCommunityIcons
+                      name={healthTip.icon}
+                      size={24}
                       color={metricColor}
                       style={{
                         transform: [{ scale: 1.1 }],
@@ -337,7 +339,10 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                         textShadowRadius: 8,
                       }}
                     />
-                    <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
+                    <Text
+                      variant="titleMedium"
+                      style={[styles.healthTipTitle, { color: theme.colors.primary }]}
+                    >
                       Did you know?
                     </Text>
                   </View>
@@ -355,12 +360,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                   <Text style={styles.loadingText}>Loading historical data...</Text>
                 </View>
               ) : (
-                <BarChart 
-                  metricType={metricType}
-                  userId={userId}
-                  date={date}
-                  provider={provider}
-                />
+                <BarChart metricType={metricType} userId={userId} date={date} provider={provider} />
               )}
             </View>
 
@@ -368,14 +368,19 @@ export const MetricModal: React.FC<MetricModalProps> = ({
               <View style={styles.additionalInfoContainer}>
                 {additionalInfo.map((info, index) => {
                   // Format goal value if this is the goal info
-                  const displayValue = info.label === 'Daily Goal' 
-                    ? `${formattedGoal.value} ${displayUnit}`
-                    : info.value;
-                    
+                  const displayValue =
+                    info.label === 'Daily Goal'
+                      ? `${formattedGoal.value} ${displayUnit}`
+                      : info.value;
+
                   return (
                     <View key={index} style={styles.infoRow}>
-                      <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
-                      <Text variant="titleMedium" style={styles.infoValue}>{displayValue}</Text>
+                      <Text variant="bodyLarge" style={styles.infoLabel}>
+                        {info.label}
+                      </Text>
+                      <Text variant="titleMedium" style={styles.infoValue}>
+                        {displayValue}
+                      </Text>
                     </View>
                   );
                 })}

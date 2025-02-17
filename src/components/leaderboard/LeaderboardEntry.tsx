@@ -17,14 +17,14 @@ interface Props {
 /**
  * Displays individual leaderboard entry in either standard or podium layout.
  */
-export function LeaderboardEntry({ 
-  entry, 
-  highlight = false, 
+export function LeaderboardEntry({
+  entry,
+  highlight = false,
   variant = 'standard',
-  position 
+  position,
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
-  
+
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
   const pointsAnim = useRef(new Animated.Value(total_points)).current;
@@ -35,7 +35,7 @@ export function LeaderboardEntry({
   // Animate when rank or points change
   useEffect(() => {
     const animations = [];
-    
+
     // Rank changed
     if (prevRankRef.current !== rank) {
       animations.push(
@@ -47,7 +47,7 @@ export function LeaderboardEntry({
       );
       prevRankRef.current = rank;
     }
-    
+
     // Points changed
     if (prevPointsRef.current !== total_points) {
       animations.push(
@@ -57,7 +57,7 @@ export function LeaderboardEntry({
           useNativeDriver: true,
         })
       );
-      
+
       // Add scale pulse animation
       animations.push(
         Animated.sequence([
@@ -73,10 +73,10 @@ export function LeaderboardEntry({
           }),
         ])
       );
-      
+
       prevPointsRef.current = total_points;
     }
-    
+
     if (animations.length > 0) {
       Animated.parallel(animations).start();
     }
@@ -85,26 +85,26 @@ export function LeaderboardEntry({
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
       return (
-        <Image 
-          source={{ uri: avatar_url }} 
+        <Image
+          source={{ uri: avatar_url }}
           defaultSource={DEFAULT_AVATAR}
           style={[
             styles.avatar,
             isPodium && position === 1 && styles.firstPlaceAvatar,
-            isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+            isPodium && (position === 2 || position === 3) && styles.podiumAvatar,
           ]}
           testID="avatar-image"
         />
       );
     }
-    
+
     return (
-      <View 
+      <View
         style={[
           styles.avatarPlaceholder,
           isPodium && position === 1 && styles.firstPlaceAvatar,
-          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
-        ]} 
+          isPodium && (position === 2 || position === 3) && styles.podiumAvatar,
+        ]}
         testID="avatar-placeholder"
       >
         <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
@@ -121,27 +121,15 @@ export function LeaderboardEntry({
         testID="leaderboard-entry-podium"
       >
         {position === 1 && (
-          <MaterialCommunityIcons
-            name="crown"
-            size={32}
-            color="#FFD700"
-            style={styles.crown}
-          />
+          <MaterialCommunityIcons name="crown" size={32} color="#FFD700" style={styles.crown} />
         )}
-        <Animated.View 
-          style={[
-            styles.podiumContent,
-            { transform: [{ scale: scaleAnim }] }
-          ]}
-        >
-          <View style={styles.podiumAvatarContainer}>
-            {renderAvatar(true)}
-          </View>
-          <Text 
+        <Animated.View style={[styles.podiumContent, { transform: [{ scale: scaleAnim }] }]}>
+          <View style={styles.podiumAvatarContainer}>{renderAvatar(true)}</View>
+          <Text
             style={[
-              styles.podiumDisplayName, 
+              styles.podiumDisplayName,
               highlight && styles.highlightText,
-              position === 1 && styles.firstPlaceText
+              position === 1 && styles.firstPlaceText,
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -149,19 +137,21 @@ export function LeaderboardEntry({
           >
             {display_name}
           </Text>
-          <Animated.Text 
+          <Animated.Text
             style={[
               styles.podiumPoints,
               highlight && styles.highlightText,
               position === 1 && styles.firstPlacePoints,
               {
-                transform: [{
-                  translateY: pointsAnim.interpolate({
-                    inputRange: [total_points - 100, total_points, total_points + 100],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: pointsAnim.interpolate({
+                      inputRange: [total_points - 100, total_points, total_points + 100],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             adjustsFontSizeToFit
             minimumFontScale={0.7}
@@ -174,33 +164,30 @@ export function LeaderboardEntry({
   }
 
   return (
-    <View 
+    <View
       style={[styles.container, highlight && styles.highlightBackground]}
       accessibilityRole="text"
       accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
-      accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
+      accessibilityHint={highlight ? 'This is your position on the leaderboard' : undefined}
       testID="leaderboard-entry"
     >
-      <Animated.View 
-        style={[
-          styles.mainContent,
-          { transform: [{ scale: scaleAnim }] }
-        ]}
-      >
+      <Animated.View style={[styles.mainContent, { transform: [{ scale: scaleAnim }] }]}>
         {/* Rank */}
         <View style={styles.rankContainer}>
-          <Animated.Text 
+          <Animated.Text
             style={[
-              styles.rankText, 
+              styles.rankText,
               highlight && styles.highlightText,
               {
-                transform: [{
-                  translateY: rankAnim.interpolate({
-                    inputRange: [rank - 1, rank, rank + 1],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: rankAnim.interpolate({
+                      inputRange: [rank - 1, rank, rank + 1],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             testID="rank-text"
           >
@@ -209,13 +196,11 @@ export function LeaderboardEntry({
         </View>
 
         {/* Avatar */}
-        <View style={styles.avatarContainer}>
-          {renderAvatar()}
-        </View>
+        <View style={styles.avatarContainer}>{renderAvatar()}</View>
 
         {/* User Info */}
         <View style={styles.infoContainer}>
-          <Text 
+          <Text
             style={[styles.displayName, highlight && styles.highlightText]}
             testID="display-name"
             numberOfLines={1}
@@ -224,18 +209,20 @@ export function LeaderboardEntry({
           >
             {display_name}
           </Text>
-          <Animated.Text 
+          <Animated.Text
             style={[
-              styles.pointsText, 
+              styles.pointsText,
               highlight && styles.highlightText,
               {
-                transform: [{
-                  translateY: pointsAnim.interpolate({
-                    inputRange: [total_points - 100, total_points, total_points + 100],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: pointsAnim.interpolate({
+                      inputRange: [total_points - 100, total_points, total_points + 100],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             testID="points-text"
             adjustsFontSizeToFit
@@ -251,60 +238,60 @@ export function LeaderboardEntry({
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: theme.roundness * 1.5,
     backgroundColor: '#FFFFFF',
+    borderRadius: theme.roundness * 1.5,
     elevation: 2,
+    marginBottom: 12,
+    marginHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   mainContent: {
-    flexDirection: 'row',
     alignItems: 'center',
+    flexDirection: 'row',
     padding: 16,
   },
   highlightBackground: {
     backgroundColor: '#BFDBFE',
   },
   rankContainer: {
+    alignItems: 'center',
     marginRight: 12,
     width: 32,
-    alignItems: 'center',
   },
   rankText: {
     ...theme.fonts.titleLarge,
     color: '#1E293B',
-    fontWeight: '700',
     fontSize: 24,
+    fontWeight: '700',
   },
   highlightText: {
     color: '#1E3A8A',
   },
   avatarContainer: {
-    width: 56,
     marginVertical: 8,
+    width: 56,
   },
   podiumAvatarContainer: {
+    alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
     marginVertical: 8,
   },
   avatar: {
-    width: 56,
-    height: 56,
     borderRadius: 28,
+    height: 56,
+    width: 56,
   },
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F1F5F9',
     alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 28,
+    height: 56,
     justifyContent: 'center',
+    width: 56,
   },
   avatarLetter: {
     ...theme.fonts.titleMedium,
@@ -317,20 +304,20 @@ const styles = StyleSheet.create({
   displayName: {
     ...theme.fonts.titleMedium,
     color: '#1E293B',
-    fontWeight: '600',
     fontSize: 18,
+    fontWeight: '600',
   },
   pointsText: {
     ...theme.fonts.bodyLarge,
     color: '#64748B',
-    marginTop: 4,
     fontSize: 16,
+    marginTop: 4,
   },
   // Podium-specific styles
   crown: {
+    alignSelf: 'center',
     position: 'absolute',
     top: -16,
-    alignSelf: 'center',
     zIndex: 1,
     ...Platform.select({
       ios: {
@@ -346,10 +333,10 @@ const styles = StyleSheet.create({
   },
   podiumContainer: {
     alignItems: 'center',
-    padding: 12,
-    borderRadius: theme.roundness * 1.5,
     backgroundColor: '#FFFFFF',
+    borderRadius: theme.roundness * 1.5,
     height: '100%',
+    padding: 12,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -365,50 +352,50 @@ const styles = StyleSheet.create({
   podiumContent: {
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 4,
     paddingBottom: 8,
+    paddingTop: 4,
     width: '100%',
   },
   podiumDisplayName: {
     ...theme.fonts.titleMedium,
     color: '#1E293B',
-    textAlign: 'center',
-    fontWeight: '600',
     fontSize: 16,
-    paddingHorizontal: 4,
+    fontWeight: '600',
     marginTop: 25,
+    paddingHorizontal: 4,
+    textAlign: 'center',
   },
   firstPlaceText: {
     ...theme.fonts.titleLarge,
     color: '#1E3A8A',
-    fontWeight: '700',
     fontSize: 20,
+    fontWeight: '700',
   },
   podiumPoints: {
     ...theme.fonts.titleMedium,
     color: '#64748B',
-    textAlign: 'center',
     fontSize: 14,
     marginTop: 4,
+    textAlign: 'center',
   },
   firstPlacePoints: {
     ...theme.fonts.titleLarge,
     color: '#1E3A8A',
-    fontWeight: '700',
     fontSize: 18,
+    fontWeight: '700',
   },
   firstPlaceAvatar: {
-    width: 88,
-    height: 88,
+    borderColor: '#FFD700',
     borderRadius: 44,
     borderWidth: 3,
-    borderColor: '#FFD700',
+    height: 88,
+    width: 88,
   },
   podiumAvatar: {
-    width: 72,
-    height: 72,
+    borderColor: '#E2E8F0',
     borderRadius: 36,
     borderWidth: 2,
-    borderColor: '#E2E8F0',
+    height: 72,
+    width: 72,
   },
 });

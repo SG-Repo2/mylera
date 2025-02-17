@@ -4,29 +4,29 @@ import { brandColors } from '@/src/theme/theme';
 
 const createStyles = (theme: MD3Theme) =>
   StyleSheet.create({
+    cell: {
+      maxWidth: 200,
+      minWidth: 150,
+      width: '48%',
+    },
     container: {
+      backgroundColor: theme.colors.background,
       flex: 1,
       paddingTop: 8,
-      backgroundColor: theme.colors.background,
     },
     grid: {
+      alignItems: 'flex-start',
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 12,
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
-    },
-    cell: {
-      width: '48%',
-      minWidth: 150,
-      maxWidth: 200,
     },
     lastCell: {
-      width: '48%',
-      minWidth: 150,
-      maxWidth: 200,
       marginBottom: 16,
-    }
+      maxWidth: 200,
+      minWidth: 150,
+      width: '48%',
+    },
   });
 
 // Define metric colors using our theme
@@ -37,13 +37,13 @@ export const metricColors = {
   exercise: brandColors.success,
   heart_rate: '#FF5252',
   basal_calories: '#9C27B0',
-  flights_climbed: '#FF9800'
+  flights_climbed: '#FF9800',
 };
 
 export const useMetricCardListStyles = () => {
   const theme = useTheme();
   return {
     styles: createStyles(theme),
-    colors: metricColors
+    colors: metricColors,
   };
 };

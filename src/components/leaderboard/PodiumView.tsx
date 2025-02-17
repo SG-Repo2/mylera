@@ -20,7 +20,7 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
     { entry: topThree[0] || null, rank: 1 }, // First place
     { entry: topThree[2] || null, rank: 3 }, // Third place
   ].filter(item => item.entry !== null); // Filter out null entries
-  
+
   return (
     <View style={styles.outerContainer}>
       <View style={styles.podiumContainer}>
@@ -50,11 +50,15 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
 }
 
 const styles = StyleSheet.create({
+  firstPlace: {
+    transform: [{ translateY: -20 }],
+    zIndex: 3,
+  },
   outerContainer: {
-    marginHorizontal: 16,
-    marginVertical: 20,
     backgroundColor: '#1E3A8A',
     borderRadius: theme.roundness * 2,
+    marginHorizontal: 16,
+    marginVertical: 20,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -68,17 +72,11 @@ const styles = StyleSheet.create({
     }),
   },
   podiumContainer: {
-    flexDirection: 'row',
     alignItems: 'flex-end',
+    flexDirection: 'row',
     justifyContent: 'space-between',
     padding: 12,
     paddingBottom: 18,
-  },
-  podiumItem: {
-    flex: 1,
-    marginHorizontal: 4,
-    minHeight: 120,
-    maxHeight: 160,
   },
   podiumEntryWrapper: {
     flex: 1,
@@ -94,9 +92,11 @@ const styles = StyleSheet.create({
       },
     }),
   },
-  firstPlace: {
-    transform: [{ translateY: -20 }],
-    zIndex: 3,
+  podiumItem: {
+    flex: 1,
+    marginHorizontal: 4,
+    maxHeight: 160,
+    minHeight: 120,
   },
   secondPlace: {
     transform: [{ translateY: -10 }],

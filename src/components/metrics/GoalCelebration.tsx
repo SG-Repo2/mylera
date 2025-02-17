@@ -10,11 +10,7 @@ interface GoalCelebrationProps {
   bonusPoints: number;
 }
 
-const GoalCelebration: React.FC<GoalCelebrationProps> = ({
-  visible,
-  onClose,
-  bonusPoints,
-}) => {
+const GoalCelebration: React.FC<GoalCelebrationProps> = ({ visible, onClose, bonusPoints }) => {
   const styles = useStyles();
   const theme = useTheme();
 
@@ -49,9 +45,8 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
 
   // Handle sharing via different platforms.
   const handleShare = async (platform: string) => {
-    const message =
-      "I just reached my daily step goal! 🎉 Join me on my fitness journey!";
-    const url = "https://yourapp.com/signup";
+    const message = 'I just reached my daily step goal! 🎉 Join me on my fitness journey!';
+    const url = 'https://yourapp.com/signup';
 
     try {
       if (Platform.OS === 'web') {
@@ -118,9 +113,7 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
             style={[
               styles.surface,
               {
-                backgroundColor: theme.dark
-                  ? theme.colors.surfaceVariant
-                  : theme.colors.surface,
+                backgroundColor: theme.dark ? theme.colors.surfaceVariant : theme.colors.surface,
               },
             ]}
           >
@@ -133,10 +126,16 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
               ))}
             </View>
 
-            <Text variant="headlineMedium" style={[styles.title, { color: theme.colors.onSurface }]}>
+            <Text
+              variant="headlineMedium"
+              style={[styles.title, { color: theme.colors.onSurface }]}
+            >
               Congratulations!
             </Text>
-            <Text variant="titleMedium" style={[styles.subtitle, { color: theme.colors.onSurface }]}>
+            <Text
+              variant="titleMedium"
+              style={[styles.subtitle, { color: theme.colors.onSurface }]}
+            >
               You've reached your daily step goal!
             </Text>
             <Text variant="titleLarge" style={[styles.points, { color: theme.colors.primary }]}>
@@ -156,9 +155,7 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
                   mode="contained"
                   onPress={() => handleShare(platform)}
                   style={[styles.shareButton, { backgroundColor: color }]}
-                  icon={() => (
-                    <FontAwesome name={icon} size={30} color="white" />
-                  )}
+                  icon={() => <FontAwesome name={icon} size={30} color="white" />}
                   contentStyle={styles.buttonContent}
                 >
                   {''}

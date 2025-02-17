@@ -6,110 +6,31 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const createStyles = (theme: MD3Theme) => {
   const surfaceColor = Color(theme.colors.surface);
-  
+
   return StyleSheet.create({
-    modalContainer: {
-      margin: 0,
-      justifyContent: 'flex-end',
-      height: '100%',
+    additionalInfoContainer: {
+      backgroundColor: theme.colors.surfaceVariant,
+      borderColor: surfaceColor.alpha(0.12).toString(),
+      borderRadius: 24,
+      borderWidth: 1,
+      gap: 16,
+      marginTop: screenWidth > 380 ? 24 : 16,
+      padding: 16,
     },
-    modalBackdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    calorieCharts: {
+      marginBottom: 16,
     },
-    modalContent: {
-      maxHeight: '85%',
-      padding: 0,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
-      backgroundColor: theme.colors.surface,
-      shadowColor: theme.colors.shadow,
-      shadowOffset: {
-        width: 0,
-        height: -2,
-      },
-      shadowOpacity: 0.15,
-      shadowRadius: 12,
-      elevation: 24,
+    chart: {
+      borderRadius: 24,
+      marginVertical: 8,
       overflow: 'hidden',
-    },
-    scrollContent: {
-      padding: screenWidth > 380 ? 24 : 20,
-    },
-    closeButton: {
-      position: 'absolute',
-      right: 12,
-      top: 12,
-      width: 40,
-      height: 40,
-      backgroundColor: theme.colors.surfaceVariant,
-      borderRadius: 20,
-      elevation: 3,
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 2,
-      shadowColor: theme.colors.shadow,
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-    },
-    modalTitle: {
-      marginBottom: 8,
-      color: theme.colors.onSurface,
-      letterSpacing: -0.5,
-      fontSize: screenWidth > 380 ? 24 : 20,
-    },
-    modalValue: {
-      letterSpacing: -1,
-      fontSize: screenWidth > 380 ? 36 : 32,
-      textShadowColor: 'rgba(0, 0, 0, 0.1)',
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 4,
-    },
-    valueContainer: {
-      marginBottom: 24,
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: 8,
-    },
-    trendContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.colors.surfaceVariant,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-      ...Platform.select({
-        ios: {
-          shadowColor: theme.colors.shadow,
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-        },
-        android: {
-          elevation: 2,
-        },
-      }),
-    },
-    trendText: {
-      fontSize: 14,
-      marginLeft: 4,
-      color: theme.colors.onSurfaceVariant,
-    },
-    trendUp: {
-      color: theme.colors.primary,
-    },
-    trendDown: {
-      color: theme.colors.error,
+      width: '100%',
     },
     chartContainer: {
       alignItems: 'center',
-      marginVertical: screenWidth > 380 ? 24 : 16,
       backgroundColor: surfaceColor.lighten(0.05).toString(),
       borderRadius: 24,
+      marginVertical: screenWidth > 380 ? 24 : 16,
       padding: 16,
       ...Platform.select({
         ios: {
@@ -123,50 +44,37 @@ const createStyles = (theme: MD3Theme) => {
         },
       }),
     },
-    chart: {
-      marginVertical: 8,
-      borderRadius: 24,
-      overflow: 'hidden',
-      width: '100%',
-    },
-    additionalInfoContainer: {
-      marginTop: screenWidth > 380 ? 24 : 16,
-      gap: 16,
-      padding: 16,
-      backgroundColor: theme.colors.surfaceVariant,
-      borderRadius: 24,
-      borderWidth: 1,
-      borderColor: surfaceColor.alpha(0.12).toString(),
-    },
-    infoRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingVertical: 4,
-    },
-    infoLabel: {
-      color: theme.colors.onSurfaceVariant,
-      fontSize: screenWidth > 380 ? 16 : 14,
-    },
-    infoValue: {
-      color: theme.colors.onSurface,
-      fontSize: screenWidth > 380 ? 16 : 14,
-      fontWeight: '600',
-    },
-    calorieCharts: {
-      marginBottom: 16,
-    },
     chartRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       marginBottom: 16,
     },
+    closeButton: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceVariant,
+      borderRadius: 20,
+      elevation: 3,
+      height: 40,
+      justifyContent: 'center',
+      position: 'absolute',
+      right: 12,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      top: 12,
+      width: 40,
+      zIndex: 2,
+    },
     healthTipCard: {
+      backgroundColor: theme.colors.surfaceVariant,
+      borderColor: surfaceColor.alpha(0.12).toString(),
+      borderWidth: 1,
       marginBottom: screenWidth > 380 ? 24 : 16,
       marginHorizontal: 0,
-      backgroundColor: theme.colors.surfaceVariant,
-      borderWidth: 1,
-      borderColor: surfaceColor.alpha(0.12).toString(),
       ...Platform.select({
         ios: {
           shadowColor: theme.colors.shadow,
@@ -180,45 +88,137 @@ const createStyles = (theme: MD3Theme) => {
       }),
     },
     healthTipContent: {
-      padding: 16,
       borderRadius: 12,
       overflow: 'hidden',
+      padding: 16,
     },
     healthTipGlow: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
       backgroundColor: theme.colors.primary,
+      bottom: 0,
+      left: 0,
       opacity: 0.06,
+      position: 'absolute',
+      right: 0,
+      top: 0,
     },
     healthTipHeader: {
-      flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 12,
+      flexDirection: 'row',
       gap: 8,
+      marginBottom: 12,
+    },
+    healthTipText: {
+      color: theme.colors.onSurfaceVariant,
+      fontSize: screenWidth > 380 ? 16 : 14,
+      letterSpacing: 0.25,
+      lineHeight: 20,
     },
     healthTipTitle: {
       fontWeight: '600',
       letterSpacing: 0.15,
     },
-    healthTipText: {
+    infoLabel: {
       color: theme.colors.onSurfaceVariant,
-      lineHeight: 20,
-      letterSpacing: 0.25,
       fontSize: screenWidth > 380 ? 16 : 14,
     },
+    infoRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingVertical: 4,
+    },
+    infoValue: {
+      color: theme.colors.onSurface,
+      fontSize: screenWidth > 380 ? 16 : 14,
+      fontWeight: '600',
+    },
     loadingContainer: {
-      padding: 20,
       alignItems: 'center',
       justifyContent: 'center',
       minHeight: 200,
+      padding: 20,
     },
     loadingText: {
-      marginTop: 12,
       color: theme.colors.onSurfaceVariant,
       fontSize: 14,
+      marginTop: 12,
+    },
+    modalBackdrop: {
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      flex: 1,
+    },
+    modalContainer: {
+      height: '100%',
+      justifyContent: 'flex-end',
+      margin: 0,
+    },
+    modalContent: {
+      backgroundColor: theme.colors.surface,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      elevation: 24,
+      maxHeight: '85%',
+      overflow: 'hidden',
+      padding: 0,
+      shadowColor: theme.colors.shadow,
+      shadowOffset: {
+        width: 0,
+        height: -2,
+      },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+    },
+    modalTitle: {
+      color: theme.colors.onSurface,
+      fontSize: screenWidth > 380 ? 24 : 20,
+      letterSpacing: -0.5,
+      marginBottom: 8,
+    },
+    modalValue: {
+      fontSize: screenWidth > 380 ? 36 : 32,
+      letterSpacing: -1,
+      textShadowColor: 'rgba(0, 0, 0, 0.1)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 4,
+    },
+    scrollContent: {
+      padding: screenWidth > 380 ? 24 : 20,
+    },
+    trendContainer: {
+      alignItems: 'center',
+      backgroundColor: theme.colors.surfaceVariant,
+      borderRadius: 16,
+      flexDirection: 'row',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      ...Platform.select({
+        ios: {
+          shadowColor: theme.colors.shadow,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        },
+        android: {
+          elevation: 2,
+        },
+      }),
+    },
+    trendDown: {
+      color: theme.colors.error,
+    },
+    trendText: {
+      color: theme.colors.onSurfaceVariant,
+      fontSize: 14,
+      marginLeft: 4,
+    },
+    trendUp: {
+      color: theme.colors.primary,
+    },
+    valueContainer: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 24,
     },
   });
 };

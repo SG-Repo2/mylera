@@ -4,11 +4,11 @@ import type { MD3TypescaleKey } from 'react-native-paper/lib/typescript/types';
 
 // First, let's define our brand colors with semantic meaning
 export const brandColors = {
-  primary: '#183E9F',    // Main brand color for primary actions
-  secondary: '#F7A072',  // Secondary actions and highlights
-  accent: '#A2D5F2',     // Subtle accents and backgrounds
-  success: '#C3E8AC',    // Success states and positive feedback
-  neutral: '#F5E8C7',    // Neutral backgrounds and non-interactive elements
+  primary: '#183E9F', // Main brand color for primary actions
+  secondary: '#F7A072', // Secondary actions and highlights
+  accent: '#A2D5F2', // Subtle accents and backgrounds
+  success: '#C3E8AC', // Success states and positive feedback
+  neutral: '#F5E8C7', // Neutral backgrounds and non-interactive elements
 };
 
 // Create a complete color scheme that follows Material Design 3 principles
@@ -33,7 +33,7 @@ const colors = {
   errorContainer: '#FFCDD2',
   onError: '#FFFFFF',
   onErrorContainer: '#FF5252',
-  background: brandColors.neutral,  // Back to neutral
+  background: brandColors.neutral, // Back to neutral
   onBackground: '#000000',
   surface: '#FFFFFF',
   onSurface: '#000000',
@@ -52,11 +52,12 @@ const colors = {
 
 // Define a complete type scale using Proxima Nova
 const baseFont = {
-  fontFamily: Platform.select({
-    web: 'Proxima Nova',
-    ios: 'Proxima Nova',
-    android: 'ProximaNova',
-  }) ?? 'Proxima Nova',
+  fontFamily:
+    Platform.select({
+      web: 'Proxima Nova',
+      ios: 'Proxima Nova',
+      android: 'ProximaNova',
+    }) ?? 'Proxima Nova',
 };
 
 // Create a comprehensive typescale following Material Design 3 guidelines
@@ -238,7 +239,7 @@ export const theme = {
         ...fontConfig.labelSmall,
         fontWeight: '500' as const,
       },
-    }
+    },
   }),
   roundness: 8,
   animation: {
