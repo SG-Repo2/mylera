@@ -26,7 +26,7 @@ export async function initializeHealthProviderForUser(
     try {
       // Get user's device type from Supabase
       const { data: userData, error: userError } = await supabase
-        .from('profiles')
+        .from('user_profiles')
         .select('device_type')
         .eq('id', userId)
         .single();
