@@ -33,8 +33,8 @@ function ProtectedRoutes() {
     if (!loading) {
       if (!session) {
         if (pathname === '/' || pathname.startsWith('/(app)')) {
-          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
-          router.replace('/(auth)/login');
+          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to register');
+          router.replace('/(auth)/register');
         } else {
           console.log('[ProtectedRoutes] No session on unprotected route, allowing access');
         }

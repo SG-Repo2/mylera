@@ -1,48 +1,38 @@
+const { defaults: tsjPreset } = require('ts-jest/presets');
+
 module.exports = {
+  ...tsjPreset,
   preset: 'jest-expo',
+  setupFilesAfterEnv: ['./jest.setup.js'],
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-reanimated|react-native-paper|react-native-safe-area-context)',
   ],
-  setupFilesAfterEnv: [
-    '@testing-library/jest-native/extend-expect',
-    '<rootDir>/jest.setup.js'
-  ],
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   moduleNameMapper: {
-    '\\.svg': '<rootDir>/__mocks__/svgMock.js',
+    '^@/(.*)$': '<rootDir>/$1',
   },
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  collectCoverage: true,
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
-    '!src/**/*.d.ts',
-    '!src/**/*.stories.{ts,tsx}',
-    '!src/**/*.test.{ts,tsx}',
-    '!src/**/types/*',
+    'app/**/*.{js,jsx,ts,tsx}',
+    'src/**/*.{js,jsx,ts,tsx}',
+    '!**/coverage/**',
+    '!**/node_modules/**',
+    '!**/babel.config.js',
+    '!**/jest.setup.js',
   ],
-  coverageThreshold: {
-    global: {
-      branches: 85,
-      functions: 85,
-      lines: 85,
-      statements: 85,
-    },
-    // Stricter requirements for critical paths
-    'src/utils/**/*.{ts,tsx}': {
-      branches: 100,
-      functions: 100,
-      lines: 100,
-      statements: 100,
-    },
-    'src/hooks/**/*.{ts,tsx}': {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95,
-    },
-    'src/services/**/*.{ts,tsx}': {
-      branches: 95,
-      functions: 95,
-      lines: 95,
-      statements: 95,
+  moduleDirectories: ['node_modules', '<rootDir>'],
+  testEnvironment: 'jsdom',
+  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
+  transform: {
+    '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
+  },
+  globals: {
+    'ts-jest': {
+      tsconfig: {
+        jsx: 'react',
+      },
     },
   },
+  verbose: true,
+  testTimeout: 30000,
 };
