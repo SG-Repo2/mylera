@@ -12,6 +12,7 @@ const createStyles = (theme: MD3Theme) => {
       margin: 0,
       justifyContent: 'flex-end',
       height: '100%',
+      backgroundColor: 'transparent',
     },
     modalBackdrop: {
       flex: 1,
@@ -35,6 +36,7 @@ const createStyles = (theme: MD3Theme) => {
     },
     scrollContent: {
       padding: screenWidth > 380 ? 24 : 20,
+      backgroundColor: theme.colors.surface,
     },
     closeButton: {
       position: 'absolute',
@@ -74,6 +76,7 @@ const createStyles = (theme: MD3Theme) => {
       alignItems: 'center',
       flexDirection: 'row',
       gap: 8,
+      backgroundColor: theme.colors.surface,
     },
     trendContainer: {
       flexDirection: 'row',
@@ -183,6 +186,7 @@ const createStyles = (theme: MD3Theme) => {
       padding: 16,
       borderRadius: 12,
       overflow: 'hidden',
+      backgroundColor: theme.colors.surfaceVariant,
     },
     healthTipGlow: {
       position: 'absolute',

@@ -51,11 +51,22 @@ export const MetricCard = React.memo(function MetricCard({
   
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
   const glowAnim = React.useRef(new Animated.Value(0)).current;
+  const progressAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    Animated.spring(progressAnim, {
+      toValue: progress,
+      useNativeDriver: false,
+      damping: 15,
+      mass: 0.8,
+      stiffness: 150,
+    }).start();
+  }, [progress]);
 
   const handlePressIn = React.useCallback(() => {
     Animated.parallel([
       Animated.spring(scaleAnim, {
-        toValue: 0.95,
+        toValue: 0.96,
         useNativeDriver: true,
         stiffness: 200,
         damping: 15,
@@ -80,7 +91,7 @@ export const MetricCard = React.memo(function MetricCard({
       }),
       Animated.timing(glowAnim, {
         toValue: 0,
-        duration: 300,
+        duration: 200,
         useNativeDriver: true,
       })
     ]).start();
@@ -108,13 +119,13 @@ export const MetricCard = React.memo(function MetricCard({
           transform: [{ scale: scaleAnim }],
           shadowOpacity: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.1, 0.25]
+            outputRange: [0.08, 0.25]
           }),
           shadowColor: color,
-          shadowOffset: { width: 0, height: 2 },
+          shadowOffset: { width: 0, height: 3 },
           shadowRadius: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [4, 8]
+            outputRange: [8, 12]
           }),
         }
       ]}
@@ -136,10 +147,28 @@ export const MetricCard = React.memo(function MetricCard({
           >
             <View style={styles.cardContent}>
               <View style={styles.headerRow}>
-                <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
-                  <MaterialCommunityIcons name={icon} size={24} color="white" />
+                <Surface 
+                  style={[
+                    styles.iconContainer, 
+                    { 
+                      backgroundColor: color,
+                      shadowColor: color,
+                    }
+                  ]} 
+                  elevation={4}
+                >
+                  <MaterialCommunityIcons 
+                    name={icon} 
+                    size={26} 
+                    color="white"
+                    style={{
+                      textShadowColor: 'rgba(0,0,0,0.1)',
+                      textShadowOffset: { width: 0, height: 1 },
+                      textShadowRadius: 2,
+                    }}
+                  />
                 </Surface>
-                <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
+                <Text variant="titleMedium" style={[styles.title, { color: theme.colors.onSurface }]}>
                   {title}
                 </Text>
               </View>
@@ -154,16 +183,29 @@ export const MetricCard = React.memo(function MetricCard({
               </View>
 
               <View style={styles.progressContainer}>
-                <ProgressBar
-                  progress={progress}
-                  color={color}
-                  style={styles.progressBar}
-                />
+                <Animated.View style={styles.progressBar}>
+                  <Animated.View
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      backgroundColor: color,
+                      width: progressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0%', '100%'],
+                      }),
+                      borderRadius: 3,
+                      opacity: 0.9,
+                    }}
+                  />
+                </Animated.View>
                 <View style={styles.progressInfo}>
-                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant, fontSize: 11, marginBottom: -2 }]} numberOfLines={1}>
                     {percentage}% of goal
                   </Text>
-                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: -2 }]} numberOfLines={1}>
                     {points} pts {getPointsText()} {displayUnit}
                   </Text>
                 </View>
