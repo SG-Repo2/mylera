@@ -17,7 +17,7 @@ import { leaderboardService } from '../../services/leaderboardService';
 import { UserProfile } from '../../types/leaderboard';
 import { ErrorView } from '../shared/ErrorView';
 import { theme } from '../../theme/theme';
-import * as ImagePicker from 'expo-image-picker';
+// import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../services/supabaseClient';
 
 // Add spacing constants to match theme
@@ -161,52 +161,29 @@ export function Profile() {
   const handleAvatarUpdate = async () => {
     if (!user) return;
     
+    // Using a predefined set of random avatar URLs instead of image picker
+    const randomAvatars = [
+      'https://i.pravatar.cc/150?img=1',
+      'https://i.pravatar.cc/150?img=2',
+      'https://i.pravatar.cc/150?img=3',
+      'https://i.pravatar.cc/150?img=4',
+      'https://i.pravatar.cc/150?img=5'
+    ];
+    const randomIndex = Math.floor(Math.random() * randomAvatars.length);
+    const randomAvatar = randomAvatars[randomIndex];
+
     try {
       setLoading(true);
       
-      // Request permissions first
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        setError(new Error('Permission to access media library was denied'));
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+      // Instead of uploading a picked image, directly update the profile with a random avatar
+      await leaderboardService.updateUserProfile(user.id, {
+        ...profile,
+        avatar_url: randomAvatar
       });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        if (!asset.uri) {
-          throw new Error('No image URI available');
-        }
-
-        try {
-          // Upload the image
-          const publicUrl = await leaderboardService.uploadAvatar(user.id, asset.uri);
-          
-          if (!publicUrl) {
-            throw new Error('Failed to get public URL for uploaded avatar');
-          }
-
-          // Update profile with new avatar URL
-          await leaderboardService.updateUserProfile(user.id, {
-            ...profile,
-            avatar_url: publicUrl
-          });
-
-          // Reload profile
-          await loadProfile();
-        } catch (uploadError) {
-          console.error('Error during avatar upload:', uploadError);
-          throw new Error('Failed to upload avatar. Please try again.');
-        }
-      }
+      // Reload the profile to update the UI
+      await loadProfile();
     } catch (err) {
-      console.error('Error updating avatar:', err);
+      console.error('Error updating random avatar:', err);
       setError(err instanceof Error ? err : new Error('Failed to update avatar'));
     } finally {
       setLoading(false);

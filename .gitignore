@@ -61,3 +61,4 @@ database_schema.sql
 my_dump.sql
 .env.prod
 .env.test
+coverage/

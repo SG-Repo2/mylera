@@ -6,14 +6,15 @@
 	•	If the request is successful (no error from the auth context), we navigate the user to /login or another screen.
  */
 import React, { useState } from 'react';
-import { View, ScrollView, Image, Pressable, StyleSheet } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { Text, TextInput, Button, Surface, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { theme } from '@/src/theme/theme';
-import * as ImagePicker from 'expo-image-picker';
+// Comment out the ImagePicker import since we are not using it now
+// import * as ImagePicker from 'expo-image-picker';
 import { leaderboardService } from '@/src/services/leaderboardService';
 
 // Step type for multi-step form
@@ -66,31 +67,7 @@ export default function RegisterScreen() {
   const [displayName, setDisplayName] = useState('');
   const [deviceType, setDeviceType] = useState<'os' | 'fitbit' | ''>('');
   const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
-  const [avatar, setAvatar] = useState<string | null>(null);
   const [localError, setLocalError] = useState('');
-
-  const handleAvatarPick = async () => {
-    if (!email) {
-      setLocalError('Please enter your email first');
-      return;
-    }
-
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0].uri) {
-        // Store the URI temporarily - it will be uploaded during registration
-        setAvatar(result.assets[0].uri);
-      }
-    } catch (err) {
-      setLocalError('Failed to select avatar image');
-    }
-  };
 
   const validateCredentials = () => {
     if (!isValidEmail(email)) {
@@ -135,26 +112,12 @@ export default function RegisterScreen() {
     }
 
     try {
-      let avatarUrl = null;
-      
-      // If an avatar was selected, upload it first
-      if (avatar) {
-        try {
-          // Create a temporary ID for the avatar
-          const tempId = `temp-${Date.now()}`;
-          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
-        } catch (avatarErr) {
-          console.error('Failed to upload avatar:', avatarErr);
-          // Continue registration without avatar if upload fails
-        }
-      }
-
-      // Register with additional profile data
+      // In this version we simply pass null for the avatar URI.
       await register(email, password, {
         displayName,
         deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatarUrl
+        avatarUri: null
       });
 
       // If successful, AuthProvider will handle the navigation to health-setup
@@ -208,7 +171,7 @@ export default function RegisterScreen() {
           </Button>
         </View>
       ) : (
-        // Step 2: Profile
+        // Step 2: Profile (without avatar selection)
         <View>
           <TextInput
             style={styles.input}
@@ -216,7 +179,6 @@ export default function RegisterScreen() {
             value={displayName}
             onChangeText={setDisplayName}
           />
-
           <Text style={styles.sectionTitle}>Select Your Device</Text>
           <DeviceOption
             title="Apple Health / Google Fit"
@@ -246,15 +208,6 @@ export default function RegisterScreen() {
               Imperial
             </Button>
           </View>
-
-          <Text style={styles.sectionTitle}>Profile Picture (Optional)</Text>
-          <Pressable onPress={handleAvatarPick} style={styles.avatarContainer}>
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            ) : (
-              <MaterialCommunityIcons name="camera-plus" size={32} color={theme.colors.primary} />
-            )}
-          </Pressable>
 
           {loading ? (
             <ActivityIndicator />
@@ -339,20 +292,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginBottom: 12,
-  },
-  avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: theme.colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatar: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 50,
   },
   button: {
     marginTop: 12,
