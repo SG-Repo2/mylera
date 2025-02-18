@@ -30,8 +30,12 @@ jest.mock('expo-router', () => ({
     replace: jest.fn(),
     back: jest.fn(),
   }),
-  useLocalSearchParams: () => ({}),
+  useSegments: () => [],
+  usePathname: () => '/',
   Stack: {
+    Screen: jest.fn(),
+  },
+  Tabs: {
     Screen: jest.fn(),
   },
 }));
@@ -268,14 +272,61 @@ jest.mock('./src/theme/theme', () => ({
   },
 }));
 
+// Mock all Expo modules
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    back: jest.fn(),
+  }),
+  useSegments: () => [],
+  usePathname: () => '/',
+  Stack: { Screen: jest.fn() },
+  Tabs: { Screen: jest.fn() },
+}));
+
+jest.mock('expo', () => ({
+  ...jest.requireActual('expo'),
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
+jest.mock('expo-auth-session', () => ({
+  makeRedirectUri: jest.fn(),
+  useAuthRequest: jest.fn(),
+  exchangeCodeAsync: jest.fn(),
+}));
+
+// Mock other Expo modules as needed
+jest.mock('expo-file-system', () => ({}));
+jest.mock('expo-image-picker', () => ({}));
+jest.mock('expo-constants', () => ({}));
+
+// Mock react-native modules
+jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
+jest.mock('react-native/Libraries/EventEmitter/NativeEventEmitter');
+
+// Mock AsyncStorage
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  setItem: jest.fn(),
+  getItem: jest.fn(),
+  removeItem: jest.fn(),
+}));
+
+// Global fetch mock
+global.fetch = jest.fn();
+
 // Global beforeAll/afterAll/beforeEach setup
 beforeAll(() => {
-  // Any global setup
+  console.log('\n🚀 Starting test suite...');
 });
 
-afterAll(() => {
-  // Any global cleanup
-  jest.clearAllMocks();
+afterAll((testResults) => {
+  analyzeTestOutput(testResults);
 });
 
 beforeEach(() => {
