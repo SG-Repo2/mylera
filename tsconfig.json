@@ -10,10 +10,21 @@
     },
     "jsx": "react-native",
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": [
+      "jest",
+      "@testing-library/jest-native",
+      "node"
+    ]
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    "**/__tests__/**/*",
+    "**/__mocks__/**/*",
+    "jest.setup.ts",
+    "jest.config.ts"
   ]
 }

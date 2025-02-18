@@ -44,6 +44,8 @@ android/
 # iOS
 ios/
 
+coverage/
+
 app-example
 docs/*.md
 **/repomix-output.txt

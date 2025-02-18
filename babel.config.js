@@ -1,7 +1,10 @@
 module.exports = function (api) {
   api.cache(true);
   return {
-    presets: ['babel-preset-expo'],
+    presets: [
+      'babel-preset-expo',
+      '@babel/preset-flow'
+    ],
     plugins: [
       ['module-resolver', {
         root: ['.'],
@@ -9,6 +12,14 @@ module.exports = function (api) {
           '@': '.',
         },
       }],
+      '@babel/plugin-transform-flow-strip-types'
     ],
+    env: {
+      test: {
+        plugins: [
+          '@babel/plugin-transform-flow-strip-types'
+        ]
+      }
+    }
   };
 };
