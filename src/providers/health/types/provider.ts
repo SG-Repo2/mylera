@@ -1,6 +1,7 @@
 import type { HealthMetrics, RawHealthData, NormalizedMetric } from './metrics';
 import type { MetricType } from '../../../types/metrics';
 import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
+import { withTimeout, DEFAULT_TIMEOUTS } from '../../../utils/timeoutUtils';
 
 /**
  * Interface representing a platform-specific health data provider.
@@ -14,6 +15,12 @@ export interface HealthProvider {
    * @throws {Error} If initialization fails
    */
   initialize(): Promise<void>;
+
+  /**
+   * Reset volatile state while maintaining initialization.
+   * Used when app returns to foreground.
+   */
+  resetState(): void;
 
   /**
    * Clean up provider resources.
@@ -118,6 +125,43 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /** Permission manager instance for handling user permissions */
   protected permissionManager: PermissionManager | null = null;
 
+  /** AbortController for cancelling pending requests */
+  protected abortController: AbortController | null = null;
+
+  /**
+   * Protected method to fetch with cancellation support
+   * @param url The URL to fetch from
+   * @param options Fetch options
+   * @returns Promise resolving to the fetch Response
+   */
+  protected async fetchWithCancellation(url: string, options?: RequestInit): Promise<Response> {
+    // Cancel any existing requests
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+
+    // Create new AbortController for this request
+    this.abortController = new AbortController();
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: this.abortController.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request was cancelled');
+      }
+      throw error;
+    }
+  }
+
   /**
    * Initialize the health provider.
    * Must be implemented by platform-specific providers.
@@ -146,7 +190,34 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @param userId - The unique identifier of the user
    */
   async initializePermissions(userId: string): Promise<void> {
-    this.permissionManager = new PermissionManager(userId);
+    if (!this.initialized) {
+      throw new Error('Provider must be initialized before setting up permissions');
+    }
+
+    await withTimeout(
+      (async () => {
+        try {
+          // Create new permission manager
+          this.permissionManager = new PermissionManager(userId);
+          console.log('[BaseHealthProvider] Created permission manager for user:', userId);
+          
+          // Clear any stale permission state
+          await this.permissionManager.clearCache();
+          console.log('[BaseHealthProvider] Cleared permission cache');
+          
+          // Check current permissions and update state
+          const status = await this.checkPermissionsStatus();
+          await this.permissionManager.updatePermissionState(status.status);
+          console.log('[BaseHealthProvider] Updated permission state:', status.status);
+        } catch (error) {
+          console.error('[BaseHealthProvider] Failed to initialize permissions:', error);
+          this.permissionManager = null;
+          throw error;
+        }
+      })(),
+      DEFAULT_TIMEOUTS.INITIALIZATION,
+      'Permission initialization timed out'
+    );
   }
 
   /**
@@ -168,8 +239,25 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * Can be overridden by platform-specific providers for additional cleanup.
    */
   async handlePermissionDenial(): Promise<void> {
-    if (this.permissionManager) {
-      await this.permissionManager.clearCache();
+    const manager = this.permissionManager;
+    if (!manager) {
+      console.warn('[BaseHealthProvider] No permission manager to handle denial');
+      return;
+    }
+
+    try {
+      await withTimeout(
+        (async () => {
+          await manager.clearCache();
+          await manager.updatePermissionState('denied');
+          this.initialized = false; // Reset initialization state
+        })(),
+        DEFAULT_TIMEOUTS.CLEANUP,
+        'Permission denial handling timed out'
+      );
+    } catch (error) {
+      console.error('[BaseHealthProvider] Error handling permission denial:', error);
+      throw error;
     }
   }
 
@@ -185,9 +273,42 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * Clean up provider resources.
    * Resets initialization state and clears sync timestamp.
    */
-  async cleanup(): Promise<void> {
-    this.initialized = false;
+  /**
+   * Reset volatile state while maintaining initialization
+   */
+  resetState(): void {
     this.lastSyncTime = null;
+  }
+
+  async cleanup(): Promise<void> {
+    await withTimeout(
+      (async () => {
+        try {
+          // Cancel any pending requests
+          if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+          }
+
+          // Clear permission state if exists
+          if (this.permissionManager) {
+            await this.permissionManager.clearCache();
+            this.permissionManager = null;
+          }
+
+          this.initialized = false;
+          this.lastSyncTime = null;
+          this.resetState();
+          
+          console.log('[BaseHealthProvider] Provider cleanup completed successfully');
+        } catch (error) {
+          console.error('[BaseHealthProvider] Error during cleanup:', error);
+          throw error;
+        }
+      })(),
+      DEFAULT_TIMEOUTS.CLEANUP,
+      'Provider cleanup timed out'
+    );
   }
 
   /**
@@ -215,7 +336,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
    */
   protected async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
-      await this.initialize();
+      await withTimeout(
+        this.initialize(),
+        DEFAULT_TIMEOUTS.INITIALIZATION,
+        'Provider initialization timed out'
+      );
     }
   }
 
@@ -224,7 +349,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns Date of last sync or null if never synced
    */
   async getLastSyncTime(): Promise<Date | null> {
-    return this.lastSyncTime;
+    return withTimeout(
+      Promise.resolve(this.lastSyncTime),
+      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      'Get last sync time timed out'
+    );
   }
 
   /**
@@ -232,7 +361,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @param date - The timestamp to set
    */
   async setLastSyncTime(date: Date): Promise<void> {
-    this.lastSyncTime = date;
+    await withTimeout(
+      Promise.resolve(this.lastSyncTime = date),
+      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      'Set last sync time timed out'
+    );
   }
 
   /**
@@ -241,6 +374,10 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns true if the service is available
    */
   async isAvailable(): Promise<boolean> {
-    return true;
+    return withTimeout(
+      Promise.resolve(true),
+      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      'Availability check timed out'
+    );
   }
 }

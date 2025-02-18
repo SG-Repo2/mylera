@@ -6,6 +6,7 @@
 	•	We expose register, login, and logout for the rest of the app to consume.
  */
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from './health/types/permissions';
@@ -13,12 +14,19 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
+interface HealthInitState {
+  isInitialized: boolean;
+  isInitializing: boolean;
+  error: Error | null;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   loading: boolean;
   error: string | null;
   healthPermissionStatus: PermissionStatus | null;
+  healthInitState: HealthInitState;
   register: (email: string, password: string, profileData?: RegisterProfileData) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -41,6 +49,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
+  const [healthInitState, setHealthInitState] = useState<HealthInitState>({
+    isInitialized: false,
+    isInitializing: false,
+    error: null
+  });
+
+  // Handle app lifecycle for health provider state management
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active' && user && healthPermissionStatus === 'granted') {
+        // App returning to foreground - refresh state
+        const refreshProviders = async () => {
+          try {
+            console.log('[AuthProvider] App became active, refreshing health provider...');
+            
+            // First ensure provider is fully initialized
+            await HealthProviderFactory.waitForInitialization();
+            console.log('[AuthProvider] Provider initialization check complete');
+            
+            const provider = await HealthProviderFactory.getProvider();
+            
+            // Check initialization state before proceeding
+            if (!healthInitState.isInitialized) {
+              console.log('[AuthProvider] Provider not initialized, initializing...');
+              await provider.initialize();
+              setHealthInitState(prev => ({
+                ...prev,
+                isInitialized: true,
+                error: null
+              }));
+              console.log('[AuthProvider] Provider initialization complete');
+            }
+            
+            console.log('[AuthProvider] Resetting provider state...');
+            await provider.resetState();
+            
+            console.log('[AuthProvider] Refreshing metrics...');
+            await provider.getMetrics();
+            
+            console.log('[AuthProvider] Health provider refresh completed successfully');
+          } catch (error) {
+            console.error('[AuthProvider] Error refreshing health provider:', error);
+            setHealthInitState(prev => ({
+              ...prev,
+              error: error instanceof Error ? error : new Error('Failed to refresh health provider')
+            }));
+            
+            // Attempt recovery by marking as uninitialized
+            if (error instanceof Error && error.message.includes('not initialized')) {
+              console.log('[AuthProvider] Marking provider as uninitialized for next refresh attempt');
+              setHealthInitState(prev => ({
+                ...prev,
+                isInitialized: false
+              }));
+            }
+          }
+        };
+        refreshProviders();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user, healthPermissionStatus, healthInitState.isInitialized]);
 
   useEffect(() => {
     // Check initial session
@@ -50,7 +123,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Initialize health provider if user is logged in
       if (session?.user) {
-        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+        try {
+          console.log('[AuthProvider] Initializing health provider for user:', session.user.id);
+          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+          console.log('[AuthProvider] Health provider initialized successfully');
+        } catch (error) {
+          console.error('[AuthProvider] Failed to initialize health provider:', error);
+          setHealthPermissionStatus('denied');
+          // Don't throw - allow the app to continue without health features
+        }
       }
       
       console.log('[AuthProvider] Initial session check complete. Setting loading to false');
@@ -66,9 +147,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Handle health permissions on auth state change
       if (session?.user) {
-        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+        try {
+          console.log('[AuthProvider] Initializing health provider on auth state change');
+          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+          console.log('[AuthProvider] Health provider initialized successfully on auth state change');
+        } catch (error) {
+          console.error('[AuthProvider] Failed to initialize health provider on auth state change:', error);
+          setHealthPermissionStatus('denied');
+        }
       } else {
         setHealthPermissionStatus(null);
+        // Clean up any existing provider
+        try {
+          console.log('[AuthProvider] Cleaning up health provider on session end');
+          await HealthProviderFactory.cleanup();
+        } catch (error) {
+          console.warn('[AuthProvider] Error cleaning up health provider:', error);
+        }
       }
       
       console.log('[AuthProvider] Auth state changed:', { session, user: session?.user });
@@ -157,19 +252,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         console.log('[AuthProvider] Auto-login successful, initializing health provider');
         
-        // Initialize the appropriate health provider based on device type
-        const provider = HealthProviderFactory.getProvider(profile.deviceType);
-        
-        // If it's a Fitbit device, handle OAuth flow
-        if (profile.deviceType === 'fitbit') {
-          console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
-          const status = await provider.requestPermissions();
-          if (status !== 'granted') {
-            throw new Error('Fitbit permissions not granted');
+        try {
+          // Initialize the appropriate health provider based on device type
+          console.log('[AuthProvider] Initializing health provider for device type:', profile.deviceType);
+          const provider = await HealthProviderFactory.getProvider(profile.deviceType);
+          
+          // If it's a Fitbit device, handle OAuth flow
+          if (profile.deviceType === 'fitbit') {
+            console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
+            const status = await provider.requestPermissions();
+            if (status !== 'granted') {
+              throw new Error('Fitbit permissions not granted');
+            }
+            console.log('[AuthProvider] Fitbit permissions granted successfully');
           }
+          
+          await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+          console.log('[AuthProvider] Health provider fully initialized for new user');
+        } catch (error) {
+          console.error('[AuthProvider] Failed to initialize health provider for new user:', error);
+          setHealthPermissionStatus('denied');
+          // Don't throw - allow registration to complete without health features
         }
-        
-        await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
       }
     } catch (err) {
       console.error('[AuthProvider] Registration error:', err);
@@ -190,7 +294,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setError(null);
       setLoading(true);
+      setHealthInitState(prev => ({ ...prev, isInitializing: true, error: null }));
 
+      console.log('[AuthProvider] Starting login process...');
+
+      // Wait for any ongoing provider initialization
+      console.log('[AuthProvider] Waiting for provider initialization...');
+      await HealthProviderFactory.waitForInitialization();
+      
+      console.log('[AuthProvider] Attempting login...');
       // Attempt login
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
@@ -198,17 +310,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (signInError) throw signInError;
 
-      // After successful login, check health permissions
-      const provider = HealthProviderFactory.getProvider();
+      console.log('[AuthProvider] Login successful, initializing health provider...');
+      // After successful login, initialize health provider with proper sequencing
+      const provider = await HealthProviderFactory.getProvider();
+      
+      console.log('[AuthProvider] Checking permissions status...');
       const permissionState = await provider.checkPermissionsStatus();
       setHealthPermissionStatus(permissionState.status);
 
+      if (permissionState.status === 'granted') {
+        console.log('[AuthProvider] Permissions granted, initializing provider...');
+        await provider.initialize();
+        setHealthInitState({
+          isInitialized: true,
+          isInitializing: false,
+          error: null
+        });
+      } else {
+        console.log('[AuthProvider] Permissions not granted:', permissionState.status);
+        setHealthInitState({
+          isInitialized: false,
+          isInitializing: false,
+          error: new Error(`Health permissions not granted: ${permissionState.status}`)
+        });
+      }
+
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('[AuthProvider] Login error:', err);
       setError(mapAuthError(err));
+      setHealthInitState(prev => ({
+        ...prev,
+        isInitializing: false,
+        error: err instanceof Error ? err : new Error('Unknown error during health initialization')
+      }));
     } finally {
       setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in login');
+      console.log('[AuthProvider] Login process completed');
     }
   };
 
@@ -230,8 +367,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Clean up health provider state
       if (user) {
         try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.cleanup?.();
+          const provider = await HealthProviderFactory.getProvider();
+          await provider.cleanup();
         } catch (healthError) {
           console.error('Error cleaning up health provider:', healthError);
           // Don't block logout on health cleanup error
@@ -274,7 +411,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const provider = HealthProviderFactory.getProvider();
+      const provider = await HealthProviderFactory.getProvider();
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       return status;
@@ -307,6 +444,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     error,
     healthPermissionStatus,
+    healthInitState,
     register: (email: string, password: string, profileData?: RegisterProfileData) => {
       if (!profileData) {
         throw new Error('Profile data is required for registration');

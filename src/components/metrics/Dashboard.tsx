@@ -19,6 +19,7 @@ import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
+import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 
 interface DashboardProps {
   provider: HealthProvider;
@@ -272,15 +273,37 @@ export const Dashboard = React.memo(function Dashboard({
   }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
 
   const handleRetry = React.useCallback(async () => {
-    if (error instanceof HealthProviderPermissionError) {
-      const status = await requestHealthPermissions();
-      if (status === 'granted') {
-        syncHealthData();
+    try {
+      setErrorDialogVisible(false);
+      
+      // If it's a permission error, handle it first
+      if (error instanceof HealthProviderPermissionError) {
+        console.log('[Dashboard] Requesting health permissions...');
+        const status = await requestHealthPermissions();
+        if (status !== 'granted') {
+          throw new Error('Health permissions are required to track your fitness metrics');
+        }
+        console.log('[Dashboard] Health permissions granted');
       }
-    } else {
+
+      // Clean up existing provider
+      console.log('[Dashboard] Cleaning up existing provider...');
+      await HealthProviderFactory.cleanup();
+      console.log('[Dashboard] Provider cleanup complete');
+      
+      // Re-initialize provider and sync data
+      console.log('[Dashboard] Initializing new provider...');
+      const newProvider = await HealthProviderFactory.getProvider();
+      await newProvider.initialize();
+      console.log('[Dashboard] New provider initialized');
+      
       syncHealthData();
+      console.log('[Dashboard] Health data sync triggered');
+    } catch (error) {
+      console.error('[Dashboard] Retry failed:', error);
+      setErrorDialogVisible(true);
+      setFetchError(error instanceof Error ? error : new Error('Failed to retry health data sync'));
     }
-    setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
   const handleRefresh = React.useCallback(() => {

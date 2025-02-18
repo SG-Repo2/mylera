@@ -1,7 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { debounce } from 'lodash';
 import type { HealthProvider } from '../providers/health/types/provider';
+import type { HealthMetrics } from '../providers/health/types/metrics';
+import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
+import { validateProviderInitialization, initializeWithRetry } from '../utils/healthInitUtils';
+import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 
 /**
  * React hook for managing health data synchronization.
@@ -29,44 +34,173 @@ import type { MetricType } from '../types/schemas';
  * ```
  */
 export const useHealthData = (provider: HealthProvider, userId: string) => {
+  // Helper function to update health metrics
+  const updateHealthMetrics = async (healthData: HealthMetrics) => {
+    const healthMetrics: MetricType[] = [
+      'steps',
+      'distance',
+      'calories',
+      'heart_rate',
+      'basal_calories',
+      'flights_climbed',
+      'exercise'
+    ];
+    
+    let failedMetrics: string[] = [];
+    const updates = healthMetrics.map(async metric => {
+      const value = healthData[metric];
+      if (typeof value === 'number') {
+        try {
+          await metricsService.updateMetric(userId, metric, value);
+        } catch (err) {
+          if (err instanceof Error && err.name === 'MetricsAuthError') {
+            throw err;
+          }
+          console.error(`[useHealthData] Error updating metric ${metric}:`, err);
+          failedMetrics.push(metric);
+        }
+      }
+    });
+
+    await Promise.all(updates);
+
+    if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
+      console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
+    }
+  };
+
+  // Helper function to handle sync errors
+  const handleSyncError = (err: unknown) => {
+    let errorMessage: string;
+    
+    if (err instanceof Error) {
+      if (err.name === 'MetricsAuthError') {
+        errorMessage = 'Your session has expired. Please sign in again.';
+      } else if (err.message.includes('permission')) {
+        errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
+      } else if (err.message.includes('network') || err.message.includes('timeout')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else {
+        errorMessage = err.message.includes('health') ? err.message :
+          'Unable to sync health data. Please try again later.';
+      }
+    } else {
+      errorMessage = 'An unexpected error occurred. Please try again.';
+    }
+    
+    setError(new Error(errorMessage));
+    console.error('[useHealthData] Health sync error:', err);
+  };
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
 
-  const syncHealthData = useCallback(async () => {
-    if (!isMounted.current) return;
-    
-    setLoading(true);
-    setError(null);
+  const retryInitialization = useCallback(async () => {
+    if (!isMounted.current) return false;
 
     try {
-      // Initialize provider first
-      try {
-        await provider.initialize();
-      } catch (err) {
-        const originalMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[useHealthData] Health initialization error:', err);
-        
-        // More user-friendly error message
-        const errorMessage = originalMessage.includes('not available')
-          ? 'Health Connect is not available. Please ensure it is installed and set up on your device.'
-          : 'Unable to connect to health services. Please check your device settings and try again.';
-        
-        setError(new Error(errorMessage));
-        setLoading(false);
-        return; // Exit early on initialization failure
-      }
+      console.log('[useHealthData] Attempting provider initialization retry...');
+      
+      // Clean up existing provider
+      await HealthProviderFactory.cleanup();
+      console.log('[useHealthData] Provider cleanup complete');
+      
+      // Get a fresh provider instance
+      const newProvider = await HealthProviderFactory.getProvider();
+      console.log('[useHealthData] New provider instance created');
+      
+      // Validate and initialize new provider
+      validateProviderInitialization(newProvider);
+      console.log('[useHealthData] New provider validation successful');
+      
+      await withTimeout(
+        initializeWithRetry(newProvider),
+        DEFAULT_TIMEOUTS.INITIALIZATION,
+        'Health provider initialization timed out'
+      );
+      
+      console.log('[useHealthData] Provider initialization retry successful');
+      return true;
+    } catch (error) {
+      console.error('[useHealthData] Provider initialization retry failed:', error);
+      return false;
+    }
+  }, [isMounted]);
 
-      // Initialize permissions
-      await provider.initializePermissions(userId);
+  // Create debounced version of sync function
+  const debouncedSync = useCallback(
+    debounce(async () => {
+      if (!isMounted.current) return;
+      
+      setLoading(true);
+      setError(null);
 
-      // Only proceed with permission checks if initialization succeeded
       try {
-        const permissionState = await provider.checkPermissionsStatus();
+        // Initialize and validate provider
+        try {
+          console.log('[useHealthData] Starting provider initialization...');
+          
+          // First ensure we have a valid provider instance
+          validateProviderInitialization(provider);
+          console.log('[useHealthData] Provider validation successful');
+          
+          // Then initialize it with timeout and retries
+          await withTimeout(
+            initializeWithRetry(provider),
+            DEFAULT_TIMEOUTS.INITIALIZATION,
+            'Health provider initialization timed out'
+          );
+          
+          console.log('[useHealthData] Provider initialized successfully');
+        } catch (err) {
+          // If initial initialization fails, try one retry
+          console.log('[useHealthData] Initial initialization failed, attempting retry...');
+          const retrySuccessful = await retryInitialization();
+          if (!retrySuccessful) {
+            throw err;
+          }
+          console.log('[useHealthData] Initialization retry succeeded');
+        }
+
+        // Initialize permissions with timeout
+        try {
+          console.log('[useHealthData] Initializing permissions for user:', userId);
+          await withTimeout(
+            provider.initializePermissions(userId),
+            DEFAULT_TIMEOUTS.INITIALIZATION,
+            'Permission initialization timed out'
+          );
+          console.log('[useHealthData] Permissions initialized successfully');
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[useHealthData] Permission initialization failed:', message);
+          
+          // Try to clean up on permission failure
+          try {
+            await HealthProviderFactory.cleanup();
+          } catch (cleanupError) {
+            console.warn('[useHealthData] Cleanup after permission failure failed:', cleanupError);
+          }
+          
+          throw err;
+        }
+
+        // Check permissions with timeout
+        const permissionState = await withTimeout(
+          provider.checkPermissionsStatus(),
+          DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+          'Permission check timed out'
+        );
+
         if (permissionState.status !== 'granted') {
           console.log('[useHealthData] Requesting health permissions...');
-          const granted = await provider.requestPermissions();
+          const granted = await withTimeout(
+            provider.requestPermissions(),
+            DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+            'Permission request timed out'
+          );
           if (granted !== 'granted') {
             throw new Error(
               'Health permissions are required to track your fitness metrics. ' +
@@ -74,88 +208,45 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
             );
           }
         }
-      } catch (permError) {
-        console.error('[useHealthData] Permission error:', permError);
-        const isPermissionDenied = permError instanceof Error &&
-          (permError.message.includes('permission') || permError.message.includes('denied'));
-        
-        throw new Error(
-          isPermissionDenied
-            ? 'Unable to access health data. Please check your permissions in device settings.'
-            : 'There was a problem accessing health services. Please try again.'
+
+        console.log('[useHealthData] Permissions granted, fetching health data...');
+        // Get health data with timeout
+        const healthData = await withTimeout(
+          provider.getMetrics(),
+          DEFAULT_TIMEOUTS.METRICS_FETCH,
+          'Health metrics fetch timed out'
         );
-      }
+        
+        // Update metrics with timeout
+        await withTimeout(
+          updateHealthMetrics(healthData),
+          DEFAULT_TIMEOUTS.SYNC,
+          'Metrics update timed out'
+        );
 
-      console.log('[useHealthData] Permissions granted, fetching health data...');
-      // Get health data and update scores
-      const healthData = await provider.getMetrics();
-      
-      // Only update specific health metrics
-      const healthMetrics: MetricType[] = [
-        'steps',
-        'distance',
-        'calories',
-        'heart_rate',
-        'basal_calories',
-        'flights_climbed',
-        'exercise'
-      ];
-      
-      // Update each health metric that has a value
-      let failedMetrics: string[] = [];
-      const updates = healthMetrics.map(async metric => {
-        const value = healthData[metric];
-        if (typeof value === 'number') {
-          try {
-            await metricsService.updateMetric(userId, metric, value);
-          } catch (err) {
-            // If it's an auth error, stop processing immediately
-            if (err instanceof Error && err.name === 'MetricsAuthError') {
-              throw err;
-            }
-            // For other errors, track the failed metric but continue processing
-            console.error(`[useHealthData] Error updating metric ${metric}:`, err);
-            failedMetrics.push(metric);
-          }
+      } catch (err) {
+        handleSyncError(err);
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
+          setIsInitialized(true);
         }
-      });
-
-      await Promise.all(updates);
-
-      // If some metrics failed but not all, show a warning but don't fail completely
-      if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
-        console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
       }
+    }, 800), // 800ms debounce
+    [provider, userId, retryInitialization]
+  );
 
-    } catch (err) {
-      let errorMessage: string;
-      
-      // Handle specific error types with user-friendly messages
-      if (err instanceof Error) {
-        if (err.name === 'MetricsAuthError') {
-          errorMessage = 'Your session has expired. Please sign in again.';
-        } else if (err.message.includes('permission')) {
-          errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
-        } else if (err.message.includes('network') || err.message.includes('timeout')) {
-          errorMessage = 'Network error. Please check your connection and try again.';
-        } else {
-          // Use the error message if it's user-friendly, otherwise use a generic message
-          errorMessage = err.message.includes('health') ? err.message :
-            'Unable to sync health data. Please try again later.';
-        }
-      } else {
-        errorMessage = 'An unexpected error occurred. Please try again.';
-      }
-      
-      setError(new Error(errorMessage));
-      console.error('[useHealthData] Health sync error:', err);
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setIsInitialized(true);
-      }
-    }
-  }, [provider, userId]);
+  // Cleanup debounced function on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSync.cancel();
+    };
+  }, [debouncedSync]);
+
+  const syncHealthData = useCallback(() => {
+    if (!isMounted.current) return;
+    debouncedSync();
+  }, [debouncedSync]);
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
@@ -172,11 +263,15 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     
     return () => {
       isMounted.current = false;
-      if (provider.cleanup) {
-        provider.cleanup();
+      if (provider) {
+        try {
+          provider.cleanup?.();
+        } catch (error) {
+          console.error('[useHealthData] Error during cleanup:', error);
+        }
       }
     };
-  }, [syncHealthData, userId]);
+  }, [syncHealthData, userId, provider]);
 
   return { loading, error, syncHealthData, isInitialized };
 };
