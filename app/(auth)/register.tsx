@@ -144,12 +144,16 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.container}>
       <KeyboardAwareScrollView
         ref={scrollViewRef}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { minHeight: height }
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         enableOnAndroid
-        extraScrollHeight={20}
+        extraScrollHeight={Platform.OS === 'ios' ? 20 : 40}
         enableResetScrollToCoords={false}
+        keyboardDismissMode="on-drag"
       >
         <Animated.View 
           style={styles.headerContainer}
@@ -157,15 +161,15 @@ export default function RegisterScreen() {
         >
           <Image 
             source={require('@/assets/images/myLeraBanner.png')}
-            style={[styles.banner, { marginTop: -20, height: 80 }]}
+            style={styles.banner}
             resizeMode="contain"
           />
-          <Text variant="titleLarge" style={[styles.headerTitle, { marginBottom: 4 }]}>
+          <Text variant="titleLarge" style={styles.headerTitle}>
             Create Account
           </Text>
         </Animated.View>
 
-        <Surface style={[styles.formContainer, { minHeight: height * 0.7 }]}>
+        <Surface style={styles.formContainer}>
           <Animated.View entering={FadeInDown.delay(400).duration(600).springify()}>
             <TextInput
               testID="email-input"
@@ -183,12 +187,13 @@ export default function RegisterScreen() {
               activeOutlineColor={brandColors.primary}
               left={<TextInput.Icon icon="email" color={brandColors.primary} />}
               error={!!localError.email}
+              dense
             />
-            {localError.email ? (
-              <HelperText type="error" visible={true}>
+            {localError.email && (
+              <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.email}
               </HelperText>
-            ) : null}
+            )}
 
             <TextInput
               testID="password-input"
@@ -213,12 +218,13 @@ export default function RegisterScreen() {
                 />
               }
               error={!!localError.password}
+              dense
             />
-            {localError.password ? (
-              <HelperText type="error" visible={true}>
+            {localError.password && (
+              <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.password}
               </HelperText>
-            ) : null}
+            )}
 
             <TextInput
               testID="confirm-password-input"
@@ -243,12 +249,13 @@ export default function RegisterScreen() {
                 />
               }
               error={!!localError.confirmPassword}
+              dense
             />
-            {localError.confirmPassword ? (
-              <HelperText type="error" visible={true}>
+            {localError.confirmPassword && (
+              <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.confirmPassword}
               </HelperText>
-            ) : null}
+            )}
 
             <TextInput
               testID="display-name-input"
@@ -264,21 +271,22 @@ export default function RegisterScreen() {
               activeOutlineColor={brandColors.primary}
               left={<TextInput.Icon icon="account" color={brandColors.primary} />}
               error={!!localError.displayName}
+              dense
             />
-            {localError.displayName ? (
-              <HelperText type="error" visible={true}>
+            {localError.displayName && (
+              <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.displayName}
               </HelperText>
-            ) : null}
+            )}
 
             <Text variant="titleMedium" style={styles.sectionTitle}>
               Select Your Device
             </Text>
-            {localError.deviceType ? (
-              <HelperText type="error" visible={true}>
+            {localError.deviceType && (
+              <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.deviceType}
               </HelperText>
-            ) : null}
+            )}
             <View style={styles.deviceContainer}>
               <DeviceOption
                 testID="os-device-option"
@@ -288,6 +296,7 @@ export default function RegisterScreen() {
                 onSelect={() => {
                   setDeviceType('os');
                   setLocalError({ ...localError, deviceType: '' });
+                  Keyboard.dismiss();
                 }}
               />
               <DeviceOption
@@ -298,23 +307,27 @@ export default function RegisterScreen() {
                 onSelect={() => {
                   setDeviceType('fitbit');
                   setLocalError({ ...localError, deviceType: '' });
+                  Keyboard.dismiss();
                 }}
               />
             </View>
 
-            <Text variant="titleMedium" style={[styles.sectionTitle, { marginTop: 12 }]}>
+            <Text variant="titleMedium" style={styles.sectionTitle}>
               Measurement System
             </Text>
-            <View style={[styles.measurementContainer, { marginTop: 4 }]}>
+            <View style={styles.measurementContainer}>
               <Button
                 testID="metric-button"
                 mode={measurementSystem === 'metric' ? 'contained' : 'outlined'}
-                onPress={() => setMeasurementSystem('metric')}
+                onPress={() => {
+                  setMeasurementSystem('metric');
+                  Keyboard.dismiss();
+                }}
                 style={[
                   styles.measurementButton,
                   measurementSystem === 'metric' && styles.measurementButtonSelected
                 ]}
-                contentStyle={[styles.measurementButtonContent, { paddingVertical: 4 }]}
+                contentStyle={styles.measurementButtonContent}
                 labelStyle={[
                   styles.measurementButtonLabel,
                   measurementSystem === 'metric' && styles.measurementButtonLabelSelected
@@ -325,12 +338,15 @@ export default function RegisterScreen() {
               <Button
                 testID="imperial-button"
                 mode={measurementSystem === 'imperial' ? 'contained' : 'outlined'}
-                onPress={() => setMeasurementSystem('imperial')}
+                onPress={() => {
+                  setMeasurementSystem('imperial');
+                  Keyboard.dismiss();
+                }}
                 style={[
                   styles.measurementButton,
                   measurementSystem === 'imperial' && styles.measurementButtonSelected
                 ]}
-                contentStyle={[styles.measurementButtonContent, { paddingVertical: 4 }]}
+                contentStyle={styles.measurementButtonContent}
                 labelStyle={[
                   styles.measurementButtonLabel,
                   measurementSystem === 'imperial' && styles.measurementButtonLabelSelected
@@ -340,11 +356,11 @@ export default function RegisterScreen() {
               </Button>
             </View>
 
-            {localError.submit ? (
+            {localError.submit && (
               <HelperText type="error" visible={true} style={styles.submitError}>
                 {localError.submit}
               </HelperText>
-            ) : null}
+            )}
 
             <Button
               testID="register-button"
@@ -360,17 +376,17 @@ export default function RegisterScreen() {
             </Button>
 
             <View style={styles.signInContainer}>
-              <Text 
-                variant="bodyLarge"
-                style={[styles.signInText, { color: theme.colors.onSurfaceVariant }]}
-              >
+              <Text variant="bodyLarge" style={styles.signInText}>
                 Already have an account?
               </Text>
               <Button
                 testID="sign-in-button"
                 mode="text"
-                onPress={() => router.push('/login')}
-                labelStyle={[styles.signInButtonLabel, { color: brandColors.secondary }]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  router.push('/login');
+                }}
+                labelStyle={styles.signInButtonLabel}
               >
                 Sign In
               </Button>
@@ -388,31 +404,26 @@ const styles = StyleSheet.create({
     backgroundColor: brandColors.neutral,
   },
   scrollContent: {
-    padding: 20,
+    flexGrow: 1,
+    padding: 16,
     paddingBottom: 24,
   },
   headerContainer: {
     alignItems: 'center',
-    marginBottom: 16,
-    marginTop: -8,
+    marginBottom: 12,
   },
   banner: {
-    width: '100%',
-    height: 50,
-    marginBottom: 12,
+    width: '80%',
+    height: 40,
+    marginBottom: 8,
   },
   headerTitle: {
     color: brandColors.primary,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  headerSubtitle: {
-    marginBottom: 0,
-    textAlign: 'center',
-    lineHeight: 24,
+    fontSize: 24,
+    marginBottom: 4,
   },
   formContainer: {
-    padding: 20,
+    padding: 16,
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
     ...Platform.select({
@@ -428,31 +439,35 @@ const styles = StyleSheet.create({
     }),
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 4,
     backgroundColor: '#FFFFFF',
-    height: 56,
+    height: 48,
+  },
+  errorText: {
+    marginBottom: 8,
+    fontSize: 12,
   },
   sectionTitle: {
-    marginTop: 24,
-    marginBottom: 16,
+    marginTop: 16,
+    marginBottom: 8,
     color: brandColors.primary,
-    fontSize: 20,
+    fontSize: 18,
   },
   deviceContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 16,
   },
   deviceOptionWrapper: {
     flex: 1,
-    padding: 16,
+    padding: 12,
     borderRadius: 16,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   deviceOptionSelected: {
     backgroundColor: `${brandColors.primary}10`,
@@ -463,7 +478,7 @@ const styles = StyleSheet.create({
   },
   deviceOptionText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: '#64748B',
   },
   deviceOptionTextSelected: {
@@ -472,8 +487,8 @@ const styles = StyleSheet.create({
   },
   measurementContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 16,
   },
   measurementButton: {
     flex: 1,
@@ -484,11 +499,10 @@ const styles = StyleSheet.create({
     backgroundColor: brandColors.primary,
   },
   measurementButtonContent: {
-    height: 48,
-    paddingVertical: 0,
+    height: 40,
   },
   measurementButtonLabel: {
-    fontSize: 16,
+    fontSize: 14,
     letterSpacing: 0,
     color: '#64748B',
   },
@@ -498,28 +512,17 @@ const styles = StyleSheet.create({
   },
   submitError: {
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+    fontSize: 12,
   },
   button: {
-    marginTop: 8,
+    marginTop: 4,
+    marginBottom: 16,
     borderRadius: 100,
     backgroundColor: brandColors.primary,
-    marginBottom: 24,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
   buttonContent: {
-    height: 48,
-    paddingVertical: 0,
+    height: 44,
   },
   buttonLabel: {
     fontSize: 16,
@@ -533,11 +536,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   signInText: {
-    textAlign: 'center',
-    fontSize: 16,
+    color: '#64748B',
+    fontSize: 14,
   },
   signInButtonLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
+    color: brandColors.secondary,
   },
 });
