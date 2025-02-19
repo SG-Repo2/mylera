@@ -18,16 +18,7 @@ import { MetricType } from '../../../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
-import { 
-  HEALTH_PERMISSIONS, 
-  PERMISSION_TYPES,
-  getAndroidPermission,
-  getPermissionDescription,
-  formatPermissionError,
-  getAllRequiredPermissions,
-  getMissingPermissions,
-  type PermissionType
-} from './permissions';
+import { HEALTH_PERMISSIONS } from './permissions';
 
 interface StepsRecord {
   startTime: string;
@@ -72,82 +63,35 @@ interface HeartRateRecord {
 
 export class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
-  private permissionVerificationRetries = 3;
-  private permissionVerificationDelay = 1000;
 
   private async performInitialization(): Promise<void> {
     if (Platform.OS !== 'android') {
-      const error = new HealthProviderPermissionError(
-        'HealthConnect',
-        'GoogleHealthProvider can only be used on Android'
-      );
-      console.error('[GoogleHealthProvider] Platform error:', error.message);
-      throw error;
+      console.error('[GoogleHealthProvider] Attempted to initialize on non-Android platform');
+      throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
-    console.log('[GoogleHealthProvider] Starting initialization...', {
-      platform: Platform.OS,
-      version: Platform.Version
-    });
+    console.log('[GoogleHealthProvider] Starting initialization...');
     
     try {
-      console.log('[GoogleHealthProvider] Checking Health Connect availability');
       const available = await initialize();
-      console.log('[GoogleHealthProvider] Health Connect availability result:', available);
+      console.log('[GoogleHealthProvider] Health Connect availability:', available);
       
       if (!available) {
-        const error = new HealthProviderPermissionError(
-          'HealthConnect',
-          'Health Connect is not available. Please ensure the Health Connect app is installed and up to date.'
-        );
-        console.error('[GoogleHealthProvider] Availability check failed:', error.message);
-        throw error;
+        console.error('[GoogleHealthProvider] Health Connect is not available');
+        throw new Error('Health Connect is not available');
       }
 
       this.initialized = true;
       console.log('[GoogleHealthProvider] Initialization successful');
     } catch (error) {
-      console.error(
-        '[GoogleHealthProvider] Initialization failed:',
-        error instanceof Error ? error.message : 'Unknown error',
-        error instanceof Error ? error.stack : 'No stack trace'
-      );
-
-      // Enhance error context
-      let enhancedError: Error;
+      console.error('[GoogleHealthProvider] Initialization failed:', error);
+      // Wrap the error to ensure consistent messaging
       if (error instanceof Error) {
         if (error.message.includes('not available')) {
-          enhancedError = new HealthProviderPermissionError(
-            'HealthConnect',
-            'Health Connect is not available. Please check if the app is installed and permissions are granted.'
-          );
-        } else if (error.message.includes('permission')) {
-          enhancedError = new HealthProviderPermissionError(
-            'HealthConnect',
-            'Health Connect permissions are not granted. Please grant the necessary permissions.'
-          );
-        } else {
-          enhancedError = new HealthProviderPermissionError(
-            'HealthConnect',
-            `Health Connect initialization failed: ${error.message}`
-          );
+          throw new Error('Health Connect is not available');
         }
-      } else {
-        enhancedError = new HealthProviderPermissionError(
-          'HealthConnect',
-          'Unknown error during Health Connect initialization'
-        );
       }
-
-      // Log additional context
-      console.error('[GoogleHealthProvider] Initialization context:', {
-        platform: Platform.OS,
-        version: Platform.Version,
-        error: enhancedError.message,
-        originalError: error instanceof Error ? error.message : 'Unknown error'
-      });
-
-      throw enhancedError;
+      throw error;
     }
   }
 
@@ -185,104 +129,50 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
   async requestPermissions(): Promise<PermissionStatus> {
     if (!this.permissionManager) {
-      const error = new HealthProviderPermissionError(
-        'HealthConnect',
-        'Permission manager not initialized'
-      );
-      console.error('[GoogleHealthProvider] Permission request failed:', error.message);
-      throw error;
+      throw new Error('Permission manager not initialized');
     }
 
     try {
-      console.log('[GoogleHealthProvider] Starting permission request process');
       await this.ensureInitialized();
 
       // Check if permissions are already granted
-      console.log('[GoogleHealthProvider] Checking current permission state');
       const currentState = await this.checkPermissionsStatus();
-      
       if (currentState.status === 'granted') {
-        console.log('[GoogleHealthProvider] Permissions already granted');
         return 'granted';
       }
 
       // Request permissions through Health Connect
-      console.log('[GoogleHealthProvider] Requesting permissions:', 
-        HEALTH_PERMISSIONS.map(p => ({
-          type: p.recordType,
-          androidPermission: getAndroidPermission(p.recordType as PermissionType)
-        }))
-      );
-      
       await requestPermission(HEALTH_PERMISSIONS);
       
       // Verify permissions were granted
-      console.log('[GoogleHealthProvider] Verifying granted permissions');
       const verificationResult = await this.verifyPermissions();
       const status: PermissionStatus = verificationResult ? 'granted' : 'denied';
-      
-      if (status === 'denied') {
-        const deniedPermissions = await this.getDeniedPermissions();
-        console.error('[GoogleHealthProvider] Permission verification failed. Denied permissions:', 
-          deniedPermissions.map(type => ({
-            type,
-            androidPermission: getAndroidPermission(type),
-            description: getPermissionDescription(type)
-          }))
-        );
-      } else {
-        console.log('[GoogleHealthProvider] All permissions granted successfully');
-      }
       
       await this.permissionManager.updatePermissionState(status);
       return status;
     } catch (error) {
       const errorMessage = mapHealthProviderError(error, 'google');
-      console.error(
-        '[GoogleHealthProvider] Permission request failed:',
-        errorMessage,
-        error instanceof Error ? error.stack : 'No stack trace'
-      );
-      
+      console.error('[GoogleHealthProvider]', errorMessage);
       await this.permissionManager.handlePermissionError('HealthConnect', error);
-      
-      // Log additional context about the failure
-      console.error('[GoogleHealthProvider] Permission request context:', {
-        initialized: this.initialized,
-        platform: Platform.OS,
-        permissions: HEALTH_PERMISSIONS.map(p => p.recordType)
-      });
-      
       return 'denied';
     }
   }
 
   async checkPermissionsStatus(): Promise<PermissionState> {
     if (!this.permissionManager) {
-      const error = new HealthProviderPermissionError(
-        'HealthConnect',
-        'Permission manager not initialized'
-      );
-      console.error('[GoogleHealthProvider] Permission status check failed:', error.message);
-      throw error;
+      throw new Error('Permission manager not initialized');
     }
-
-    console.log('[GoogleHealthProvider] Checking permission status');
 
     // First check cached state
     const cachedState = await this.permissionManager.getPermissionState();
     if (cachedState) {
-      console.log('[GoogleHealthProvider] Using cached permission state:', cachedState);
       return cachedState;
     }
 
     try {
       if (!this.initialized) {
-        console.log('[GoogleHealthProvider] Provider not initialized, checking Health Connect availability');
         const available = await initialize();
-        
         if (!available) {
-          console.error('[GoogleHealthProvider] Health Connect is not available');
           const state: PermissionState = {
             status: 'denied',
             lastChecked: Date.now(),
@@ -293,183 +183,64 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         }
       }
       
-      console.log('[GoogleHealthProvider] Verifying permissions');
       const hasPermissions = await this.verifyPermissions();
       const status: PermissionStatus = hasPermissions ? 'granted' : 'not_determined';
-      
-      if (status === 'not_determined') {
-        console.warn('[GoogleHealthProvider] Permissions not determined, may need to request permissions');
-      } else {
-        console.log('[GoogleHealthProvider] Permissions verified successfully');
-      }
       
       const state: PermissionState = {
         status,
         lastChecked: Date.now()
       };
 
-      if (status !== 'granted') {
-        const deniedPermissions = await this.getDeniedPermissions();
-        if (deniedPermissions.length > 0) {
-          state.deniedPermissions = deniedPermissions;
-          console.warn('[GoogleHealthProvider] Found denied permissions:', 
-            deniedPermissions.map(type => ({
-              type,
-              androidPermission: getAndroidPermission(type),
-              description: getPermissionDescription(type)
-            }))
-          );
-        }
-      }
-
       await this.permissionManager.updatePermissionState(status);
       return state;
     } catch (error) {
-      console.error(
-        '[GoogleHealthProvider] Error checking permissions status:',
-        error instanceof Error ? error.message : 'Unknown error',
-        error instanceof Error ? error.stack : 'No stack trace'
-      );
-
       const state: PermissionState = {
         status: 'denied',
         lastChecked: Date.now(),
         deniedPermissions: ['HealthConnect']
       };
-
-      console.error('[GoogleHealthProvider] Defaulting to denied state due to error');
       await this.permissionManager.updatePermissionState('denied', ['HealthConnect']);
       return state;
     }
   }
 
   private async verifyPermissions(): Promise<boolean> {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const testRange = {
-      operator: 'between' as const,
-      startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
-      endTime: now.toISOString(),
-    };
+    try {
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const testRange = {
+        operator: 'between' as const,
+        startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
+        endTime: now.toISOString(),
+      };
 
-    const verificationResults = new Map<PermissionType, boolean>();
-    const permissionTypes = getAllRequiredPermissions();
+      // First verify basic permissions
+      const basicPermissionsResult = await Promise.all([
+        readRecords('Steps', { timeRangeFilter: testRange }),
+        readRecords('Distance', { timeRangeFilter: testRange }),
+        readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
+        readRecords('HeartRate', { timeRangeFilter: testRange })
+      ]);
 
-    console.log('[GoogleHealthProvider] Starting permission verification for types:', permissionTypes);
-
-    for (const permissionType of permissionTypes) {
-      let retryCount = 0;
-      let lastError: Error | null = null;
-
-      while (retryCount < this.permissionVerificationRetries) {
-        try {
-          console.log(
-            `[GoogleHealthProvider] Verifying permission for ${permissionType}`,
-            retryCount > 0 ? `(Attempt ${retryCount + 1}/${this.permissionVerificationRetries})` : ''
-          );
-
-          const androidPermission = getAndroidPermission(permissionType);
-          const result = await readRecords(permissionType, { timeRangeFilter: testRange });
-          verificationResults.set(permissionType, result !== null);
-          
-          console.log(
-            `[GoogleHealthProvider] Permission verification for ${permissionType}:`,
-            `Success (${androidPermission})`
-          );
-          break;
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error('Unknown error');
-          console.error(
-            `[GoogleHealthProvider] Permission verification attempt ${retryCount + 1} failed for ${permissionType}:`,
-            formatPermissionError(permissionType, lastError)
-          );
-          
-          if (retryCount < this.permissionVerificationRetries - 1) {
-            const delay = this.permissionVerificationDelay * Math.pow(2, retryCount);
-            console.log(`[GoogleHealthProvider] Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-          retryCount++;
-        }
+      // Separately verify BasalMetabolicRate permission
+      try {
+        await readRecords('BasalMetabolicRate', { timeRangeFilter: testRange });
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
+        // Don't fail the entire verification for BasalMetabolicRate
+        // Other permissions might still be valid
       }
 
-      if (!verificationResults.has(permissionType)) {
-        // If all retries failed, mark as failed unless it's BMR which is optional
-        verificationResults.set(
-          permissionType,
-          permissionType === PERMISSION_TYPES.BMR
-        );
-      }
-    }
-
-    const failedPermissions = Array.from(verificationResults.entries())
-      .filter(([_, success]) => !success)
-      .map(([type]) => type as PermissionType);
-
-    if (failedPermissions.length > 0) {
-      console.error(
-        '[GoogleHealthProvider] Permission verification failed for:',
-        failedPermissions.map(type => ({
-          type,
-          androidPermission: getAndroidPermission(type),
-          description: getPermissionDescription(type)
-        }))
-      );
+      return basicPermissionsResult.every(result => result !== null);
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Permission verification failed:', error);
       return false;
     }
-
-    console.log('[GoogleHealthProvider] All permissions verified successfully');
-    return true;
-  }
-
-  private async getDeniedPermissions(): Promise<PermissionType[]> {
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const testRange = {
-      operator: 'between' as const,
-      startTime: DateUtils.getStartOfDay(yesterday).toISOString(),
-      endTime: now.toISOString(),
-    };
-
-    const deniedPermissions: PermissionType[] = [];
-    const permissionTypes = getAllRequiredPermissions();
-
-    for (const permissionType of permissionTypes) {
-      try {
-        const result = await readRecords(permissionType, { timeRangeFilter: testRange });
-        if (!result) {
-          deniedPermissions.push(permissionType);
-          console.warn(
-            `[GoogleHealthProvider] Permission denied for ${permissionType}:`,
-            `Android permission: ${getAndroidPermission(permissionType)}`
-          );
-        }
-      } catch (error) {
-        deniedPermissions.push(permissionType);
-        console.error(
-          `[GoogleHealthProvider] Error checking permission for ${permissionType}:`,
-          formatPermissionError(permissionType, error instanceof Error ? error : new Error('Unknown error'))
-        );
-      }
-    }
-
-    return deniedPermissions;
   }
 
   async handlePermissionDenial(): Promise<void> {
     await super.handlePermissionDenial();
-    
-    // Get and log denied permissions
-    const deniedPermissions = await this.getDeniedPermissions();
-    if (deniedPermissions.length > 0) {
-      console.error('[GoogleHealthProvider] Permission denial details:', 
-        deniedPermissions.map(type => ({
-          type,
-          androidPermission: getAndroidPermission(type),
-          description: getPermissionDescription(type)
-        }))
-      );
-    }
+    // Additional platform-specific handling could be added here
   }
 
   async fetchRawMetrics(
@@ -477,59 +248,17 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData> {
-    console.log('[GoogleHealthProvider] Fetching raw metrics:', {
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      types
-    });
-
     // Check permissions before fetching
-    try {
-      console.log('[GoogleHealthProvider] Checking permissions status');
-      const permissionState = await this.checkPermissionsStatus();
-      
-      if (permissionState.status !== 'granted') {
-        const error = new HealthProviderPermissionError(
-          'HealthConnect',
-          `Permission not granted for health data access. Current status: ${permissionState.status}`
-        );
-        
-        if (permissionState.deniedPermissions?.length) {
-          console.error('[GoogleHealthProvider] Denied permissions:', 
-            permissionState.deniedPermissions.map(type => ({
-              type,
-              androidPermission: getAndroidPermission(type as PermissionType),
-              description: getPermissionDescription(type as PermissionType)
-            }))
-          );
-        }
-        
-        throw error;
-      }
-    } catch (error) {
-      console.error(
-        '[GoogleHealthProvider] Permission check failed:',
-        error instanceof Error ? error.message : 'Unknown error',
-        error instanceof Error ? error.stack : 'No stack trace'
-      );
-      throw error;
-    }
-
-    try {
-      console.log('[GoogleHealthProvider] Ensuring initialization');
-      await this.ensureInitialized();
-    } catch (error) {
-      console.error(
-        '[GoogleHealthProvider] Initialization check failed:',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
+    const permissionState = await this.checkPermissionsStatus();
+    if (permissionState.status !== 'granted') {
       throw new HealthProviderPermissionError(
         'HealthConnect',
-        'Failed to initialize Health Connect'
+        'Permission not granted for health data access'
       );
     }
 
-    console.log('[GoogleHealthProvider] Setting up time range filter');
+    await this.ensureInitialized();
+
     const timeRangeFilter = {
       operator: 'between' as const,
       startTime: startDate.toISOString(),
@@ -537,13 +266,10 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     };
 
     const rawData: RawHealthData = {};
-    const errors: Array<{ type: MetricType; error: Error }> = [];
 
     await Promise.all(
       types.map(async (type) => {
-        try {
-          console.log(`[GoogleHealthProvider] Fetching metric data for ${type}`);
-          switch (type) {
+        switch (type) {
           case 'steps':
             const stepsResponse = await readRecords('Steps', { timeRangeFilter });
             rawData.steps = (stepsResponse.records as StepsRecord[]).map(record => ({
@@ -697,83 +423,10 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             }];
             break;
         }
-        } catch (error) {
-          const enhancedError = error instanceof Error ? error : new Error('Unknown error');
-          console.error(
-            `[GoogleHealthProvider] Error fetching ${type} data:`,
-            enhancedError.message,
-            enhancedError.stack
-          );
-          errors.push({ type, error: enhancedError });
-
-          // Provide fallback data for the failed metric
-          const fallbackData = {
-            startDate: timeRangeFilter.startTime,
-            endDate: timeRangeFilter.endTime,
-            value: 0,
-            unit: this.getFallbackUnit(type),
-            sourceBundle: 'com.google.android.apps.fitness'
-          };
-
-          switch (type) {
-            case 'steps':
-              rawData.steps = [fallbackData];
-              break;
-            case 'distance':
-              rawData.distance = [fallbackData];
-              break;
-            case 'calories':
-              rawData.calories = [fallbackData];
-              break;
-            case 'heart_rate':
-              rawData.heart_rate = [fallbackData];
-              break;
-            case 'basal_calories':
-              rawData.basal_calories = [fallbackData];
-              break;
-            case 'flights_climbed':
-              rawData.flights_climbed = [fallbackData];
-              break;
-            case 'exercise':
-              rawData.exercise = [fallbackData];
-              break;
-          }
-        }
       })
     );
 
-    // Log any errors that occurred during metric fetching
-    if (errors.length > 0) {
-      console.error('[GoogleHealthProvider] Errors occurred while fetching metrics:', 
-        errors.map(({ type, error }) => ({
-          type,
-          error: error.message,
-          stack: error.stack
-        }))
-      );
-    }
-
     return rawData;
-  }
-
-  private getFallbackUnit(type: MetricType): string {
-    switch (type) {
-      case 'steps':
-        return 'count';
-      case 'distance':
-        return 'meters';
-      case 'calories':
-      case 'basal_calories':
-        return 'kcal';
-      case 'heart_rate':
-        return 'bpm';
-      case 'flights_climbed':
-        return 'count';
-      case 'exercise':
-        return 'minutes';
-      default:
-        return 'count';
-    }
   }
 
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {

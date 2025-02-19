@@ -62,3 +62,7 @@ my_dump.sql
 .env.prod
 .env.test
 coverage/
+myleraDB.sql
+.gitignore
+cv.sql
+schema_diff.txt
