@@ -1,66 +1,45 @@
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
 
 const createStyles = (theme: MD3Theme) =>
   StyleSheet.create({
     cardWrapper: {
-      minHeight: 160,
       aspectRatio: 1,
-      backgroundColor: theme.colors.surface,
-      borderRadius: 24,
+      minHeight: 140,
+      maxHeight: 180,
+      borderRadius: 20,
     },
-    cardShadowWrapper: {
-      borderRadius: 24,
+    cardSurface: {
       height: '100%',
+      borderRadius: 20,
       backgroundColor: theme.colors.surface,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 3,
-      },
-      shadowOpacity: 0.08,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    cardContentWrapper: {
-      borderRadius: 24,
       overflow: 'hidden',
-      height: '100%',
-      backgroundColor: theme.colors.surface,
     },
     ripple: {
-      borderRadius: 24,
       height: '100%',
-      backgroundColor: theme.colors.surface,
+      borderRadius: 20,
     },
     cardContent: {
-      padding: 20,
+      padding: 16,
       height: '100%',
-      justifyContent: 'flex-start',
-      backgroundColor: theme.colors.surface,
+      justifyContent: 'space-between',
     },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
-      marginBottom: 24,
-      backgroundColor: theme.colors.surface,
+      gap: 10,
+      marginBottom: 4,
     },
     iconContainer: {
-      width: 48,
-      height: 48,
-      borderRadius: 16,
+      width: 38,
+      height: 38,
+      borderRadius: 12,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: theme.colors.primary,
       shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 4,
-      },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 6,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 3,
     },
     icon: {
       textShadowColor: 'rgba(0,0,0,0.1)',
@@ -69,61 +48,64 @@ const createStyles = (theme: MD3Theme) =>
     },
     title: {
       flex: 1,
-      fontSize: 24,
+      fontSize: 15,
       fontWeight: '600',
-      letterSpacing: -0.5,
-      color: '#000',
+      letterSpacing: 0.15,
+      color: theme.colors.onSurface,
     },
     valueContainer: {
       flexDirection: 'row',
       alignItems: 'baseline',
-      gap: 8,
-      marginBottom: 24,
-    },
-    value: {
-      fontWeight: '700',
-      fontSize: 48,
-      letterSpacing: -1,
-      lineHeight: 56,
-      color: '#000',
-    },
-    unit: {
-      fontWeight: '500',
-      fontSize: 20,
-      letterSpacing: 0,
-      lineHeight: 24,
-      color: '#666',
-    },
-    progressContainer: {
-      gap: 8,
-      marginTop: 'auto',
-    },
-    progressBar: {
-      height: 4,
-      backgroundColor: 'rgba(0,0,0,0.05)',
-      borderRadius: 2,
+      gap: 4,
       marginBottom: 8,
     },
-    progressInfo: {
-      flexDirection: 'column',
+    value: {
+      fontSize: 26,
+      fontWeight: '700',
+      letterSpacing: -0.5,
+      color: theme.colors.onSurface,
+    },
+    unit: {
+      fontSize: 13,
+      fontWeight: '500',
+      letterSpacing: 0.1,
+      opacity: 0.7,
+      color: theme.colors.onSurfaceVariant,
+    },
+    progressContainer: {
       gap: 4,
     },
+    progressTrack: {
+      height: 4,
+      backgroundColor: theme.colors.surfaceVariant,
+      borderRadius: 2,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      borderRadius: 2,
+    },
+    progressInfo: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
     progressText: {
-      textAlign: 'right',
-      fontSize: 14,
-      color: '#666',
+      fontSize: 11,
       fontWeight: '500',
-      letterSpacing: 0,
-      lineHeight: 20,
+      letterSpacing: 0.4,
+      color: theme.colors.onSurfaceVariant,
     },
     pointsText: {
-      textAlign: 'right',
-      fontSize: 14,
-      color: '#666',
+      fontSize: 11,
       fontWeight: '500',
-      letterSpacing: 0,
-      lineHeight: 20,
-    }
+      letterSpacing: 0.4,
+      color: theme.colors.onSurfaceVariant,
+    },
   });
 
 export const useMetricCardStyles = () => {

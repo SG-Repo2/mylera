@@ -3,41 +3,53 @@ import { AppleHealthProvider } from '../platforms/apple/AppleHealthProvider';
 import { GoogleHealthProvider } from '../platforms/google/GoogleHealthProvider';
 import { FitbitHealthProvider } from '../platforms/fitbit/FitbitHealthProvider';
 import type { HealthProvider } from '../types';
+import { Mutex } from 'async-mutex';
+import { HealthProviderError, HealthProviderInitializationError } from '../types/errors';
 
 export type HealthPlatform = 'apple' | 'google' | 'fitbit';
 
-class HealthProviderError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'HealthProviderError';
-  }
+interface InitializationMetrics {
+  attempts: number;
+  lastAttempt: number;
+  errors: Array<{ timestamp: number; error: string }>;
 }
 
 export class HealthProviderFactory {
   private static instances: Map<string, HealthProvider> = new Map();
   private static platforms: Map<string, HealthPlatform> = new Map();
-  private static initializationQueue: Promise<void> = Promise.resolve();
+  private static initializationQueue = new Map<string, Promise<void>>();
+  private static initializationMetrics = new Map<string, InitializationMetrics>();
+  private static initializationMutex = new Mutex();
   private static isInitializing = false;
   private static initializationTimeout = 30000; // 30 seconds timeout
+  private static maxRetries = 3;
+  private static retryDelay = 1000; // Base delay in ms
 
-  static async waitForInitialization(): Promise<void> {
-    if (this.isInitializing) {
-      console.log('[HealthProviderFactory] Waiting for ongoing initialization...');
-      const startTime = Date.now();
-      
-      await new Promise<void>((resolve, reject) => {
-        const checkInterval = setInterval(() => {
-          if (!this.isInitializing) {
-            clearInterval(checkInterval);
-            console.log('[HealthProviderFactory] Initialization completed');
-            resolve();
-          } else if (Date.now() - startTime > this.initializationTimeout) {
-            clearInterval(checkInterval);
-            reject(new HealthProviderError('Provider initialization timeout'));
-          }
-        }, 100);
+  private static logInitializationMetric(key: string, error?: Error): void {
+    const metrics = this.initializationMetrics.get(key) || {
+      attempts: 0,
+      lastAttempt: 0,
+      errors: []
+    };
+
+    metrics.attempts++;
+    metrics.lastAttempt = Date.now();
+    if (error) {
+      metrics.errors.push({
+        timestamp: Date.now(),
+        error: error.message
       });
     }
+
+    this.initializationMetrics.set(key, metrics);
+    
+    // Log metrics for monitoring
+    console.log('[HealthProviderFactory] Initialization metrics:', {
+      key,
+      metrics,
+      currentAttempt: metrics.attempts,
+      timeSinceLastAttempt: Date.now() - metrics.lastAttempt
+    });
   }
 
   private static getInstanceKey(userId?: string, deviceType?: 'os' | 'fitbit'): string {
@@ -99,116 +111,99 @@ export class HealthProviderFactory {
     }
   }
 
-  private static async initializeProvider(deviceType?: 'os' | 'fitbit', userId?: string): Promise<HealthProvider> {
-    try {
-      // Create and validate provider instance
-      const provider = this.createProvider(deviceType);
-      console.log('[HealthProviderFactory] Provider instance created successfully');
+  private static async queueInitialization(
+    key: string, 
+    initFn: () => Promise<void>
+  ): Promise<void> {
+    const existing = this.initializationQueue.get(key);
+    if (existing) {
+      console.log('[HealthProviderFactory] Waiting for existing initialization:', key);
+      return existing;
+    }
 
-      // Initialize with retries
-      const maxRetries = 3;
+    const promise = (async () => {
       let lastError: Error | null = null;
-
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      
+      for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
         try {
-          // Initialize provider
-          await provider.initialize();
-          console.log(`[HealthProviderFactory] Provider initialized successfully on attempt ${attempt}`);
-          
-          // Initialize permissions if userId is provided
-          if (userId) {
-            console.log('[HealthProviderFactory] Initializing permissions for user:', userId);
-            await provider.initializePermissions(userId);
-            console.log('[HealthProviderFactory] Permissions initialized successfully');
-          }
-          
-          return provider;
+          this.logInitializationMetric(key);
+          await initFn();
+          console.log(`[HealthProviderFactory] Initialization successful for ${key} on attempt ${attempt}`);
+          return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Unknown error');
-          console.warn(
-            `[HealthProviderFactory] Provider initialization attempt ${attempt}/${maxRetries} failed:`,
-            lastError.message
-          );
+          this.logInitializationMetric(key, lastError);
           
-          if (attempt < maxRetries) {
-            const delay = Math.pow(2, attempt - 1) * 500;
-            console.log(`[HealthProviderFactory] Retrying in ${delay}ms...`);
+          if (attempt < this.maxRetries) {
+            const delay = this.retryDelay * Math.pow(2, attempt - 1);
+            console.log(`[HealthProviderFactory] Retrying initialization for ${key} in ${delay}ms (attempt ${attempt}/${this.maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
       }
 
-      throw new HealthProviderError(
-        `Failed to initialize provider after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`
+      throw new HealthProviderInitializationError(
+        key,
+        `Failed after ${this.maxRetries} attempts: ${lastError?.message}`
       );
-    } catch (error) {
-      throw new HealthProviderError(
-        `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    })();
+
+    this.initializationQueue.set(key, promise);
+    
+    try {
+      await promise;
+    } finally {
+      // Clean up the queue entry only if it's the same promise
+      if (this.initializationQueue.get(key) === promise) {
+        this.initializationQueue.delete(key);
+      }
     }
   }
 
   static async getProvider(deviceType?: 'os' | 'fitbit', userId?: string): Promise<HealthProvider> {
     const key = this.getInstanceKey(userId, deviceType);
-    
-    // First check if we have a valid initialized provider
-    const existingProvider = this.instances.get(key);
-    if (existingProvider) {
-      try {
-        // Validate the existing provider
-        if (typeof existingProvider.initialize === 'function' && 
-            typeof existingProvider.initializePermissions === 'function') {
-          return existingProvider;
-        }
-        // If provider is invalid, remove it and create a new one
-        this.instances.delete(key);
-        this.platforms.delete(key);
-      } catch (error) {
-        console.warn('[HealthProviderFactory] Error validating existing provider:', error);
-        this.instances.delete(key);
-        this.platforms.delete(key);
+
+    // Use mutex to ensure sequential initialization
+    return this.initializationMutex.runExclusive(async () => {
+      // Check if there's already a provider instance
+      const existingProvider = this.instances.get(key);
+      if (existingProvider) {
+        return existingProvider;
       }
-    }
 
-    // Queue initialization to prevent race conditions
-    try {
-      return await this.initializationQueue.then(async () => {
-        if (this.isInitializing) {
-          console.log('[HealthProviderFactory] Initialization in progress, waiting...');
-          await this.waitForInitialization();
-          const provider = this.instances.get(key);
-          if (!provider) {
-            throw new HealthProviderError('Provider initialization failed');
-          }
-          return provider;
-        }
+      // Check if there's a pending initialization
+      const pendingInit = this.initializationQueue.get(key);
+      if (pendingInit) {
+        console.log('[HealthProviderFactory] Waiting for existing initialization:', key);
+        await pendingInit;
+        const provider = this.instances.get(key);
+        if (provider) return provider;
+      }
 
-        this.isInitializing = true;
-        console.log('[HealthProviderFactory] Starting provider initialization');
+      // Create new provider instance
+      const provider = this.createProvider(deviceType);
+      this.instances.set(key, provider);
+      this.platforms.set(key, this.getPlatformForDevice(deviceType));
 
-        try {
-          const provider = await this.initializeProvider(deviceType, userId);
-          this.instances.set(key, provider);
-          this.platforms.set(key, this.getPlatformForDevice(deviceType));
-          console.log('[HealthProviderFactory] Provider initialized and cached successfully');
-          return provider;
-        } catch (error) {
-          console.error('[HealthProviderFactory] Failed to initialize provider:', error);
-          throw error;
-        } finally {
-          this.isInitializing = false;
-        }
+      // Create initialization promise
+      const initPromise = this.queueInitialization(key, async () => {
+        await provider.initialize();
       });
-    } catch (error) {
-      // Clean up any failed initialization state
-      this.instances.delete(key);
-      this.platforms.delete(key);
-      this.isInitializing = false;
 
-      throw new HealthProviderError(
-        `Failed to get health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
-    }
+      this.initializationQueue.set(key, initPromise);
+
+      try {
+        await initPromise;
+        return provider;
+      } catch (error) {
+        // Clean up failed initialization
+        this.instances.delete(key);
+        this.platforms.delete(key);
+        throw error;
+      } finally {
+        this.initializationQueue.delete(key);
+      }
+    });
   }
 
   static getPlatform(userId?: string, deviceType?: 'os' | 'fitbit'): HealthPlatform {
@@ -220,38 +215,23 @@ export class HealthProviderFactory {
     return platform;
   }
 
-  static async cleanup(userId?: string): Promise<void> {
-    if (userId) {
-      // Clean up specific user's provider
-      const key = this.getInstanceKey(userId);
-      const provider = this.instances.get(key);
-      if (provider) {
+  static async cleanup(): Promise<void> {
+    return this.initializationMutex.runExclusive(async () => {
+      const cleanupPromises: Promise<void>[] = [];
+
+      for (const [key, provider] of this.instances) {
         try {
-          await provider.cleanup();
+          cleanupPromises.push(provider.cleanup());
         } catch (error) {
-          throw new HealthProviderError(
-            `Failed to cleanup health provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-          );
-        } finally {
-          this.instances.delete(key);
-          this.platforms.delete(key);
+          console.error(`[HealthProviderFactory] Error during cleanup for ${key}:`, error);
         }
       }
-    } else {
-      // Clean up all providers
-      const cleanupPromises = Array.from(this.instances.entries()).map(async ([key, provider]) => {
-        try {
-          await provider.cleanup();
-        } catch (error) {
-          console.error(`Failed to cleanup provider for key ${key}:`, error);
-        } finally {
-          this.instances.delete(key);
-          this.platforms.delete(key);
-        }
-      });
 
       await Promise.all(cleanupPromises);
-    }
-    this.isInitializing = false;
+      this.instances.clear();
+      this.platforms.clear();
+      this.initializationQueue.clear();
+      this.initializationMetrics.clear();
+    });
   }
 }

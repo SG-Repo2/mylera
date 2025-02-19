@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
   ActivityIndicator, 
@@ -21,36 +21,78 @@ function ProtectedRoutes() {
   const { session, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const { height, width } = useWindowDimensions(); // Use for dynamic dimensions
+  const navigationInProgressRef = useRef(false);
+  const lastNavigationRef = useRef<string | null>(null);
 
+  // Memoize the navigation function
+  const navigateToRoute = useCallback((route: string) => {
+    // Prevent duplicate navigations
+    if (lastNavigationRef.current === route) {
+      console.log('[ProtectedRoutes] Skipping duplicate navigation to:', route);
+      return;
+    }
+
+    // Prevent concurrent navigations
+    if (navigationInProgressRef.current) {
+      console.log('[ProtectedRoutes] Navigation already in progress, skipping');
+      return;
+    }
+
+    console.log('[ProtectedRoutes] Executing navigation to:', route);
+    navigationInProgressRef.current = true;
+    lastNavigationRef.current = route;
+
+    // Use setTimeout to ensure we're not blocking the main thread
+    setTimeout(() => {
+      router.replace(route);
+      // Reset navigation flag after a delay to prevent rapid re-triggers
+      setTimeout(() => {
+        navigationInProgressRef.current = false;
+      }, 100);
+    }, 0);
+  }, [router]);
+
+  // Handle route protection
   useEffect(() => {
-    console.log('[ProtectedRoutes] Navigation check triggered:', {
-      loading,
+    // Skip if loading or no pathname
+    if (loading || !pathname) {
+      console.log('[ProtectedRoutes] Loading or no pathname, skipping navigation check');
+      return;
+    }
+
+    // Parse route type
+    const routeType = {
+      isAuthRoute: pathname.startsWith('/(auth)'),
+      isOnboardingRoute: pathname.startsWith('/(onboarding)'),
+      isAppRoute: pathname.startsWith('/(app)'),
+      isRootRoute: pathname === '/'
+    };
+
+    console.log('[ProtectedRoutes] Checking route protection:', {
+      pathname,
       hasSession: !!session,
-      pathname
+      ...routeType
     });
 
-    if (!loading) {
-      if (!session) {
-        if (pathname === '/' || pathname.startsWith('/(app)')) {
-          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to register');
-          router.replace('/(auth)/register');
-        } else {
-          console.log('[ProtectedRoutes] No session on unprotected route, allowing access');
-        }
-      } else {
-        if (pathname === '/' || pathname.startsWith('/(auth)') || pathname.startsWith('/(onboarding)')) {
-          console.log('[ProtectedRoutes] Session exists on auth/root route, redirecting to home');
-          router.replace('/(app)/(home)');
-        } else {
-          console.log('[ProtectedRoutes] Session exists on app route, allowing access');
-        }
+    // Handle unauthenticated users
+    if (!session) {
+      const requiresAuth = routeType.isAppRoute || routeType.isRootRoute;
+      if (requiresAuth && !routeType.isAuthRoute) {
+        console.log('[ProtectedRoutes] Unauthenticated user accessing protected route');
+        navigateToRoute('/(auth)/register');
       }
-    } else {
-      console.log('[ProtectedRoutes] Still loading, skipping navigation check');
+      return;
     }
-  }, [loading, session, router, pathname]);
 
+    // Handle authenticated users
+    const isPublicRoute = routeType.isAuthRoute || routeType.isOnboardingRoute || routeType.isRootRoute;
+    if (isPublicRoute) {
+      console.log('[ProtectedRoutes] Authenticated user accessing public route');
+      navigateToRoute('/(app)/(home)');
+    }
+  }, [session, loading, pathname, navigateToRoute]);
+
+  // Handle loading state
   if (loading) {
     return (
       <SafeAreaView 

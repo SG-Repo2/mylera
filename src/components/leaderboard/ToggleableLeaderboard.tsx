@@ -19,54 +19,103 @@ export function ToggleableLeaderboard() {
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const appStateRef = useRef(AppState.currentState);
+  const subscriptionRef = useRef<ReturnType<typeof leaderboardService.subscribeToLeaderboard> | null>(null);
+  const todayRef = useRef(DateUtils.getLocalDateString());
+
+  const handleLeaderboardUpdate = useCallback((entries: LeaderboardEntryType[]) => {
+    console.log('[ToggleableLeaderboard] Received leaderboard update:', entries.length);
+    
+    const sortedEntries = entries.sort((a, b) => {
+      if (b.total_points !== a.total_points) {
+        return b.total_points - a.total_points;
+      }
+      return b.metrics_completed - a.metrics_completed;
+    });
+
+    setLeaderboardData(prevData => {
+      if (prevData.length !== sortedEntries.length) {
+        return sortedEntries;
+      }
+
+      for (let i = 0; i < prevData.length; i++) {
+        if (prevData[i].total_points !== sortedEntries[i].total_points ||
+            prevData[i].metrics_completed !== sortedEntries[i].metrics_completed) {
+          return sortedEntries;
+        }
+      }
+      
+      return prevData;
+    });
+    
+    if (loading) {
+      setLoading(false);
+    }
+  }, [loading]);
 
   const loadData = useCallback(async (showLoading = true) => {
-    if (!user) {
-      console.log('No user found in loadData');
-      return;
+    if (!user) return;
+    
+    if (showLoading && !leaderboardData.length) {
+      setLoading(true);
     }
     
-    if (showLoading) setLoading(true);
     setError(null);
     
     try {
-      const today = DateUtils.getLocalDateString();
-      console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
+      const today = todayRef.current;
+      
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
+      
+      subscriptionRef.current = leaderboardService.subscribeToLeaderboard(
+        today,
+        timeframe,
+        handleLeaderboardUpdate
+      );
       
       const data = timeframe === 'daily' 
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
-      console.log('Fetched leaderboard data:', data);
-      setLeaderboardData(data);
+      handleLeaderboardUpdate(data);
     } catch (err) {
-      console.error('Error while fetching leaderboard:', err);
-      
-      if (err instanceof Error) {
-        if (err.message.includes('PGRST200')) {
-          setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
-        } else if (err.message.includes('42501')) {
-          setError(new Error('You do not have permission to view the leaderboard.'));
-        } else {
-          setError(err);
-        }
-      } else {
-        setError(new Error('Failed to load leaderboard'));
-      }
-    } finally {
+      console.error('[ToggleableLeaderboard] Error fetching leaderboard:', err);
+      setError(err instanceof Error ? err : new Error('Failed to load leaderboard'));
       if (showLoading) setLoading(false);
     }
+  }, [user, timeframe, handleLeaderboardUpdate]);
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+    
+    return () => {
+      if (subscriptionRef.current) {
+        console.log('[ToggleableLeaderboard] Cleaning up subscription on unmount');
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
+    };
   }, [user, timeframe]);
 
-  const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
-    if (
-      appStateRef.current.match(/inactive|background/) &&
-      nextAppState === 'active'
-    ) {
-      console.log('App has come to foreground, refreshing leaderboard');
-      loadData(false);
-    }
-    appStateRef.current = nextAppState;
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('App has come to foreground, refreshing leaderboard');
+        loadData(false);
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, [loadData]);
 
   const onRefresh = useCallback(async () => {
@@ -74,18 +123,6 @@ export function ToggleableLeaderboard() {
     await loadData(false);
     setRefreshing(false);
   }, [loadData]);
-
-  useEffect(() => {
-    if (user) {
-      loadData();
-      
-      const subscription = AppState.addEventListener('change', handleAppStateChange);
-      
-      return () => {
-        subscription.remove();
-      };
-    }
-  }, [user, loadData, handleAppStateChange, timeframe]);
 
   if (loading && !leaderboardData.length && !error) {
     return (

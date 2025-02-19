@@ -31,6 +31,7 @@ import { DateUtils } from '@/src/utils/DateUtils';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
 import { BarChart } from './BarChart';
+import { HealthProvider } from '@/src/providers/health/types/provider';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface HistoricalDataPoint {
@@ -48,7 +49,7 @@ interface MetricModalProps {
   metricType: MetricType;
   userId: string;
   date: string;
-  provider: any;
+  provider: HealthProvider;
   additionalInfo?: {
     label: string;
     value: string | number;
@@ -71,6 +72,9 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const styles = useStyles();
   const { user } = useAuth();
   const measurementSystem = user?.user_metadata?.measurementSystem || 'metric';
+  const metricConfig = healthMetrics[metricType];
+  const metricColor = metricColors[metricType] || theme.colors.primary;
+  const goalValue = metricConfig.defaultGoal;
   
   const [historicalData, setHistoricalData] = useState<HistoricalDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -82,21 +86,13 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const opacity = useSharedValue(0);
   const chartProgress = useSharedValue(0);
   const progressWidth = useSharedValue(0);
-
-  // Get metrics configuration
-  const metricConfig = healthMetrics[metricType];
-  const metricColor = metricColors[metricType] || theme.colors.primary;
-  const goalValue = metricConfig.defaultGoal;
-  
   const ensureProviderInitialized = async () => {
     try {
+      // Initialize provider if needed
       await provider.initialize();
-      await HealthProviderFactory.waitForInitialization();
       
-      // Verify permissions are initialized
-      if (!provider.isPermissionManagerInitialized?.()) {
-        await provider.initializePermissions(userId);
-      }
+      // Initialize permissions if needed
+      await provider.initializePermissions(userId);
     } catch (error) {
       console.error('[MetricModal] Provider initialization failed:', error);
       throw new Error('Failed to initialize health provider');
@@ -162,7 +158,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
       
       // Create a map of dates to values from metricsService
       const metricsMap = new Map(
-        historicalMetrics.map(item => [item.date, item.value])
+        historicalMetrics.map((item: { date: string; value: number }) => [item.date, item.value])
       );
 
       // Process native health data if available

@@ -11,6 +11,7 @@ export default function HealthSetupScreen() {
     const [status, setStatus] = useState<string>('Awaiting user action...');
     const [retryCount, setRetryCount] = useState(0);
     const [initError, setInitError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
 
     // Effect to handle initial health permission status
     useEffect(() => {
@@ -26,12 +27,20 @@ export default function HealthSetupScreen() {
     }, [healthPermissionStatus, retryCount, router]);
 
     const handleSetupHealth = async () => {
+        // Prevent multiple concurrent requests
+        if (loading) return;
+
         try {
             setInitError(null);
             setStatus('Initializing health services...');
-            console.log('[HealthSetup] Setting up health integration');
             
+            // Use a ref to track the current request
+            const requestId = Date.now();
+            let isCurrent = true;
+
             const result = await requestHealthPermissions().catch(error => {
+                if (!isCurrent) return;
+                
                 console.error('[HealthSetup] Health setup error:', error);
                 if (error.message?.includes('not available')) {
                     setInitError('Health Connect not found');
@@ -39,6 +48,8 @@ export default function HealthSetupScreen() {
                 }
                 throw error;
             });
+
+            if (!isCurrent) return;
 
             if (result === 'unavailable' && Platform.OS === 'android') {
                 setStatus('Health Connect is not available. Please ensure Health Connect is installed and enabled.');
@@ -61,6 +72,10 @@ export default function HealthSetupScreen() {
                 console.log('[HealthSetup] Permission request failed with result:', result);
                 setStatus('Permission request failed. Please try again.');
             }
+
+            return () => {
+                isCurrent = false;
+            };
         } catch (err) {
             console.error('[HealthSetup] Error during health setup:', err);
             setRetryCount(prev => prev + 1);

@@ -22,7 +22,7 @@ export default function AuthLayout() {
       <Stack.Screen
         name="login"
         options={{
-          animation: 'slide_from_right',
+          animation: 'fade',
         }}
       />
     </Stack>

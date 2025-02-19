@@ -64,24 +64,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             console.log('[AuthProvider] App became active, refreshing health provider...');
             
-            // First ensure provider is fully initialized
-            await HealthProviderFactory.waitForInitialization();
-            console.log('[AuthProvider] Provider initialization check complete');
+            // Get provider instance, which handles initialization internally
+            const provider = await HealthProviderFactory.getProvider(undefined, user.id);
             
-            const provider = await HealthProviderFactory.getProvider();
-            
-            // Check initialization state before proceeding
+            // Update initialization state
             if (!healthInitState.isInitialized) {
-              console.log('[AuthProvider] Provider not initialized, initializing...');
-              await provider.initialize();
+              console.log('[AuthProvider] Provider initialized successfully');
               setHealthInitState(prev => ({
                 ...prev,
                 isInitialized: true,
                 error: null
               }));
-              console.log('[AuthProvider] Provider initialization complete');
             }
             
+            // Reset provider state and refresh metrics
             console.log('[AuthProvider] Resetting provider state...');
             await provider.resetState();
             
@@ -189,101 +185,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   ) => {
     try {
-      console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
+      setHealthInitState(prev => ({ ...prev, isInitializing: true }));
 
-      console.log('[AuthProvider] Calling supabase.auth.signUp...');
-      const signUpData = {
-        email,
-        password,
-        options: {
-          data: {
-            displayName: profile.displayName,
-            deviceType: profile.deviceType,
-            measurementSystem: profile.measurementSystem,
-            avatarUri: profile.avatarUri,
-          },
-        },
+      // Use transaction-like pattern
+      const cleanup = async () => {
+        try {
+          await HealthProviderFactory.cleanup();
+        } catch (error) {
+          console.warn('[AuthProvider] Cleanup error during rollback:', error);
+        }
+        setSession(null);
+        setUser(null);
+        setHealthPermissionStatus(null);
       };
-      console.log('[AuthProvider] signUpData:', signUpData);
-      const { data, error } = await supabase.auth.signUp(signUpData);
-      console.log('[AuthProvider] supabase.auth.signUp complete');
 
-      if (error) {
-        console.error('[AuthProvider] supabase.auth.signUp error:', error);
+      try {
+        // Registration steps
+        const { data, error: registrationError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              displayName: profile.displayName,
+              deviceType: profile.deviceType,
+              measurementSystem: profile.measurementSystem,
+              avatarUri: profile.avatarUri,
+            },
+          },
+        });
+        if (registrationError) throw registrationError;
+
+        // Initialize health provider
+        if (data.user) {
+          await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+        }
+      } catch (error) {
+        // Rollback on failure
+        await cleanup();
         throw error;
       }
-
-      // Handle avatar upload if provided
-      if (data.user && profile.avatarUri) {
-        try {
-          console.log('[AuthProvider] Calling leaderboardService.uploadAvatar...');
-          const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-          console.log('[AuthProvider] leaderboardService.uploadAvatar complete');
-          // Update user profile with avatar URL
-          console.log('[AuthProvider] Calling leaderboardService.updateUserProfile...');
-          await leaderboardService.updateUserProfile(data.user.id, {
-            ...profile,
-            avatar_url: avatarUrl
-          });
-          console.log('[AuthProvider] leaderboardService.updateUserProfile complete');
-          console.log('[AuthProvider] User profile updated successfully');
-        } catch (uploadError) {
-          console.error('Avatar upload failed:', uploadError);
-          // Don't throw here - the user is still registered, just without an avatar
-        }
-      }
-
-      // Initialize health provider for new user
-      if (data.user) {
-        console.log('[AuthProvider] User created, attempting auto-login...');
-        console.log('[AuthProvider] Calling supabase.auth.signInWithPassword...');
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
-        console.log('[AuthProvider] supabase.auth.signInWithPassword complete');
-        
-        if (signInError) {
-          console.error('[AuthProvider] Auto-login failed:', signInError);
-          throw signInError;
-        }
-        
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
-        
-        try {
-          // Initialize the appropriate health provider based on device type
-          console.log('[AuthProvider] Initializing health provider for device type:', profile.deviceType);
-          const provider = await HealthProviderFactory.getProvider(profile.deviceType);
-          
-          // If it's a Fitbit device, handle OAuth flow
-          if (profile.deviceType === 'fitbit') {
-            console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
-            const status = await provider.requestPermissions();
-            if (status !== 'granted') {
-              throw new Error('Fitbit permissions not granted');
-            }
-            console.log('[AuthProvider] Fitbit permissions granted successfully');
-          }
-          
-          await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
-          console.log('[AuthProvider] Health provider fully initialized for new user');
-        } catch (error) {
-          console.error('[AuthProvider] Failed to initialize health provider for new user:', error);
-          setHealthPermissionStatus('denied');
-          // Don't throw - allow registration to complete without health features
-        }
-      }
     } catch (err) {
-      console.error('[AuthProvider] Registration error:', err);
-      const mappedError = mapAuthError(err);
-      console.log('[AuthProvider] Mapped error:', mappedError);
-      setError(mappedError);
+      setError(mapAuthError(err));
     } finally {
-      console.log('[AuthProvider] Registration process complete. Setting loading to false');
       setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in register');
+      setHealthInitState(prev => ({ ...prev, isInitializing: false }));
     }
   };
 
@@ -299,9 +246,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthProvider] Starting login process...');
 
       // Wait for any ongoing provider initialization
-      console.log('[AuthProvider] Waiting for provider initialization...');
-      await HealthProviderFactory.waitForInitialization();
-      
       console.log('[AuthProvider] Attempting login...');
       // Attempt login
       const { error: signInError } = await supabase.auth.signInWithPassword({

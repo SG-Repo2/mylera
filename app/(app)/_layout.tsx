@@ -19,7 +19,8 @@ export default function AppLayout() {
         tabBarLabelStyle: {
           fontFamily: 'Proxima Nova',
           fontSize: 12,
-        }
+        },
+        animation: 'fade',
       }}
     >
       <Tabs.Screen
