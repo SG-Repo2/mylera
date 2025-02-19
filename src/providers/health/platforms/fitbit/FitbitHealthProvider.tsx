@@ -21,22 +21,49 @@ export class FitbitHealthProvider extends BaseHealthProvider {
 
   async initialize(): Promise<void> {
     try {
-      // Load stored tokens
-      this.accessToken = await SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN);
-      this.refreshToken = await SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN);
-      const expiryStr = await SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY);
-      this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
-
-      if (this.accessToken && this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt) {
-        await this.refreshAccessToken();
+      // Check if already initialized
+      if (this.initialized) {
+        return;
       }
 
-      if (!this.accessToken) {
-        throw new Error('Fitbit access token not set. Please authenticate first.');
+      // Load stored tokens with additional error handling
+      const [accessToken, refreshToken, expiryStr] = await Promise.all([
+        SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN),
+        SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN),
+        SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY)
+      ]);
+
+      // Validate tokens exist
+      if (!accessToken || !refreshToken) {
+        throw new Error('Missing Fitbit tokens. Authentication required.');
+      }
+
+      this.accessToken = accessToken;
+      this.refreshToken = refreshToken;
+      this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
+
+      // Check token expiration and refresh if needed
+      if (this.tokenExpiresAt) {
+        // Add buffer time (5 minutes) to ensure token doesn't expire during use
+        if (Date.now() >= (this.tokenExpiresAt - 300000)) {
+          await this.refreshAccessToken();
+        }
+      } else {
+        throw new Error('Invalid token expiration time');
+      }
+
+      // Verify token is valid by making a test API call
+      try {
+        await this.fetchFromFitbit('https://api.fitbit.com/1/user/-/profile.json');
+      } catch (error) {
+        throw new Error(`Token validation failed: ${error}`);
       }
 
       this.initialized = true;
+      console.log('[FitbitHealthProvider] Successfully initialized');
     } catch (error) {
+      this.initialized = false;
+      console.error('[FitbitHealthProvider] Initialization failed:', error);
       throw new Error(`Failed to initialize Fitbit provider: ${error}`);
     }
   }
@@ -75,12 +102,14 @@ export class FitbitHealthProvider extends BaseHealthProvider {
         if (error) throw error;
 
         // Store tokens securely
-        await SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token);
-        await SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token);
-        await SecureStore.setItemAsync(
-          STORAGE_KEY.TOKEN_EXPIRY,
-          (Date.now() + data.expires_in * 1000).toString()
-        );
+        await Promise.all([
+          SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token),
+          SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token),
+          SecureStore.setItemAsync(
+            STORAGE_KEY.TOKEN_EXPIRY,
+            (Date.now() + data.expires_in * 1000).toString()
+          )
+        ]);
 
         this.accessToken = data.access_token;
         this.refreshToken = data.refresh_token;
@@ -173,7 +202,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    * fetchRawMetrics
    *
    * For simplicity, this implementation assumes that the startDate and endDate
-   * fall on the same day. Fitbit’s daily endpoints are used to fetch raw metrics.
+   * fall on the same day. Fitbit's daily endpoints are used to fetch raw metrics.
    */
   async fetchRawMetrics(
     startDate: Date,
