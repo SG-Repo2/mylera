@@ -72,7 +72,7 @@ module.exports = {
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
-        "android.permission.health.READ_FLIGHTS_CLIMBED",
+        "android.permission.health.READ_FLOORS_CLIMBED",
         "android.permission.health.READ_BASAL_METABOLIC_RATE",
         "android.permission.health.READ_EXERCISE",
         "android.permission.CAMERA",
