@@ -89,27 +89,92 @@ export async function initializeHealthProviderForUser(
   userId: string,
   setPermissionStatus: (status: PermissionStatus) => void
 ): Promise<void> {
+  const initId = Date.now();
+  console.log(`[HealthProvider] [${initId}] Starting provider initialization for user:`, userId);
+
   try {
-    const provider = await HealthProviderFactory.getProvider();
+    // Step 1: Get or create provider instance
+    console.log(`[HealthProvider] [${initId}] Retrieving provider instance`);
+    const provider = await HealthProviderFactory.getProvider(undefined, userId);
     
-    // Initialize permissions for the user
-    await provider.initializePermissions(userId);
-    
-    // Check current permission status
-    const permissionState = await provider.checkPermissionsStatus();
-    setPermissionStatus(permissionState.status);
-    
-    // Initialize the provider if permissions are granted
-    if (permissionState.status === 'granted') {
-      await initializeWithRetry(provider);
+    // Step 2: Initialize provider if needed
+    try {
+      console.log(`[HealthProvider] [${initId}] Checking provider initialization status`);
+      await initializeWithRetry(provider, {
+        maxRetries: 3,
+        baseDelay: 500,
+        maxDelay: 5000
+      });
+      console.log(`[HealthProvider] [${initId}] Provider initialized successfully`);
+    } catch (error) {
+      console.error(`[HealthProvider] [${initId}] Provider initialization failed:`, error);
+      throw new HealthProviderError(
+        `Provider initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
+
+    // Step 3: Initialize permissions with retry logic
+    let permissionInitSuccess = false;
+    let permissionInitAttempt = 0;
+    const maxPermissionRetries = 2;
+
+    while (!permissionInitSuccess && permissionInitAttempt < maxPermissionRetries) {
+      permissionInitAttempt++;
+      try {
+        console.log(`[HealthProvider] [${initId}] Initializing permissions (attempt ${permissionInitAttempt})`);
+        await provider.initializePermissions(userId);
+        permissionInitSuccess = true;
+        console.log(`[HealthProvider] [${initId}] Permissions initialized successfully`);
+      } catch (error) {
+        console.error(
+          `[HealthProvider] [${initId}] Permission initialization attempt ${permissionInitAttempt} failed:`,
+          error
+        );
+        
+        if (permissionInitAttempt < maxPermissionRetries) {
+          console.log(`[HealthProvider] [${initId}] Retrying permission initialization...`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+        } else {
+          throw new HealthProviderError(
+            `Failed to initialize permissions after ${maxPermissionRetries} attempts`
+          );
+        }
+      }
+    }
+
+    // Step 4: Check and update permission status
+    try {
+      console.log(`[HealthProvider] [${initId}] Checking current permission status`);
+      const permissionState = await provider.checkPermissionsStatus();
+      console.log(`[HealthProvider] [${initId}] Permission status:`, permissionState.status);
+      
+      setPermissionStatus(permissionState.status);
+      
+      if (permissionState.status === 'granted') {
+        console.log(`[HealthProvider] [${initId}] Permissions granted, provider ready`);
+      } else {
+        console.warn(
+          `[HealthProvider] [${initId}] Permissions not granted:`,
+          permissionState.status
+        );
+      }
+    } catch (error) {
+      console.error(`[HealthProvider] [${initId}] Error checking permission status:`, error);
+      setPermissionStatus('denied');
+      throw new HealthProviderError(
+        `Failed to check permission status: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+
   } catch (error) {
     console.error(
-      '[HealthProvider] Error initializing provider for user:',
+      `[HealthProvider] [${initId}] Fatal error during provider initialization:`,
       error instanceof Error ? error.message : 'Unknown error'
     );
     setPermissionStatus('denied');
     throw error;
+  } finally {
+    console.log(`[HealthProvider] [${initId}] Provider initialization process completed`);
   }
 }
 

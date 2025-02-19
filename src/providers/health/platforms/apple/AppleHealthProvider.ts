@@ -175,6 +175,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
     const metrics: NormalizedMetric[] = [];
+    console.log('[AppleHealthProvider] Normalizing metrics for type:', type, 'Raw data:', rawData);
 
     switch (type) {
       case 'steps':
@@ -189,23 +190,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
         break;
       case 'distance':
         if (rawData.distance) {
-          console.log('[AppleHealthProvider] Normalizing distance metrics:', {
-            rawMetrics: rawData.distance,
-            rawTotal: rawData.distance.reduce((sum, m) => sum + (m.value || 0), 0)
-          });
-          const normalizedDistanceMetrics = rawData.distance.map(raw => ({
+          metrics.push(...rawData.distance.map(raw => ({
             timestamp: raw.endDate,
             value: Number(raw.value), // Keep in meters
             unit: METRIC_UNITS.DISTANCE,
             type: 'distance'
-          } as NormalizedMetric));
-          metrics.push(...normalizedDistanceMetrics);
-          console.log('[AppleHealthProvider] Normalized distance metrics:', {
-            normalizedMetrics: normalizedDistanceMetrics,
-            normalizedTotal: normalizedDistanceMetrics.reduce((sum, m) => sum + m.value, 0)
-          });
-        } else {
-          console.log('[AppleHealthProvider] No distance data to normalize');
+          } as NormalizedMetric)));
         }
         break;
       case 'calories':
@@ -259,6 +249,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
         }
         break;
     }
+
+    console.log('[AppleHealthProvider] Normalized metrics result:', {
+      type,
+      count: metrics.length,
+      metrics
+    });
 
     return metrics;
   }

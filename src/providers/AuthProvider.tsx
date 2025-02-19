@@ -55,6 +55,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     error: null
   });
 
+  // Add operation tracking
+  const [currentOperationId, setCurrentOperationId] = useState<number>(0);
+
   // Handle app lifecycle for health provider state management
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -114,59 +117,87 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Check initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const operationId = Date.now();
+      console.log(`[AuthProvider] Starting initial session check (Operation ${operationId})`);
+      
       setSession(session ?? null);
       setUser(session?.user ?? null);
       
-      // Initialize health provider if user is logged in
       if (session?.user) {
         try {
-          console.log('[AuthProvider] Initializing health provider for user:', session.user.id);
+          console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
           await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
-          console.log('[AuthProvider] Health provider initialized successfully');
+          console.log(`[AuthProvider] [${operationId}] Health provider initialized successfully`);
         } catch (error) {
-          console.error('[AuthProvider] Failed to initialize health provider:', error);
+          console.error(`[AuthProvider] [${operationId}] Failed to initialize health provider:`, error);
           setHealthPermissionStatus('denied');
-          // Don't throw - allow the app to continue without health features
         }
       }
       
-      console.log('[AuthProvider] Initial session check complete. Setting loading to false');
+      console.log(`[AuthProvider] [${operationId}] Initial session check complete`);
       setLoading(false);
     });
 
-    // Listen for session changes
+    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const operationId = Date.now();
+      setCurrentOperationId(operationId);
+      
+      console.log(`[AuthProvider] [${operationId}] Auth state change detected:`, {
+        event: _event,
+        hasUser: !!session?.user
+      });
+
+      // Step 1: Update session and user state
       setSession(session);
       setUser(session?.user ?? null);
+      console.log(`[AuthProvider] [${operationId}] Session state updated`);
       
-      // Handle health permissions on auth state change
-      if (session?.user) {
-        try {
-          console.log('[AuthProvider] Initializing health provider on auth state change');
-          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
-          console.log('[AuthProvider] Health provider initialized successfully on auth state change');
-        } catch (error) {
-          console.error('[AuthProvider] Failed to initialize health provider on auth state change:', error);
-          setHealthPermissionStatus('denied');
+      try {
+        // Step 2: Handle cleanup or initialization based on session state
+        if (!session?.user) {
+          console.log(`[AuthProvider] [${operationId}] No user session, cleaning up...`);
+          setHealthPermissionStatus(null);
+          
+          // Clean up existing provider with specific key
+          const cleanupKey = `${session?.user?.id || 'default'}:os`;
+          try {
+            console.log(`[AuthProvider] [${operationId}] Cleaning up provider for key:`, cleanupKey);
+            await HealthProviderFactory.cleanup(cleanupKey);
+            console.log(`[AuthProvider] [${operationId}] Provider cleanup completed`);
+          } catch (error) {
+            console.warn(`[AuthProvider] [${operationId}] Error during provider cleanup:`, error);
+          }
+        } else {
+          // Step 3: Initialize health provider for new session
+          console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
+          
+          try {
+            await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+            console.log(`[AuthProvider] [${operationId}] Health provider initialized successfully`);
+            
+            // Verify initialization
+            const provider = await HealthProviderFactory.getProvider(undefined, session.user.id);
+            const permissionState = await provider.checkPermissionsStatus();
+            console.log(`[AuthProvider] [${operationId}] Permission state verified:`, permissionState.status);
+            
+          } catch (error) {
+            console.error(`[AuthProvider] [${operationId}] Failed to initialize health provider:`, error);
+            setHealthPermissionStatus('denied');
+          }
         }
-      } else {
-        setHealthPermissionStatus(null);
-        // Clean up any existing provider
-        try {
-          console.log('[AuthProvider] Cleaning up health provider on session end');
-          await HealthProviderFactory.cleanup();
-        } catch (error) {
-          console.warn('[AuthProvider] Error cleaning up health provider:', error);
-        }
+      } catch (error) {
+        console.error(`[AuthProvider] [${operationId}] Error during auth state change handling:`, error);
+      } finally {
+        console.log(`[AuthProvider] [${operationId}] Auth state change handling completed`);
+        setLoading(false);
       }
-      
-      console.log('[AuthProvider] Auth state changed:', { session, user: session?.user });
-      setLoading(false);
     });
 
     return () => {
+      console.log('[AuthProvider] Cleaning up auth state subscription');
       subscription.unsubscribe();
     };
   }, []);
