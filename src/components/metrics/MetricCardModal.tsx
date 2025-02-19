@@ -1,279 +1,385 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Animated, Pressable, ScrollView, Easing } from 'react-native';
-import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Dimensions, Platform, Pressable, ScrollView } from 'react-native';
+import {
+  Modal,
+  Portal,
+  Text,
+  IconButton,
+  useTheme,
+  Card,
+  ActivityIndicator,
+} from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { brandColors } from '@/src/theme/theme';
-import { useStyles } from '@/src/styles/useMetricModalStyles';
+import Animated, {
+  FadeInDown,
+  FadeOutUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import { LineChart } from 'react-native-chart-kit';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
+import { metricsService } from '@/src/services/metricsService';
 import { MetricType } from '@/src/types/metrics';
 import { healthMetrics } from '@/src/config/healthMetrics';
-import { metricColors } from '@/src/styles/useMetricCardListStyles';
-import type { HealthProvider } from '@/src/providers/health/types/provider';
-import { BarChart } from './BarChart';
+import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
+import { formatMetricValue, DISPLAY_UNITS } from '@/src/utils/unitConversion';
 import { useAuth } from '@/src/providers/AuthProvider';
-import { MeasurementSystem, DISPLAY_UNITS, formatMetricValue } from '@/src/utils/unitConversion';
+import { DateUtils } from '@/src/utils/DateUtils';
+import { metricColors } from '@/src/styles/useMetricCardListStyles';
+import { useStyles } from '@/src/styles/useMetricModalStyles';
+import { BarChart } from './BarChart';
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+interface HistoricalDataPoint {
+  date: string;
+  value: number;
+  formattedDate: string;
+  dayOfWeek: string;
+}
 
 interface MetricModalProps {
   visible: boolean;
   onClose: () => void;
   title: string;
   value: string | number;
+  metricType: MetricType;
+  userId: string;
+  date: string;
+  provider: any;
   additionalInfo?: {
     label: string;
     value: string | number;
   }[];
-  metricType: MetricType;
-  userId: string;
-  date: string;
-  provider: HealthProvider;
 }
-
-interface HealthTip {
-  tip: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-}
-
-const getHealthTip = (metricType: MetricType): HealthTip => {
-  const tips: Record<MetricType, HealthTip> = {
-    steps: {
-      tip: "Walking 10,000 steps a day can improve cardiovascular health and help maintain a healthy weight. Try taking the stairs instead of the elevator!",
-      icon: "walk"
-    },
-    distance: {
-      tip: "Regular walking or running can strengthen your bones and reduce the risk of osteoporosis. Start with small distances and gradually increase!",
-      icon: "run"
-    },
-    calories: {
-      tip: "A healthy calorie deficit of 500-750 calories per day can lead to sustainable weight loss of 1-1.5 pounds per week.",
-      icon: "fire"
-    },
-    exercise: {
-      tip: "Mix cardio with strength training for optimal health benefits. Aim for at least 150 minutes of moderate activity per week!",
-      icon: "weight-lifter"
-    },
-    heart_rate: {
-      tip: "Your resting heart rate is a good indicator of your cardiovascular fitness. A lower resting heart rate often means better cardiovascular health!",
-      icon: "heart-pulse"
-    },
-    basal_calories: {
-      tip: "Your basal metabolic rate accounts for about 60-75% of your daily calorie burn. Stay hydrated and get enough sleep to maintain a healthy metabolism!",
-      icon: "lightning-bolt"
-    },
-    flights_climbed: {
-      tip: "Taking the stairs is a great way to incorporate more physical activity into your daily routine. It helps strengthen your legs and improve endurance!",
-      icon: "stairs"
-    }
-  };
-  return tips[metricType];
-};
 
 export const MetricModal: React.FC<MetricModalProps> = ({
   visible,
   onClose,
   title,
   value,
-  additionalInfo,
   metricType,
   userId,
   date,
   provider,
+  additionalInfo = [],
 }) => {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
   const { user } = useAuth();
-  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
-  const [isLoading, setIsLoading] = useState(true);
-  const [trend, setTrend] = useState<{ direction: 'up' | 'down' | 'neutral', percentage: number } | null>(null);
+  const measurementSystem = user?.user_metadata?.measurementSystem || 'metric';
   
-  const translateY = React.useRef(new Animated.Value(500)).current;
-  const backdropOpacity = React.useRef(new Animated.Value(0)).current;
-  const contentOpacity = React.useRef(new Animated.Value(0)).current;
-  const scale = React.useRef(new Animated.Value(0.95)).current;
-  const valueScale = React.useRef(new Animated.Value(1)).current;
-  const healthTip = getHealthTip(metricType);
+  const [historicalData, setHistoricalData] = useState<HistoricalDataPoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedDay, setSelectedDay] = useState<HistoricalDataPoint | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Animation values
+  const modalY = useSharedValue(100);
+  const opacity = useSharedValue(0);
+  const chartProgress = useSharedValue(0);
+  const progressWidth = useSharedValue(0);
 
-  // Simulate loading and trend calculation
-  useEffect(() => {
-    if (visible) {
-      setIsLoading(true);
-      // Simulate API call delay
-      setTimeout(() => {
-        setTrend({
-          direction: Math.random() > 0.5 ? 'up' : 'down',
-          percentage: Math.round(Math.random() * 20)
-        });
-        setIsLoading(false);
-      }, 1000);
-    }
-  }, [visible]);
-
-  // Enhanced pulse animation for the value
-  const pulseValue = useCallback(() => {
-    Animated.sequence([
-      Animated.spring(valueScale, {
-        toValue: 1.08,
-        useNativeDriver: true,
-        damping: 10,
-        mass: 0.8,
-        stiffness: 150,
-      }),
-      Animated.spring(valueScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        damping: 12,
-        mass: 0.8,
-        stiffness: 150,
-      }),
-    ]).start();
-  }, [valueScale]);
-
-  useEffect(() => {
-    if (!isLoading) {
-      pulseValue();
-    }
-  }, [isLoading, pulseValue]);
-
-  const animateIn = useCallback(() => {
-    Animated.sequence([
-      // First fade in backdrop
-      Animated.timing(backdropOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-        easing: Easing.out(Easing.cubic),
-      }),
-      // Then animate content with parallel animations
-      Animated.parallel([
-        // Slide up with overshoot
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 12,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-        // Scale up with slight overshoot
-        Animated.sequence([
-          Animated.spring(scale, {
-            toValue: 1.02,
-            useNativeDriver: true,
-            damping: 10,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-          Animated.spring(scale, {
-            toValue: 1,
-            useNativeDriver: true,
-            damping: 12,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-        ]),
-        // Fade in content slightly delayed
-        Animated.timing(contentOpacity, {
-          toValue: 1,
-          duration: 300,
-          delay: 150,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
-        }),
-      ]),
-    ]).start();
-  }, [backdropOpacity, translateY, scale, contentOpacity]);
-
-  const animateOut = useCallback(() => {
-    Animated.sequence([
-      // First animate content
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-          easing: Easing.in(Easing.cubic),
-        }),
-        Animated.spring(translateY, {
-          toValue: 100,
-          useNativeDriver: true,
-          damping: 12,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-        Animated.spring(scale, {
-          toValue: 0.95,
-          useNativeDriver: true,
-          damping: 10,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-      ]),
-      // Then fade out backdrop
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-        easing: Easing.in(Easing.cubic),
-      }),
-    ]).start(() => {
-      onClose();
-    });
-  }, [backdropOpacity, translateY, scale, contentOpacity, onClose]);
-
-  const handleClose = useCallback(() => {
-    animateOut();
-  }, [animateOut]);
-
-  useEffect(() => {
-    if (visible) {
-      animateIn();
-    }
-  }, [visible, animateIn]);
-
+  // Get metrics configuration
   const metricConfig = healthMetrics[metricType];
-  const metricColor = metricColors[metricType];
-  const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
+  const metricColor = metricColors[metricType] || theme.colors.primary;
+  const goalValue = metricConfig.defaultGoal;
+  
+  const ensureProviderInitialized = async () => {
+    try {
+      await provider.initialize();
+      await HealthProviderFactory.waitForInitialization();
+      
+      // Verify permissions are initialized
+      if (!provider.isPermissionManagerInitialized?.()) {
+        await provider.initializePermissions(userId);
+      }
+    } catch (error) {
+      console.error('[MetricModal] Provider initialization failed:', error);
+      throw new Error('Failed to initialize health provider');
+    }
+  };
 
-  // Format goal value for display
-  const formattedGoal = formatMetricValue(metricConfig.defaultGoal, metricType, measurementSystem);
+  const validateAndGetDateRange = (inputDate: string) => {
+    try {
+      // Parse input date and ensure it's valid
+      const parsedDate = new Date(inputDate);
+      if (isNaN(parsedDate.getTime())) {
+        throw new Error('Invalid input date');
+      }
+
+      // Set to local midnight
+      const endDate = new Date(parsedDate);
+      endDate.setHours(0, 0, 0, 0);
+
+      // Calculate start date (7 days before)
+      const startDate = new Date(endDate);
+      startDate.setDate(startDate.getDate() - 6);
+
+      // Format dates in YYYY-MM-DD format
+      const endDateStr = endDate.toISOString().split('T')[0];
+      const startDateStr = startDate.toISOString().split('T')[0];
+
+      console.log('[MetricModal] Date range calculated:', {
+        input: inputDate,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        startDateObj: startDate.toISOString(),
+        endDateObj: endDate.toISOString()
+      });
+
+      return {
+        startDate,
+        endDate,
+        endDateStr,
+        startDateStr
+      };
+    } catch (error) {
+      console.error('[MetricModal] Date validation error:', error);
+      throw new Error('Invalid date format');
+    }
+  };
+
+  const fetchHistoricalData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Ensure provider is properly initialized
+      await ensureProviderInitialized();
+      
+      // Validate and get date range
+      const dateRange = validateAndGetDateRange(date);
+      
+      // Fetch data from both sources in parallel
+      const [historicalMetrics, nativeMetrics] = await Promise.all([
+        metricsService.getHistoricalMetrics(userId, metricType, dateRange.endDateStr),
+        provider.fetchRawMetrics(dateRange.startDate, dateRange.endDate, [metricType])
+      ]);
+      
+      // Create a map of dates to values from metricsService
+      const metricsMap = new Map(
+        historicalMetrics.map(item => [item.date, item.value])
+      );
+
+      // Process native health data if available
+      const nativeDataMap = new Map<string, number>();
+      if (nativeMetrics[metricType]) {
+        nativeMetrics[metricType]?.forEach((metric: { startDate: string; value: number }) => {
+          const metricDate = new Date(metric.startDate).toISOString().split('T')[0];
+          nativeDataMap.set(
+            metricDate,
+            (nativeDataMap.get(metricDate) || 0) + metric.value
+          );
+        });
+      }
+      
+      // Create array for all 7 days
+      const result: HistoricalDataPoint[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const currentDate = new Date(dateRange.endDate);
+        currentDate.setDate(currentDate.getDate() - i);
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        const value = nativeDataMap.get(dateStr) || metricsMap.get(dateStr) || 0;
+        const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'short' });
+        
+        result.push({
+          date: dateStr,
+          value,
+          formattedDate: currentDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          dayOfWeek,
+        });
+      }
+
+      setHistoricalData(result);
+      
+      // Set today as the selected day by default
+      const today = result[result.length - 1];
+      setSelectedDay(today);
+      
+      // Initialize progress bar animation
+      progressWidth.value = withTiming(
+        Math.min((today.value / goalValue) * 100, 100),
+        {
+          duration: 1000,
+          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+        }
+      );
+    } catch (error) {
+      console.error('[MetricModal] Error fetching historical data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load historical data');
+      
+      // Fallback to metricsService data only
+      try {
+        console.log('[MetricModal] Attempting fallback to metrics service only');
+        
+        const dateRange = validateAndGetDateRange(date);
+        
+        const historicalMetrics = await metricsService.getHistoricalMetrics(
+          userId,
+          metricType,
+          dateRange.endDateStr
+        );
+
+        console.log('[MetricModal] Fallback metrics retrieved:', historicalMetrics);
+        
+        // Create array for all 7 days
+        const result: HistoricalDataPoint[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const currentDate = new Date(dateRange.endDate);
+          currentDate.setDate(currentDate.getDate() - i);
+          const dateStr = currentDate.toISOString().split('T')[0];
+          
+          const metricForDate = historicalMetrics.find(m => m.date === dateStr);
+          const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'short' });
+          
+          result.push({
+            date: dateStr,
+            value: metricForDate?.value || 0,
+            formattedDate: currentDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+            dayOfWeek,
+          });
+        }
+        
+        setHistoricalData(result);
+        const today = result[result.length - 1];
+        setSelectedDay(today);
+        
+        progressWidth.value = withTiming(
+          Math.min((today.value / goalValue) * 100, 100),
+          {
+            duration: 1000,
+            easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          }
+        );
+      } catch (fallbackError) {
+        console.error('[MetricModal] Fallback data fetch failed:', fallbackError);
+        setError('Unable to load historical data');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, metricType, date, provider, goalValue]);
+
+  useEffect(() => {
+    if (visible) {
+      fetchHistoricalData();
+      // Animate modal in
+      modalY.value = withTiming(0, { 
+        duration: 400, 
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1)
+      });
+      opacity.value = withTiming(1, { duration: 350 });
+      chartProgress.value = withTiming(1, { 
+        duration: 1000,
+        easing: Easing.bezier(0.34, 1.56, 0.64, 1) 
+      });
+    } else {
+      // Reset values when closing
+      modalY.value = 100;
+      opacity.value = 0;
+      chartProgress.value = 0;
+      progressWidth.value = 0;
+      setSelectedDay(null);
+    }
+  }, [visible, fetchHistoricalData]);
+
+  const animatedModalStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: modalY.value }],
+    opacity: opacity.value,
+  }));
+  
+  const handleDaySelect = (index: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const selected = historicalData[index];
+    setSelectedDay(selected);
+    
+    // Animate progress bar
+    progressWidth.value = withTiming(
+      Math.min((selected.value / goalValue) * 100, 100),
+      {
+        duration: 500,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      }
+    );
+  };
+
+  // Chart configuration
+  const chartConfig = {
+    backgroundColor: 'transparent',
+    backgroundGradientFrom: theme.colors.surface,
+    backgroundGradientTo: theme.colors.surface,
+    decimalPlaces: 0,
+    color: (opacity = 1) => {
+      const color = metricColors[metricType] || theme.colors.primary;
+      return `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, ${opacity})`;
+    },
+    labelColor: () => theme.colors.onSurfaceVariant,
+    style: {
+      borderRadius: 16,
+    },
+    propsForDots: {
+      r: '6',
+      strokeWidth: '2',
+      stroke: metricColors[metricType] || theme.colors.primary,
+    },
+    propsForBackgroundLines: {
+      strokeDasharray: '',
+      strokeWidth: 0.5,
+    },
+  };
+
+  // Format chart data
+  const chartData = {
+    labels: historicalData.map(item => item.dayOfWeek),
+    datasets: [
+      {
+        data: historicalData.map(item => item.value),
+        color: (opacity = 1) => `${metricColors[metricType]}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+        strokeWidth: 3,
+      },
+    ],
+  };
+
+  // Format metrics
+  const formattedMetricValue = (value: number) => {
+    const formattedValue = formatMetricValue(value, metricType, measurementSystem);
+    return `${formattedValue.value} ${formattedValue.unit}`;
+  };
+
+
 
   return (
     <Portal>
-      <Modal
-        visible={visible}
-        onDismiss={handleClose}
+      <Modal 
+        visible={visible} 
+        onDismiss={onClose} 
         contentContainerStyle={[
           styles.modalContainer,
-          { paddingBottom: Math.max(insets.bottom, 20) },
+          { paddingBottom: Math.max(insets.bottom, 20) }
         ]}
       >
         <Animated.View 
           style={[
             styles.modalBackdrop,
-            { opacity: backdropOpacity }
+            { opacity }
           ]}
         >
           <Pressable 
             style={{ flex: 1 }} 
-            onPress={handleClose}
+            onPress={onClose}
           />
         </Animated.View>
+
         <Animated.View
           style={[
             styles.modalContent,
-            {
-              transform: [
-                { translateY },
-                { scale }
-              ],
-              opacity: contentOpacity,
-              shadowOpacity: contentOpacity.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 0.15],
-              }),
-              shadowColor: theme.colors.shadow,
-              shadowOffset: { width: 0, height: -2 },
-              shadowRadius: 12,
-            }
+            { backgroundColor: theme.colors.surface },
+            animatedModalStyle,
           ]}
         >
           <ScrollView 
@@ -285,100 +391,205 @@ export const MetricModal: React.FC<MetricModalProps> = ({
             <IconButton
               icon="close"
               size={24}
-              onPress={handleClose}
+              onPress={onClose}
               style={styles.closeButton}
             />
 
             <View>
               <Text variant="headlineMedium" style={styles.modalTitle}>{title}</Text>
               <View style={styles.valueContainer}>
-                <Animated.View style={{ transform: [{ scale: valueScale }] }}>
+                <Animated.View style={{ transform: [{ scale: chartProgress }] }}>
                   <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                    {metricConfig.formatValue(value, measurementSystem)} {displayUnit}
+                    {selectedDay ? formattedMetricValue(selectedDay.value) : formattedMetricValue(Number(value))}
                   </Text>
                 </Animated.View>
-                {!isLoading && trend && (
+                {selectedDay && (
                   <View style={styles.trendContainer}>
                     <MaterialCommunityIcons
-                      name={trend.direction === 'up' ? 'trending-up' : 'trending-down'}
+                      name={metricConfig.icon}
                       size={20}
-                      color={trend.direction === 'up' ? brandColors.primary : theme.colors.error}
+                      color={metricColor}
                     />
-                    <Text style={[
-                      styles.trendText,
-                      trend.direction === 'up' ? styles.trendUp : styles.trendDown
-                    ]}>
-                      {trend.percentage}%
+                    <Text style={styles.trendText}>
+                      {selectedDay.formattedDate}
+                      {DateUtils.isToday(selectedDay.date) && ' (Today)'}
                     </Text>
                   </View>
                 )}
               </View>
 
-              <Card style={styles.healthTipCard}>
-                <Card.Content style={styles.healthTipContent}>
-                  <Animated.View style={[
-                    styles.healthTipGlow,
-                    {
-                      opacity: contentOpacity.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, 0.08]
-                      })
-                    }
-                  ]} />
-                  <View style={styles.healthTipHeader}>
-                    <MaterialCommunityIcons 
-                      name={healthTip.icon} 
-                      size={24} 
-                      color={metricColor}
-                      style={{
-                        transform: [{ scale: 1.1 }],
-                        textShadowColor: metricColor,
-                        textShadowOffset: { width: 0, height: 0 },
-                        textShadowRadius: 8,
-                      }}
+              <View style={styles.chartContainer}>
+                {isLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={metricColor} />
+                    <Text style={styles.loadingText}>Loading historical data...</Text>
+                  </View>
+                ) : error ? (
+                  <View style={styles.loadingContainer}>
+                    <MaterialCommunityIcons
+                      name="alert-circle-outline"
+                      size={32}
+                      color={theme.colors.error}
                     />
-                    <Text variant="titleMedium" style={[styles.healthTipTitle, { color: theme.colors.primary }]}>
-                      Did you know?
+                    <Text style={[styles.loadingText, { color: theme.colors.error }]}>
+                      {error}
                     </Text>
                   </View>
-                  <Text variant="bodyMedium" style={styles.healthTipText}>
-                    {healthTip.tip}
-                  </Text>
+                ) : (
+                  <>
+                    <Text variant="titleMedium" style={styles.modalTitle}>7-Day History</Text>
+                    {['steps', 'distance', 'calories', 'flights_climbed'].includes(metricType) ? (
+                      <BarChart
+                        metricType={metricType}
+                        data={historicalData.map(item => ({
+                          date: item.date,
+                          value: item.value,
+                          dayName: item.dayOfWeek
+                        }))}
+                        onBarSelect={(value, dateStr, dayName) => {
+                          const newSelectedDay = {
+                            date: dateStr,
+                            value,
+                            formattedDate: new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                            dayOfWeek: dayName,
+                          };
+                          setSelectedDay(newSelectedDay);
+                          
+                          // Trigger haptic feedback
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          
+                          // Animate progress bar
+                          progressWidth.value = withTiming(
+                            Math.min((value / goalValue) * 100, 100),
+                            {
+                              duration: 500,
+                              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+                            }
+                          );
+                        }}
+                      />
+                    ) : (
+                      <LineChart
+                        data={{
+                          ...chartData,
+                          datasets: [{
+                            ...chartData.datasets[0],
+                            // Add baseline data points if heart rate to maintain scale
+                            data: metricType === 'heart_rate' 
+                              ? [...chartData.datasets[0].data, 40, 200] 
+                              : chartData.datasets[0].data
+                          }]
+                        }}
+                        width={SCREEN_WIDTH - 64}
+                        height={220}
+                        chartConfig={{
+                          ...chartConfig,
+                          // Customize Y axis based on metric type
+                          decimalPlaces: metricType === 'heart_rate' ? 0 : 1,
+                          formatYLabel: (value) => {
+                            if (metricType === 'heart_rate') {
+                              return `${Math.round(Number(value))} bpm`;
+                            } else if (metricType === 'basal_calories') {
+                              return `${Math.round(Number(value))} cal`;
+                            }
+                            return value;
+                          },
+                          // Adjust spacing and grid for better readability
+                          propsForBackgroundLines: {
+                            ...chartConfig.propsForBackgroundLines,
+                            strokeDasharray: metricType === 'heart_rate' ? '' : '5, 5',
+                            strokeOpacity: 0.15,
+                          },
+                          // Enhanced dot and line styling
+                          propsForDots: {
+                            ...chartConfig.propsForDots,
+                            r: '4',
+                            strokeWidth: '2',
+                            stroke: metricColor,
+                          },
+                          strokeWidth: 2,
+                          fillShadowGradient: metricColor,
+                          fillShadowGradientOpacity: 0.1,
+                        }}
+                        bezier
+                        style={{
+                          ...styles.chart,
+                          marginVertical: 8,
+                          borderRadius: 16,
+                          paddingRight: 16,
+                        }}
+                        withVerticalLines={false}
+                        withHorizontalLines={true}
+                        fromZero={metricType !== 'heart_rate'}
+                        onDataPointClick={({index}) => handleDaySelect(index)}
+                        segments={metricType === 'heart_rate' ? 5 : 4}
+                      />
+                    )}
+                  </>
+                )}
+              </View>
+
+              {/* Goal Progress Card */}
+              <Card style={[styles.healthTipCard, { backgroundColor: theme.colors.surface }]}>
+                <Card.Content>
+                  <View style={styles.healthTipHeader}>
+                    <MaterialCommunityIcons name="flag-checkered" size={20} color={theme.colors.primary} />
+                    <Text variant="titleMedium" style={styles.healthTipTitle}>Goal Progress</Text>
+                  </View>
+                  
+                  <View style={styles.progressContainer}>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Current</Text>
+                      <Text style={[styles.infoValue, { color: metricColor }]}>
+                        {formattedMetricValue(selectedDay?.value || Number(value))}
+                      </Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Daily Goal</Text>
+                      <Text style={styles.infoValue}>
+                        {formattedMetricValue(goalValue)}
+                      </Text>
+                    </View>
+                    
+                    <View style={[styles.chartContainer, { marginVertical: 12 }]}>
+                      <View style={[
+                        styles.progressBarContainer, 
+                        { 
+                          height: 8, 
+                          backgroundColor: theme.colors.surfaceVariant,
+                          borderRadius: 4 
+                        }
+                      ]}>
+                        <Animated.View
+                          style={[
+                            {
+                              height: '100%',
+                              backgroundColor: metricColor,
+                              borderRadius: 4,
+                            },
+                            useAnimatedStyle(() => ({
+                              width: `${progressWidth.value}%`,
+                            })),
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.infoValue, { alignSelf: 'flex-end', marginTop: 4 }]}>
+                        {Math.round(((selectedDay?.value || Number(value)) / goalValue) * 100)}%
+                      </Text>
+                    </View>
+                  </View>
                 </Card.Content>
               </Card>
             </View>
 
-            <View style={[styles.chartContainer, { marginTop: 0 }]}>
-              {isLoading ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color={metricColor} />
-                  <Text style={styles.loadingText}>Loading historical data...</Text>
-                </View>
-              ) : (
-                <BarChart 
-                  metricType={metricType}
-                  userId={userId}
-                  date={date}
-                  provider={provider}
-                />
-              )}
-            </View>
-
             {additionalInfo && additionalInfo.length > 0 && (
               <View style={styles.additionalInfoContainer}>
-                {additionalInfo.map((info, index) => {
-                  // Format goal value if this is the goal info
-                  const displayValue = info.label === 'Daily Goal' 
-                    ? `${formattedGoal.value} ${displayUnit}`
-                    : info.value;
-                    
-                  return (
-                    <View key={index} style={styles.infoRow}>
-                      <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
-                      <Text variant="titleMedium" style={styles.infoValue}>{displayValue}</Text>
-                    </View>
-                  );
-                })}
+                {additionalInfo.map((info, index) => (
+                  <View key={index} style={styles.infoRow}>
+                    <Text variant="bodyLarge" style={styles.infoLabel}>{info.label}</Text>
+                    <Text variant="titleMedium" style={styles.infoValue}>{info.value}</Text>
+                  </View>
+                ))}
               </View>
             )}
           </ScrollView>

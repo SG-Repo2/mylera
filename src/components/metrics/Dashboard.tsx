@@ -193,6 +193,7 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [isProviderReady, setIsProviderReady] = useState(false);
   
   const {
     loading,
@@ -203,6 +204,36 @@ export const Dashboard = React.memo(function Dashboard({
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
+
+  // Initialize provider
+  useEffect(() => {
+    let mounted = true;
+    
+    const initializeProvider = async () => {
+      if (!provider) return;
+      
+      try {
+        console.log('[Dashboard] Initializing provider...');
+        await provider.initialize();
+        if (mounted) {
+          setIsProviderReady(true);
+          console.log('[Dashboard] Provider initialized successfully');
+        }
+      } catch (error) {
+        console.error('[Dashboard] Provider initialization failed:', error);
+        if (mounted) {
+          setFetchError(error instanceof Error ? error : new Error('Failed to initialize provider'));
+          setIsProviderReady(false);
+        }
+      }
+    };
+
+    initializeProvider();
+    
+    return () => {
+      mounted = false;
+    };
+  }, [provider]);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -224,7 +255,7 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async () => {
-    if (!isInitialized) return;
+    if (!isInitialized || !isProviderReady) return;
     
     try {
       console.log('Dashboard fetching data for:', { userId, date });
@@ -266,7 +297,7 @@ export const Dashboard = React.memo(function Dashboard({
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
       setErrorDialogVisible(true);
     }
-  }, [userId, date, isInitialized]);
+  }, [userId, date, isInitialized, isProviderReady]);
 
   useEffect(() => {
     fetchData();

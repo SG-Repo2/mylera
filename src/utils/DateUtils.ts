@@ -28,11 +28,27 @@ export class DateUtils {
       );
     }
   
-    static formatDateForDisplay(date: Date): string {
-      return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    }
-  } 
+  static formatDateForDisplay(date: Date): string {
+    return date.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  }
+
+  static isToday(date: Date | string): boolean {
+    const inputDate = typeof date === 'string' ? new Date(date) : date;
+    const today = new Date();
+    
+    // Convert both dates to local timezone midnight
+    const todayLocal = new Date(today.toLocaleDateString());
+    const dateLocal = new Date(inputDate.toLocaleDateString());
+    
+    return todayLocal.getTime() === dateLocal.getTime();
+  }
+
+  static getLocalMidnight(date: Date | string): Date {
+    const inputDate = typeof date === 'string' ? new Date(date) : date;
+    return new Date(inputDate.toLocaleDateString());
+  }
+}

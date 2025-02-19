@@ -96,6 +96,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
+  const syncInProgress = useRef(false);
 
   const retryInitialization = useCallback(async () => {
     if (!isMounted.current) return false;
@@ -129,11 +130,12 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     }
   }, [isMounted]);
 
-  // Create debounced version of sync function
+  // Create debounced version of sync function with error handling
   const debouncedSync = useCallback(
     debounce(async () => {
-      if (!isMounted.current) return;
+      if (!isMounted.current || syncInProgress.current) return;
       
+      syncInProgress.current = true;
       setLoading(true);
       setError(null);
 
@@ -153,6 +155,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
             'Health provider initialization timed out'
           );
           
+          setIsInitialized(true);
           console.log('[useHealthData] Provider initialized successfully');
         } catch (err) {
           // If initial initialization fails, try one retry
@@ -161,6 +164,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
           if (!retrySuccessful) {
             throw err;
           }
+          setIsInitialized(true);
           console.log('[useHealthData] Initialization retry succeeded');
         }
 
@@ -229,49 +233,41 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       } finally {
         if (isMounted.current) {
           setLoading(false);
-          setIsInitialized(true);
+          syncInProgress.current = false;
         }
       }
-    }, 800), // 800ms debounce
+    }, 800),
     [provider, userId, retryInitialization]
   );
 
-  // Cleanup debounced function on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isMounted.current = false;
       debouncedSync.cancel();
+      if (provider) {
+        provider.cleanup().catch(error => {
+          console.error('[useHealthData] Error during cleanup:', error);
+        });
+      }
     };
-  }, [debouncedSync]);
+  }, [debouncedSync, provider]);
 
   const syncHealthData = useCallback(() => {
-    if (!isMounted.current) return;
+    if (!isMounted.current || syncInProgress.current) return;
     debouncedSync();
   }, [debouncedSync]);
 
-  // Sync on mount and cleanup on unmount
+  // Initial sync
   useEffect(() => {
-    isMounted.current = true;
-    
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
       setLoading(false);
-      setIsInitialized(true);
       return;
     }
     
     syncHealthData();
-    
-    return () => {
-      isMounted.current = false;
-      if (provider) {
-        try {
-          provider.cleanup?.();
-        } catch (error) {
-          console.error('[useHealthData] Error during cleanup:', error);
-        }
-      }
-    };
-  }, [syncHealthData, userId, provider]);
+  }, [syncHealthData, userId]);
 
   return { loading, error, syncHealthData, isInitialized };
 };

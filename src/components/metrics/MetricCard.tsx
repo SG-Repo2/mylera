@@ -7,6 +7,7 @@ import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
+import { theme } from '@/src/theme/theme';
 
 interface MetricCardProps {
   title: string;
@@ -161,23 +162,32 @@ export const MetricCard = React.memo(function MetricCard({
                     name={icon} 
                     size={26} 
                     color="white"
-                    style={{
-                      textShadowColor: 'rgba(0,0,0,0.1)',
-                      textShadowOffset: { width: 0, height: 1 },
-                      textShadowRadius: 2,
-                    }}
+                    style={styles.icon}
                   />
                 </Surface>
-                <Text variant="titleMedium" style={[styles.title, { color: theme.colors.onSurface }]}>
+                <Text 
+                  variant="titleMedium" 
+                  style={[styles.title, { color: theme.colors.onSurface }]}
+                  numberOfLines={1}
+                >
                   {title}
                 </Text>
               </View>
               
               <View style={styles.valueContainer}>
-                <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                <Text 
+                  variant="displaySmall" 
+                  style={[styles.value, { color: theme.colors.onSurface }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
                   {formattedValue}
                 </Text>
-                <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
+                <Text 
+                  variant="labelMedium" 
+                  style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}
+                  numberOfLines={1}
+                >
                   {displayUnit}
                 </Text>
               </View>
@@ -202,11 +212,19 @@ export const MetricCard = React.memo(function MetricCard({
                   />
                 </Animated.View>
                 <View style={styles.progressInfo}>
-                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant, fontSize: 11, marginBottom: -2 }]} numberOfLines={1}>
+                  <Text 
+                    variant="labelSmall" 
+                    style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]} 
+                    numberOfLines={1}
+                  >
                     {percentage}% of goal
                   </Text>
-                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: -2 }]} numberOfLines={1}>
-                    {points} pts {getPointsText()} {displayUnit}
+                  <Text 
+                    variant="labelSmall" 
+                    style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]} 
+                    numberOfLines={1}
+                  >
+                    {points} pts {getPointsText()}
                   </Text>
                 </View>
               </View>
@@ -216,4 +234,115 @@ export const MetricCard = React.memo(function MetricCard({
       </Surface>
     </Animated.View>
   );
+});
+
+const styles = StyleSheet.create({
+  cardWrapper: {
+    minHeight: 160,
+    aspectRatio: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+  },
+  cardShadowWrapper: {
+    borderRadius: 24,
+    height: '100%',
+    backgroundColor: theme.colors.surface,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  cardContentWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    height: '100%',
+    backgroundColor: theme.colors.surface,
+  },
+  iconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  icon: {
+    textShadowColor: 'rgba(0,0,0,0.1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+    borderRadius: 3,
+    marginBottom: 4,
+  },
+  ripple: {
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  cardContent: {
+    padding: 16,
+    height: '100%',
+    justifyContent: 'space-between',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  title: {
+    flex: 1,
+    marginLeft: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.15,
+  },
+  valueContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 12,
+    gap: 4,
+  },
+  value: {
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  unit: {
+    fontSize: 14,
+    fontWeight: '600',
+    opacity: 0.7,
+    letterSpacing: 0.25,
+  },
+  progressContainer: {
+    gap: 2,
+  },
+  progressInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressText: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.4,
+  },
+  pointsText: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.4,
+  },
 });

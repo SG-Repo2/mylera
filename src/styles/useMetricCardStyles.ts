@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
 
 const createStyles = (theme: MD3Theme) =>
@@ -28,48 +28,31 @@ const createStyles = (theme: MD3Theme) =>
       height: '100%',
       backgroundColor: theme.colors.surface,
     },
-    detailCardShadow: {
-      borderRadius: 20,
-      marginHorizontal: 16,
-      marginVertical: 8,
-      backgroundColor: theme.colors.surface,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: 2,
-      },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-    detailCardContent: {
-      borderRadius: 20,
-      overflow: 'hidden',
-      backgroundColor: theme.colors.surface,
-    },
     ripple: {
       borderRadius: 24,
       height: '100%',
       backgroundColor: theme.colors.surface,
     },
     cardContent: {
-      padding: 16,
+      padding: 20,
       height: '100%',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-start',
       backgroundColor: theme.colors.surface,
     },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      marginBottom: 4,
+      marginBottom: 24,
+      backgroundColor: theme.colors.surface,
     },
     iconContainer: {
-      width: 44,
-      height: 44,
-      borderRadius: 14,
+      width: 48,
+      height: 48,
+      borderRadius: 16,
       justifyContent: 'center',
       alignItems: 'center',
+      backgroundColor: theme.colors.primary,
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -79,37 +62,47 @@ const createStyles = (theme: MD3Theme) =>
       shadowRadius: 4,
       elevation: 6,
     },
+    icon: {
+      textShadowColor: 'rgba(0,0,0,0.1)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 2,
+    },
     title: {
       flex: 1,
-      fontSize: 16,
+      fontSize: 24,
       fontWeight: '600',
-      letterSpacing: 0.15,
+      letterSpacing: -0.5,
+      color: '#000',
     },
     valueContainer: {
       flexDirection: 'row',
       alignItems: 'baseline',
-      gap: 6,
-      marginTop: 8,
-      marginBottom: 16,
+      gap: 8,
+      marginBottom: 24,
     },
     value: {
       fontWeight: '700',
-      fontSize: 32,
-      letterSpacing: -0.5,
+      fontSize: 48,
+      letterSpacing: -1,
+      lineHeight: 56,
+      color: '#000',
     },
     unit: {
-      fontWeight: '600',
-      opacity: 0.7,
-      fontSize: 14,
-      letterSpacing: 0.25,
+      fontWeight: '500',
+      fontSize: 20,
+      letterSpacing: 0,
+      lineHeight: 24,
+      color: '#666',
     },
     progressContainer: {
       gap: 8,
+      marginTop: 'auto',
     },
     progressBar: {
-      height: 6,
-      backgroundColor: 'rgba(0,0,0,0.04)',
-      borderRadius: 3,
+      height: 4,
+      backgroundColor: 'rgba(0,0,0,0.05)',
+      borderRadius: 2,
+      marginBottom: 8,
     },
     progressInfo: {
       flexDirection: 'column',
@@ -117,17 +110,19 @@ const createStyles = (theme: MD3Theme) =>
     },
     progressText: {
       textAlign: 'right',
-      fontSize: 13,
-      opacity: 0.8,
-      letterSpacing: 0.4,
+      fontSize: 14,
+      color: '#666',
       fontWeight: '500',
+      letterSpacing: 0,
+      lineHeight: 20,
     },
     pointsText: {
       textAlign: 'right',
-      fontSize: 13,
-      opacity: 0.7,
+      fontSize: 14,
+      color: '#666',
       fontWeight: '500',
-      letterSpacing: 0.4,
+      letterSpacing: 0,
+      lineHeight: 20,
     }
   });
 

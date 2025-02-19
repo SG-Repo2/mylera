@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Dimensions, StyleSheet, Animated } from 'react-native';
+import { View, Dimensions, StyleSheet, Animated, Pressable } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MetricType } from '@/src/types/metrics';
 import { brandColors } from '@/src/theme/theme';
@@ -7,169 +7,44 @@ import type { HealthProvider } from '@/src/providers/health/types/provider';
 import Svg, { Rect } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
 import { metricsService } from '@/src/services/metricsService';
+import { DateUtils } from '@/src/utils/DateUtils';
 
 interface BarChartProps {
   metricType: MetricType;
-  userId: string;
-  date: string;
-  provider: HealthProvider;
+  data: Array<{
+    date: string;
+    value: number;
+    dayName: string;
+  }>;
+  onBarSelect?: (value: number, dateStr: string, dayName: string) => void;
 }
 
-interface DataPoint {
-  date: string;
-  value: number;
-  animation: Animated.Value;
-  dayName: string;
-}
-
-export function BarChart({ metricType, userId, date, provider }: BarChartProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<DataPoint[]>([]);
+export function BarChart({ metricType, data, onBarSelect }: BarChartProps) {
   const theme = useTheme();
-
-  const getDayName = (dateStr: string): string => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return days[new Date(dateStr).getDay()];
-  };
+  const [animatedData, setAnimatedData] = useState(
+    data.map(item => ({
+      ...item,
+      animation: new Animated.Value(0)
+    }))
+  );
 
   useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setError(null);
-
-    const fetchData = async () => {
-      try {
-        console.log('Fetching health data for:', { userId, metricType });
-        
-        // Initialize provider
-        await provider.initialize();
-
-        // Get current date and date range
-        const endDateTime = new Date();
-        const startDateTime = new Date();
-        startDateTime.setDate(startDateTime.getDate() - 6);
-
-        const endDateStr = endDateTime.toLocaleDateString('en-CA');
-        const startDateStr = startDateTime.toLocaleDateString('en-CA');
-
-        console.log('Date range:', { startDateStr, endDateStr });
-
-        // First try to get stored metrics from our database
-        const storedMetrics = await metricsService.getHistoricalMetrics(
-          userId,
-          metricType,
-          endDateStr
-        );
-
-        console.log('Stored metrics:', storedMetrics);
-
-        // Then get native health data for the full range
-        const rawData = await provider.fetchRawMetrics(
-          startDateTime,
-          endDateTime,
-          [metricType]
-        );
-
-        const normalizedData = provider.normalizeMetrics(rawData, metricType);
-        console.log('Native health data:', normalizedData);
-
-        // Create a map of daily totals from native data
-        const nativeDataMap = new Map<string, number>();
-        normalizedData.forEach(metric => {
-          const day = new Date(metric.timestamp).toLocaleDateString('en-CA');
-          const currentTotal = nativeDataMap.get(day) || 0;
-          nativeDataMap.set(day, currentTotal + metric.value);
-        });
-
-        // Create a map of stored metrics for quick lookup
-        const storedDataMap = new Map(
-          storedMetrics.map(metric => [metric.date, metric.value])
-        );
-
-        // Fill data starting from current day going back 6 days
-        const filledData = [];
-        for (let i = 0; i >= -6; i--) {
-          const d = new Date();
-          d.setDate(d.getDate() + i);
-          const dateStr = d.toLocaleDateString('en-CA');
-          
-          // Prefer stored metric, fall back to native data
-          let value = storedDataMap.get(dateStr);
-          if (value === undefined) {
-            value = nativeDataMap.get(dateStr) || 0;
-            // Store the native data for future use
-            if (value > 0) {
-              try {
-                await metricsService.updateMetric(userId, metricType, value);
-              } catch (err) {
-                console.warn('Failed to store metric:', err);
-              }
-            }
-          }
-          
-          filledData.push({
-            date: dateStr,
-            value,
-            dayName: getDayName(dateStr),
-            animation: new Animated.Value(0)
-          });
-          console.log(`${getDayName(dateStr)} (${dateStr}): ${value}`);
-        }
-
-        // Reverse the array so most recent day is on the right
-        filledData.reverse();
-
-        setData(filledData);
-        setLoading(false);
-
-        // Enhanced staggered animation sequence
-        const animations = filledData.map((item, index) =>
-          Animated.sequence([
-            Animated.delay(index * 60),
-            Animated.spring(item.animation, {
-              toValue: 1,
-              useNativeDriver: false,
-              stiffness: 180,
-              damping: 12,
-              mass: 0.8,
-            })
-          ])
-        );
-
-        Animated.stagger(40, animations).start();
-
-      } catch (err) {
-        if (!mounted) return;
-        console.error('Error fetching health data:', err);
-        setError('Failed to load health data');
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    return () => { mounted = false; };
-  }, [metricType, userId, date, provider]);
-
-  if (loading) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
-        <Text variant="bodyLarge" style={{ color: theme.colors.onSurface }}>
-          Loading chart data...
-        </Text>
-      </View>
+    // Enhanced staggered animation sequence
+    const animations = animatedData.map((item, index) =>
+      Animated.sequence([
+        Animated.delay(index * 60),
+        Animated.spring(item.animation, {
+          toValue: 1,
+          useNativeDriver: false,
+          stiffness: 180,
+          damping: 12,
+          mass: 0.8,
+        })
+      ])
     );
-  }
 
-  if (error) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.errorContainer }]}>
-        <Text variant="bodyLarge" style={{ color: theme.colors.error }}>
-          {error}
-        </Text>
-      </View>
-    );
-  }
+    Animated.stagger(40, animations).start();
+  }, []);
 
   if (data.length === 0) {
     return (
@@ -181,7 +56,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     );
   }
 
-  const validData = data.map(d => ({
+  const validData = animatedData.map(d => ({
     ...d,
     value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
   }));
@@ -235,9 +110,13 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
               0
             );
             
-            const isToday = point.date === new Date().toLocaleDateString('en-CA');
+            const isToday = DateUtils.isToday(point.date);
             return (
-              <View key={point.date} style={styles.barWrapper}>
+              <Pressable 
+                key={point.date} 
+                style={styles.barWrapper}
+                onPress={() => onBarSelect?.(point.value, point.date, point.dayName)}
+              >
                 <View style={styles.barLabelContainer}>
                   <Text variant="bodySmall" style={[styles.barValue, { 
                     color: theme.colors.onSurface,
@@ -286,7 +165,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                 ]}>
                   {point.dayName}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </View>
@@ -301,6 +180,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -319,11 +199,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingLeft: 8,
+    backgroundColor: '#FFFFFF',
   },
   chartArea: {
     flex: 1,
     marginLeft: 40,
-    width: Dimensions.get('window').width - 48,
+    width: '100%',
     backgroundColor: '#FFFFFF',
   },
   gridContainer: {
@@ -332,12 +213,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: '#FFFFFF',
   },
   gridLine: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   barsContainer: {
     flex: 1,
@@ -346,14 +229,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 20,
     paddingHorizontal: 8,
+    backgroundColor: '#FFFFFF',
   },
   barWrapper: {
     alignItems: 'center',
     justifyContent: 'flex-end',
     height: '100%',
+    backgroundColor: '#FFFFFF',
   },
   barLabelContainer: {
     marginBottom: 4,
+    backgroundColor: '#FFFFFF',
   },
   barValue: {
     fontSize: 10,
@@ -362,6 +248,7 @@ const styles = StyleSheet.create({
   barContainer: {
     marginBottom: 8,
     borderRadius: 4,
+    backgroundColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,

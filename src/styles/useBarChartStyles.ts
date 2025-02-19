@@ -8,6 +8,7 @@ const useBarChartStyles = () => {
       justifyContent: 'center',
       alignItems: 'center',
       borderRadius: 16,
+      backgroundColor: '#FFFFFF',
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -30,7 +31,7 @@ const useBarChartStyles = () => {
     chartArea: {
       flex: 1,
       marginLeft: 40,
-      width: '100%', // Take full width after margin
+      width: '100%',
       backgroundColor: '#FFFFFF',
     },
     gridContainer: {
@@ -39,6 +40,7 @@ const useBarChartStyles = () => {
       left: 0,
       right: 0,
       bottom: 0,
+      backgroundColor: '#FFFFFF',
     },
     gridLine: {
       position: 'absolute',
@@ -53,14 +55,17 @@ const useBarChartStyles = () => {
       justifyContent: 'space-between',
       paddingBottom: 20,
       paddingHorizontal: 8,
+      backgroundColor: '#FFFFFF',
     },
     barWrapper: {
       alignItems: 'center',
       justifyContent: 'flex-end',
       height: '100%',
+      backgroundColor: '#FFFFFF',
     },
     barLabelContainer: {
       marginBottom: 4,
+      backgroundColor: '#FFFFFF',
     },
     barValue: {
       fontSize: 10,
@@ -69,6 +74,7 @@ const useBarChartStyles = () => {
     barContainer: {
       marginBottom: 8,
       borderRadius: 4,
+      backgroundColor: '#FFFFFF',
       shadowColor: '#000',
       shadowOffset: {
         width: 0,

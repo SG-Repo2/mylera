@@ -104,9 +104,11 @@ const createStyles = (theme: MD3Theme) => {
     },
     trendUp: {
       color: theme.colors.primary,
+      backgroundColor: theme.colors.surface,
     },
     trendDown: {
       color: theme.colors.error,
+      backgroundColor: theme.colors.surface,
     },
     chartContainer: {
       alignItems: 'center',
@@ -131,6 +133,7 @@ const createStyles = (theme: MD3Theme) => {
       borderRadius: 24,
       overflow: 'hidden',
       width: '100%',
+      backgroundColor: theme.colors.surface,
     },
     additionalInfoContainer: {
       marginTop: screenWidth > 380 ? 24 : 16,
@@ -146,6 +149,7 @@ const createStyles = (theme: MD3Theme) => {
       justifyContent: 'space-between',
       alignItems: 'center',
       paddingVertical: 4,
+      backgroundColor: theme.colors.surfaceVariant,
     },
     infoLabel: {
       color: theme.colors.onSurfaceVariant,
@@ -158,11 +162,13 @@ const createStyles = (theme: MD3Theme) => {
     },
     calorieCharts: {
       marginBottom: 16,
+      backgroundColor: theme.colors.surface,
     },
     chartRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       marginBottom: 16,
+      backgroundColor: theme.colors.surface,
     },
     healthTipCard: {
       marginBottom: screenWidth > 380 ? 24 : 16,
@@ -202,6 +208,7 @@ const createStyles = (theme: MD3Theme) => {
       alignItems: 'center',
       marginBottom: 12,
       gap: 8,
+      backgroundColor: theme.colors.surfaceVariant,
     },
     healthTipTitle: {
       fontWeight: '600',
@@ -218,11 +225,24 @@ const createStyles = (theme: MD3Theme) => {
       alignItems: 'center',
       justifyContent: 'center',
       minHeight: 200,
+      backgroundColor: theme.colors.surface,
     },
     loadingText: {
       marginTop: 12,
       color: theme.colors.onSurfaceVariant,
       fontSize: 14,
+    },
+    progressContainer: {
+      marginTop: 8,
+      gap: 12,
+      backgroundColor: theme.colors.surfaceVariant,
+    },
+    progressBarContainer: {
+      height: 8,
+      backgroundColor: theme.colors.surfaceVariant,
+      borderRadius: 4,
+      overflow: 'hidden',
+      width: '100%',
     },
   });
 };
