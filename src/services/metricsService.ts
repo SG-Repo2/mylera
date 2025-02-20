@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient';
-import type { MetricType} from '../types/schemas';
+import type { MetricType } from '../types/schemas';
 import { healthMetrics } from '../config/healthMetrics';
+import { calculateMetricPoints, validateMetricValue } from '../utils/scoringUtils';
 
 // Error class for authentication/authorization errors
 class MetricsAuthError extends Error {
@@ -96,6 +97,11 @@ export const metricsService = {
       throw new MetricsAuthError('Cannot update metrics for another user');
     }
 
+    // Validate metric value
+    if (!validateMetricValue(metricType, value)) {
+      throw new Error(`Invalid value for metric type ${metricType}`);
+    }
+
     const today = new Date().toISOString().split('T')[0];
     const config = healthMetrics[metricType];
     
@@ -105,19 +111,8 @@ export const metricsService = {
       unit: config.unit
     });
     
-    // Calculate points and goal status based on environment
-    let goalReached = false;
-    let points = 0;
-    
-    if (__DEV__) {
-      // Development scoring: simplified scoring for easier testing
-      goalReached = value > 0;
-      points = goalReached ? 50 : 0;
-    } else {
-      // Production scoring
-      goalReached = value >= config.defaultGoal;
-      points = Math.min(Math.floor((value / config.defaultGoal) * 100), 100);
-    }
+    // Calculate points and goal status using centralized scoring logic
+    const { points, goalReached } = calculateMetricPoints(metricType, value, config);
 
     console.log('[MetricsService] Calculated score:', {
       goalReached,
@@ -135,7 +130,7 @@ export const metricsService = {
       points,
       goal_reached: goalReached,
       updated_at: new Date().toISOString(),
-      is_test_data: false // Always false to avoid RLS policy violations
+      is_test_data: false
     };
 
     console.log('[MetricsService] Upserting metric data:', metricData);
@@ -150,7 +145,6 @@ export const metricsService = {
   
     if (metricError) {
       console.error('[MetricsService] Error upserting metric:', metricError);
-      // Handle RLS policy violation
       if (metricError.code === '42501') {
         throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
       }
@@ -173,6 +167,7 @@ export const metricsService = {
 
     console.log('[MetricsService] Current metrics state:', metrics);
 
+    // Calculate totals using the actual stored values
     const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
     const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
 
@@ -198,7 +193,6 @@ export const metricsService = {
     });
 
     if (totalError) {
-      // Handle RLS policy violation
       if (totalError.code === '42501') {
         throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
       }
