@@ -11,6 +11,7 @@ import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { MeasurementSystem, DISPLAY_UNITS } from '@/src/utils/unitConversion';
+import { calculateMetricPoints, type MetricScore } from '@/src/utils/scoringUtils';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
@@ -18,33 +19,7 @@ interface MetricCardListProps {
   provider: HealthProvider;
 }
 
-type DisplayedMetricType = MetricType;
-
-const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
-  // Handle non-numeric values
-  if (typeof value !== 'number') {
-    return 0;
-  }
-
-  const config = healthMetrics[type];
-  
-  // Special handling for heart rate since it's based on target zone
-  if (type === 'heart_rate') {
-    const targetValue = config.defaultGoal;
-    const deviation = Math.abs(value - targetValue);
-    // Within 5 BPM = max points, then decreases linearly
-    const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-    return Math.round(points);
-  }
-
-  // For all other metrics, calculate points based on increment value
-  return Math.min(
-    Math.floor(value / config.pointIncrement.value),
-    config.pointIncrement.maxPoints
-  );
-};
-
-const metricOrder: DisplayedMetricType[] = [
+const metricOrder: MetricType[] = [
   'steps',
   'distance',
   'calories',
@@ -68,39 +43,43 @@ export const MetricCardList = React.memo(function MetricCardList({
   const { user } = useAuth();
   const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
 
-  // Memoize metric values to prevent unnecessary re-renders
+  // Memoize metric scores using the scoring utility
   const memoizedMetrics = React.useMemo(() => {
-    return metricOrder.map(metricType => ({
-      type: metricType,
-      value: metrics[metricType] as number,
-      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
-      config: healthMetrics[metricType]
-    }));
+    return metricOrder.map(metricType => {
+      const config = healthMetrics[metricType];
+      const value = metrics[metricType] as number;
+      const score = calculateMetricPoints(metricType, value || 0, config);
+      
+      return {
+        type: metricType,
+        score,
+        config: healthMetrics[metricType]
+      };
+    });
   }, [metrics]);
+
   // Create fade-in animations for each card
   const fadeAnims = React.useRef(
     metricOrder.map(() => new Animated.Value(0))
   ).current;
 
   React.useEffect(() => {
-    // Enhanced stagger animation sequence
     const animations = fadeAnims.map((anim, index) =>
       Animated.sequence([
-        Animated.delay(index * 80), // Slightly faster stagger for better flow
-          Animated.spring(anim, {
-            toValue: 1,
-            useNativeDriver: true,
-            stiffness: 100,
-            damping: 15,
-            mass: 0.8,
-          })
+        Animated.delay(index * 80),
+        Animated.spring(anim, {
+          toValue: 1,
+          useNativeDriver: true,
+          stiffness: 100,
+          damping: 15,
+          mass: 0.8,
+        })
       ])
     );
 
     Animated.stagger(50, animations).start();
   }, [fadeAnims]);
 
-  // Memoize modal handlers
   const handleModalClose = useCallback(() => {
     setModalVisible(false);
     setSelectedMetric(null);
@@ -111,12 +90,12 @@ export const MetricCardList = React.memo(function MetricCardList({
     setModalVisible(true);
   }, []);
 
-  // Check for goal achievement
+  // Check for goal achievement using the score
   useEffect(() => {
     const stepsMetric = memoizedMetrics.find(m => m.type === 'steps');
-    if (stepsMetric && stepsMetric.value >= stepsMetric.config.defaultGoal) {
+    if (stepsMetric && stepsMetric.score.goalReached) {
       setShowCelebration(true);
-      setCelebrationPoints(stepsMetric.points);
+      setCelebrationPoints(stepsMetric.score.points);
     }
   }, [memoizedMetrics]);
 
@@ -130,16 +109,16 @@ export const MetricCardList = React.memo(function MetricCardList({
         />
       )}
       {selectedMetric && (
-          <MetricModal
-            visible={modalVisible}
-            onClose={handleModalClose}
-            title={healthMetrics[selectedMetric].title}
-            value={metrics[selectedMetric] || 0}
-            metricType={selectedMetric}
-            userId={metrics.user_id}
-            date={metrics.date}
-            provider={provider}
-            additionalInfo={[
+        <MetricModal
+          visible={modalVisible}
+          onClose={handleModalClose}
+          title={healthMetrics[selectedMetric].title}
+          value={metrics[selectedMetric] || 0}
+          metricType={selectedMetric}
+          userId={metrics.user_id}
+          date={metrics.date}
+          provider={provider}
+          additionalInfo={[
             {
               label: 'Daily Goal',
               value: `${healthMetrics[selectedMetric].defaultGoal} ${DISPLAY_UNITS[selectedMetric][measurementSystem]}`
@@ -152,38 +131,15 @@ export const MetricCardList = React.memo(function MetricCardList({
         />
       )}
       <View style={styles.grid}>
-        {memoizedMetrics.map(({ type: metricType, value, points, config }, index) => (
-          <Animated.View 
-            key={metricType} 
-            style={[
-              styles.cell,
-              {
-              opacity: fadeAnims[index],
-              transform: [{
-                translateY: fadeAnims[index].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [30, 0], // Increased range for more noticeable motion
-                }),
-              }, {
-                scale: fadeAnims[index].interpolate({
-                  inputRange: [0, 0.5, 1],
-                  outputRange: [0.8, 1.02, 1], // Add slight overshoot
-                }),
-              }],
-              },
-              index === metricOrder.length - 1 && styles.lastCell
-            ]}
-          >
+        {memoizedMetrics.map(({ type: metricType, score, config }, index) => (
+          <Animated.View key={metricType} style={[styles.cell, fadeAnims[index]]}>
             <MetricCard
               title={config.title}
-              value={value}
-              points={points}
-              goal={config.defaultGoal as number}
-              unit={DISPLAY_UNITS[metricType][measurementSystem]}
+              metricType={metricType}
+              score={score}
               icon={config.icon}
               color={metricColors[metricType]}
               showAlert={showAlerts}
-              metricType={metricType}
               measurementSystem={measurementSystem}
               onPress={() => handleMetricPress(metricType)}
             />

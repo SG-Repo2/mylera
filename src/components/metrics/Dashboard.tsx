@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
@@ -10,14 +10,10 @@ import { MetricCardList } from './MetricCardList';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import { metricsService } from '@/src/services/metricsService';
+import { unifiedMetricsService } from '@/src/services/unifiedMetricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect, useCallback } from 'react';
-import type { DailyTotal } from '@/src/types/schemas';
-import type { z } from 'zod';
-import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
-import { healthMetrics } from '@/src/config/healthMetrics';
-type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
+import type { DailyTotal, MetricType } from '@/src/types/schemas';
+import { calculateTotalScore } from '@/src/utils/scoringUtils';
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 
@@ -118,67 +114,6 @@ const LoadingView = React.memo(() => {
   );
 });
 
-const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
-  return metrics.reduce((total, metric) => {
-    const config = healthMetrics[metric.metric_type];
-    if (!config || typeof metric.value !== 'number') return total;
-
-    let points = 0;
-    if (metric.metric_type === 'heart_rate') {
-      const targetValue = config.defaultGoal;
-      const deviation = Math.abs(metric.value - targetValue);
-      points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-    } else {
-      points = Math.floor(metric.value / config.pointIncrement.value);
-      points = Math.min(points, config.pointIncrement.maxPoints);
-      
-      // Cap bonus points at 25 for goal achievements
-      if (metric.value >= config.defaultGoal) {
-        points = Math.min(points, 25);
-      }
-    }
-    
-    return total + Math.round(points);
-  }, 0);
-};
-
-const transformMetricsToHealthMetrics = (
-  metrics: DailyMetricScore[],
-  dailyTotal: DailyTotal | null,
-  userId: string,
-  date: string
-): HealthMetrics => {
-  const now = new Date().toISOString();
-  
-  const result: HealthMetrics = {
-    id: `${userId}-${date}`,
-    user_id: userId,
-    date: date,
-    steps: null,
-    distance: null,
-    calories: null,
-    heart_rate: null,
-    exercise: null,
-    basal_calories: null,
-    flights_climbed: null,
-    daily_score: dailyTotal?.total_points || 0,
-    weekly_score: null,
-    streak_days: null,
-    last_updated: now,
-    created_at: now,
-    updated_at: now
-  };
-
-  metrics.forEach(metric => {
-    const metricType = metric.metric_type as MetricType;
-    if (metricType in result && typeof metric.value === 'number') {
-      result[metricType] = metric.value;
-    }
-  });
-
-  return result;
-};
-
 export const Dashboard = React.memo(function Dashboard({
   provider,
   userId,
@@ -259,45 +194,44 @@ export const Dashboard = React.memo(function Dashboard({
     
     try {
       console.log('Dashboard fetching data for:', { userId, date });
-      const [totals, metricScores, rank] = await Promise.all([
-        metricsService.getDailyTotals(date),
-        metricsService.getDailyMetrics(userId, date),
-        leaderboardService.getUserRank(userId, date)
-      ]);
       
-      console.log('Daily totals:', totals);
-      console.log('Metric scores:', metricScores);
+      // Get metrics from unified service
+      const metrics = await unifiedMetricsService.getMetrics(userId, date, provider);
       
-      const totalPoints = calculateTotalPoints(metricScores);
+      // Calculate total score using scoringUtils
+      const metricArray = Object.entries(metrics)
+        .filter(([key, value]) => 
+          ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
+            .includes(key) && typeof value === 'number'
+        )
+        .map(([key, value]) => ({
+          metric_type: key as MetricType,
+          value: value as number
+        }));
+
+      const totalScore = calculateTotalScore(metricArray);
       
-      const userTotal = {
+      // Create daily total from calculated score
+      const userTotal: DailyTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
         date: date,
-        total_points: totalPoints,
-        metrics_completed: metricScores.length,
+        total_points: totalScore.totalPoints,
+        metrics_completed: totalScore.metricsCompleted,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
+
       setDailyTotal(userTotal);
-      
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
-        userTotal,
-        userId,
-        date
-      );
-      console.log('Transformed metrics:', transformedMetrics);
-      
-      setHealthMetrics(transformedMetrics);
-      setUserRank(rank);
+      setHealthMetrics(metrics);
       setFetchError(null);
+      
     } catch (err) {
       console.error('Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
       setErrorDialogVisible(true);
     }
-  }, [userId, date, isInitialized, isProviderReady]);
+  }, [userId, date, isInitialized, isProviderReady, provider]);
 
   useEffect(() => {
     fetchData();
@@ -336,10 +270,22 @@ export const Dashboard = React.memo(function Dashboard({
       setFetchError(error instanceof Error ? error : new Error('Failed to retry health data sync'));
     }
   }, [error, requestHealthPermissions, syncHealthData]);
-
-  const handleRefresh = React.useCallback(() => {
-    syncHealthData();
-  }, [syncHealthData]);
+  const handleRefresh = useCallback(async () => {
+    try {
+      // First trigger native sync via health provider
+      await syncHealthData();
+      
+      // Then fetch updated data from unified metrics service
+      await unifiedMetricsService.getMetrics(userId, date, provider);
+      
+      // Trigger a full data refresh
+      await fetchData();
+    } catch (err) {
+      console.error('[Dashboard] Refresh failed:', err);
+      setFetchError(err instanceof Error ? err : new Error('Failed to refresh metrics'));
+      setErrorDialogVisible(true);
+    }
+  }, [syncHealthData, userId, date, fetchData]);
 
   if (loading) {
     return <LoadingView />;

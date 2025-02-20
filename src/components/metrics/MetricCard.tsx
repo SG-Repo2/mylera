@@ -7,33 +7,24 @@ import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
+import type { MetricScore } from '@/src/utils/scoringUtils';
 
 interface MetricCardProps {
   title: string;
-  value: number | null;
-  goal: number;
-  points: number;
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  unit: string;
   metricType: MetricType;
+  score: MetricScore;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   color?: string;
   onPress: () => void;
   showAlert?: boolean;
   measurementSystem?: MeasurementSystem;
 }
 
-const calculateProgress = (value: number | null, goal: number): number => {
-  return Math.min((value ?? 0) / goal, 1);
-};
-
 export const MetricCard = React.memo(function MetricCard({
   title,
-  value,
-  goal,
-  points,
-  icon,
-  unit,
   metricType,
+  score,
+  icon,
   color,
   onPress,
   showAlert,
@@ -44,8 +35,8 @@ export const MetricCard = React.memo(function MetricCard({
   const { user } = useAuth();
   const measurementSystem = propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   
-  const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
+  const progress = useMemo(() => Math.min(score.value / score.goal, 1), [score]);
+  const formattedValue = healthMetrics[metricType].formatValue(score.value, measurementSystem);
   const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
   const percentage = Math.round(progress * 100);
   
@@ -189,7 +180,7 @@ export const MetricCard = React.memo(function MetricCard({
               </Animated.View>
               <View style={styles.progressInfo}>
                 <Text variant="labelSmall" style={styles.pointsText}>
-                  {points} pts {getPointsText()}
+                  {score.points} pts {getPointsText()}
                 </Text>
               </View>
             </View>

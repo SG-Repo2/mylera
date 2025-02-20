@@ -18,14 +18,94 @@ import { theme } from '../src/theme/theme';
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;
 
 function ProtectedRoutes() {
-  const { session, loading } = useAuth();
+  const { session, loading, authTransition } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const navigationInProgressRef = useRef(false);
   const lastNavigationRef = useRef<string | null>(null);
+  const isMountedRef = useRef(false);
+  const initialNavigationCompleteRef = useRef(false);
+  const layoutMountedRef = useRef(false);
 
-  // Memoize the navigation function
+  // Set mounted flag on initial render and handle cleanup
+  useEffect(() => {
+    // Delay setting mounted flag to ensure layout is ready
+    const mountTimer = setTimeout(() => {
+      isMountedRef.current = true;
+      layoutMountedRef.current = true;
+      console.log('[ProtectedRoutes] Component mounted and ready');
+    }, 100);
+
+    return () => {
+      clearTimeout(mountTimer);
+      isMountedRef.current = false;
+      layoutMountedRef.current = false;
+    };
+  }, []);
+
+  // Handle initial navigation after mount
+  useEffect(() => {
+    if (!isMountedRef.current || initialNavigationCompleteRef.current) return;
+
+    // Skip if not fully mounted or during transitions
+    if (!layoutMountedRef.current || loading || authTransition.isTransitioning) {
+      console.log('[ProtectedRoutes] Waiting for component readiness:', {
+        isLayoutMounted: layoutMountedRef.current,
+        loading,
+        isTransitioning: authTransition.isTransitioning
+      });
+      return;
+    }
+
+    // Handle initial route protection
+    const routeType = {
+      isAuthRoute: pathname?.startsWith('/(auth)') || false,
+      isOnboardingRoute: pathname?.startsWith('/(onboarding)') || false,
+      isAppRoute: pathname?.startsWith('/(app)') || false,
+      isRootRoute: pathname === '/'
+    };
+
+    console.log('[ProtectedRoutes] Initial route check:', {
+      pathname,
+      hasSession: !!session,
+      ...routeType
+    });
+
+    // Determine initial route
+    let initialRoute = null;
+    if (!session) {
+      if (routeType.isAppRoute || routeType.isRootRoute) {
+        initialRoute = '/(auth)/register';
+      }
+    } else if (routeType.isAuthRoute || routeType.isRootRoute) {
+      initialRoute = '/(app)/(home)';
+    }
+
+    if (initialRoute) {
+      console.log('[ProtectedRoutes] Setting initial route to:', initialRoute);
+      // Ensure layout is mounted before navigation
+      if (layoutMountedRef.current && isMountedRef.current) {
+        console.log('[ProtectedRoutes] Executing initial navigation to:', initialRoute);
+        // Use Promise to ensure navigation completes
+        Promise.resolve().then(() => {
+          router.replace(initialRoute!);
+          initialNavigationCompleteRef.current = true;
+        });
+      } else {
+        console.log('[ProtectedRoutes] Waiting for layout mount before navigation');
+      }
+    } else {
+      initialNavigationCompleteRef.current = true;
+    }
+  }, [session, loading, pathname, router, authTransition]);
+
+  // Memoize the navigation function for subsequent navigations
   const navigateToRoute = useCallback((route: string) => {
+    if (!isMountedRef.current || !initialNavigationCompleteRef.current) {
+      console.log('[ProtectedRoutes] Skipping navigation - not ready');
+      return;
+    }
+
     // Prevent duplicate navigations
     if (lastNavigationRef.current === route) {
       console.log('[ProtectedRoutes] Skipping duplicate navigation to:', route);
@@ -42,21 +122,24 @@ function ProtectedRoutes() {
     navigationInProgressRef.current = true;
     lastNavigationRef.current = route;
 
-    // Use setTimeout to ensure we're not blocking the main thread
-    setTimeout(() => {
-      router.replace(route);
-      // Reset navigation flag after a delay to prevent rapid re-triggers
-      setTimeout(() => {
-        navigationInProgressRef.current = false;
-      }, 100);
-    }, 0);
+    // Ensure layout is mounted and ready before navigation
+    if (layoutMountedRef.current && isMountedRef.current) {
+      Promise.resolve().then(() => {
+        router.replace(route);
+        // Reset navigation flag after navigation completes
+        Promise.resolve().then(() => {
+          navigationInProgressRef.current = false;
+        });
+      });
+    } else {
+      console.log('[ProtectedRoutes] Navigation skipped - layout not ready');
+      navigationInProgressRef.current = false;
+    }
   }, [router]);
 
-  // Handle route protection
+  // Handle subsequent route protection
   useEffect(() => {
-    // Skip if loading or no pathname
-    if (loading || !pathname) {
-      console.log('[ProtectedRoutes] Loading or no pathname, skipping navigation check');
+    if (!isMountedRef.current || !initialNavigationCompleteRef.current || !pathname || authTransition.isTransitioning) {
       return;
     }
 
@@ -71,7 +154,8 @@ function ProtectedRoutes() {
     console.log('[ProtectedRoutes] Checking route protection:', {
       pathname,
       hasSession: !!session,
-      ...routeType
+      ...routeType,
+      loading
     });
 
     // Handle unauthenticated users
@@ -90,10 +174,9 @@ function ProtectedRoutes() {
       console.log('[ProtectedRoutes] Authenticated user accessing public route');
       navigateToRoute('/(app)/(home)');
     }
-  }, [session, loading, pathname, navigateToRoute]);
+  }, [session, pathname, navigateToRoute, authTransition]);
 
-  // Handle loading state
-  if (loading) {
+  if (!isMountedRef.current || (loading && !authTransition.isTransitioning)) {
     return (
       <SafeAreaView 
         style={[

@@ -3,72 +3,17 @@ import { debounce } from 'lodash';
 import type { HealthProvider } from '../providers/health/types/provider';
 import type { HealthMetrics } from '../providers/health/types/metrics';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
-import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
 import { validateProviderInitialization, initializeWithRetry } from '../utils/healthInitUtils';
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
+import { unifiedMetricsService } from '../services/unifiedMetricsService';
+import { DateUtils } from '../utils/DateUtils';
 
 /**
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
- * 
- * @param provider - Platform-specific health provider instance (Apple HealthKit or Google Health Connect)
- * @param userId - Unique identifier of the user for permission management
- * @returns Object containing:
- *  - loading: Boolean indicating if a sync operation is in progress
- *  - error: Error object if the last operation failed, null otherwise
- *  - syncHealthData: Function to manually trigger a health data sync
- * 
- * @example
- * ```tsx
- * const { loading, error, syncHealthData } = useHealthData(healthProvider, userId);
- * 
- * // Handle loading state
- * if (loading) return <LoadingSpinner />;
- * 
- * // Handle error state
- * if (error) return <ErrorView error={error} />;
- * 
- * // Trigger manual sync
- * const handleRefresh = () => syncHealthData();
- * ```
  */
 export const useHealthData = (provider: HealthProvider, userId: string) => {
-  // Helper function to update health metrics
-  const updateHealthMetrics = async (healthData: HealthMetrics) => {
-    const healthMetrics: MetricType[] = [
-      'steps',
-      'distance',
-      'calories',
-      'heart_rate',
-      'basal_calories',
-      'flights_climbed',
-      'exercise'
-    ];
-    
-    let failedMetrics: string[] = [];
-    const updates = healthMetrics.map(async metric => {
-      const value = healthData[metric];
-      if (typeof value === 'number') {
-        try {
-          await metricsService.updateMetric(userId, metric, value);
-        } catch (err) {
-          if (err instanceof Error && err.name === 'MetricsAuthError') {
-            throw err;
-          }
-          console.error(`[useHealthData] Error updating metric ${metric}:`, err);
-          failedMetrics.push(metric);
-        }
-      }
-    });
-
-    await Promise.all(updates);
-
-    if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
-      console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
-    }
-  };
-
   // Helper function to handle sync errors
   const handleSyncError = (err: unknown) => {
     let errorMessage: string;
@@ -214,19 +159,23 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         }
 
         console.log('[useHealthData] Permissions granted, fetching health data...');
-        // Get health data with timeout
-        const healthData = await withTimeout(
-          provider.getMetrics(),
+        
+        // First try to get metrics from unified service
+        const date = DateUtils.getLocalDateString();
+        const metrics = await withTimeout(
+          unifiedMetricsService.getMetrics(userId, date, provider),
           DEFAULT_TIMEOUTS.METRICS_FETCH,
           'Health metrics fetch timed out'
         );
-        
-        // Update metrics with timeout
-        await withTimeout(
-          updateHealthMetrics(healthData),
-          DEFAULT_TIMEOUTS.SYNC,
-          'Metrics update timed out'
-        );
+
+        // Update metrics with timeout if needed
+        if (provider) {
+          await withTimeout(
+            unifiedMetricsService.updateMetricsFromNative(metrics, userId),
+            DEFAULT_TIMEOUTS.SYNC,
+            'Metrics update timed out'
+          );
+        }
 
       } catch (err) {
         handleSyncError(err);
