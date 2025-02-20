@@ -64,37 +64,6 @@ interface HeartRateRecord {
 export class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
 
-  private async performInitialization(): Promise<void> {
-    if (Platform.OS !== 'android') {
-      console.error('[GoogleHealthProvider] Attempted to initialize on non-Android platform');
-      throw new Error('GoogleHealthProvider can only be used on Android');
-    }
-
-    console.log('[GoogleHealthProvider] Starting initialization...');
-    
-    try {
-      const available = await initialize();
-      console.log('[GoogleHealthProvider] Health Connect availability:', available);
-      
-      if (!available) {
-        console.error('[GoogleHealthProvider] Health Connect is not available');
-        throw new Error('Health Connect is not available');
-      }
-
-      this.initialized = true;
-      console.log('[GoogleHealthProvider] Initialization successful');
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Initialization failed:', error);
-      // Wrap the error to ensure consistent messaging
-      if (error instanceof Error) {
-        if (error.message.includes('not available')) {
-          throw new Error('Health Connect is not available');
-        }
-      }
-      throw error;
-    }
-  }
-
   async initialize(): Promise<void> {
     console.log('[GoogleHealthProvider] Initialize called. Current state:', {
       initialized: this.initialized,
@@ -115,15 +84,52 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
     // Start new initialization
     console.log('[GoogleHealthProvider] Starting new initialization');
-    this.initializationPromise = this.performInitialization();
-    try {
-      await this.initializationPromise;
-      console.log('[GoogleHealthProvider] Initialization completed successfully');
-    } catch (error) {
-      console.error('[GoogleHealthProvider] Initialization failed:', error);
-      throw error;
-    } finally {
-      this.initializationPromise = null;
+    this.initializationPromise = (async () => {
+      try {
+        // First initialize the platform
+        await this.performInitialization();
+        
+        // Then explicitly initialize permissions
+        if (this.userId) {
+          console.log('[GoogleHealthProvider] Initializing permissions for user:', this.userId);
+          await this.initializePermissions(this.userId);
+          
+          // Verify permissions were properly initialized
+          const permissionManager = this.getPermissionManager();
+          if (!permissionManager) {
+            throw new Error('Permission manager initialization failed');
+          }
+          
+          const permissionState = await permissionManager.getPermissionState();
+          console.log('[GoogleHealthProvider] Permission state after initialization:', permissionState);
+        }
+
+        this.initialized = true;
+        console.log('[GoogleHealthProvider] Initialization completed successfully');
+      } catch (error) {
+        console.error('[GoogleHealthProvider] Initialization failed:', error);
+        this.initialized = false;
+        throw error;
+      } finally {
+        this.initializationPromise = null;
+      }
+    })();
+
+    await this.initializationPromise;
+  }
+
+  private async performInitialization(): Promise<void> {
+    if (Platform.OS !== 'android') {
+      throw new Error('GoogleHealthProvider can only be used on Android');
+    }
+
+    console.log('[GoogleHealthProvider] Starting platform initialization...');
+    
+    const available = await initialize();
+    console.log('[GoogleHealthProvider] Health Connect availability:', available);
+    
+    if (!available) {
+      throw new Error('Health Connect is not available');
     }
   }
 
@@ -248,17 +254,25 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData> {
-    // Check permissions before fetching
-    const permissionState = await this.checkPermissionsStatus();
-    if (permissionState.status !== 'granted') {
-      throw new HealthProviderPermissionError(
-        'HealthConnect',
-        'Permission not granted for health data access'
-      );
-    }
-
+    // Ensure initialization and permissions are complete
     await this.ensureInitialized();
 
+    // Double-check permission manager state
+    const permissionManager = this.getPermissionManager();
+    if (!permissionManager) {
+      console.error('[GoogleHealthProvider] Permission manager not available for metrics fetch');
+      throw new Error('Permission manager not initialized');
+    }
+
+    // Verify current permission state
+    const permissionState = await permissionManager.getPermissionState();
+    if (!permissionState || permissionState.status !== 'granted') {
+      console.error('[GoogleHealthProvider] Invalid permission state for metrics fetch:', permissionState);
+      throw new Error('Health permissions not granted');
+    }
+
+    console.log('[GoogleHealthProvider] Starting metrics fetch with verified permissions');
+    
     const timeRangeFilter = {
       operator: 'between' as const,
       startTime: startDate.toISOString(),
@@ -282,25 +296,116 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             break;
 
           case 'distance':
-            const distanceResponse = await readRecords('Distance', { timeRangeFilter });
-            rawData.distance = (distanceResponse.records as DistanceRecord[]).map(record => ({
-              startDate: record.startTime,
-              endDate: record.endTime,
-              value: record.distance.inMeters,
-              unit: 'meters',
-              sourceBundle: 'com.google.android.apps.fitness'
-            }));
+            try {
+              console.log('[GoogleHealthProvider] Fetching distance records...');
+              const distanceResponse = await readRecords('Distance', { timeRangeFilter });
+              
+              // Log detailed response structure
+              console.log('[GoogleHealthProvider] Distance response structure:', {
+                hasRecords: !!distanceResponse?.records,
+                recordCount: distanceResponse?.records?.length,
+                firstRecord: distanceResponse?.records?.[0],
+                timeRange: timeRangeFilter
+              });
+
+              if (!distanceResponse?.records || !Array.isArray(distanceResponse.records)) {
+                console.warn('[GoogleHealthProvider] Invalid distance records format:', distanceResponse);
+                rawData.distance = [{
+                  startDate: timeRangeFilter.startTime,
+                  endDate: timeRangeFilter.endTime,
+                  value: 0,
+                  unit: 'meters',
+                  sourceBundle: 'com.google.android.apps.fitness'
+                }];
+                break;
+              }
+
+              // Validate and map records with detailed logging
+              const validRecords = (distanceResponse.records as DistanceRecord[])
+                .filter(record => {
+                  const isValid = record?.distance?.inMeters != null && 
+                                 isValidMetricValue(record.distance.inMeters, 'distance');
+                  if (!isValid) {
+                    console.warn('[GoogleHealthProvider] Invalid distance record:', record);
+                  }
+                  return isValid;
+                })
+                .map(record => ({
+                  startDate: record.startTime,
+                  endDate: record.endTime,
+                  value: record.distance.inMeters,
+                  unit: 'meters',
+                  sourceBundle: 'com.google.android.apps.fitness'
+                }));
+
+              console.log('[GoogleHealthProvider] Processed distance metrics:', {
+                validRecordCount: validRecords.length,
+                totalDistance: validRecords.reduce((sum, record) => sum + record.value, 0),
+                timeWindow: {
+                  start: timeRangeFilter.startTime,
+                  end: timeRangeFilter.endTime
+                }
+              });
+
+              rawData.distance = validRecords.length > 0 ? validRecords : [{
+                startDate: timeRangeFilter.startTime,
+                endDate: timeRangeFilter.endTime,
+                value: 0,
+                unit: 'meters',
+                sourceBundle: 'com.google.android.apps.fitness'
+              }];
+            } catch (error) {
+              console.error('[GoogleHealthProvider] Error processing distance records:', error);
+              rawData.distance = [{
+                startDate: timeRangeFilter.startTime,
+                endDate: timeRangeFilter.endTime,
+                value: 0,
+                unit: 'meters',
+                sourceBundle: 'com.google.android.apps.fitness'
+              }];
+            }
             break;
 
           case 'calories':
-            const activeCalories = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
-            rawData.calories = (activeCalories.records as CaloriesRecord[]).map(record => ({
-              startDate: record.startTime,
-              endDate: record.endTime,
-              value: Math.round(record.energy?.inKilocalories || 0),
-              unit: 'kcal',
-              sourceBundle: 'com.google.android.apps.fitness'
-            }));
+            try {
+              console.log('[GoogleHealthProvider] Fetching active calories records...');
+              const activeCalories = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
+              console.log('[GoogleHealthProvider] Raw active calories response:', activeCalories);
+
+              if (!activeCalories.records || !Array.isArray(activeCalories.records)) {
+                console.warn('[GoogleHealthProvider] Invalid active calories records format:', activeCalories);
+                rawData.calories = [{
+                  startDate: timeRangeFilter.startTime,
+                  endDate: timeRangeFilter.endTime,
+                  value: 0,
+                  unit: 'kcal',
+                  sourceBundle: 'com.google.android.apps.fitness'
+                }];
+                break;
+              }
+
+              rawData.calories = (activeCalories.records as CaloriesRecord[]).map(record => {
+                console.log('[GoogleHealthProvider] Processing calories record:', record);
+                return {
+                  startDate: record.startTime,
+                  endDate: record.endTime,
+                  value: Math.round(record.energy?.inKilocalories || 0),
+                  unit: 'kcal',
+                  sourceBundle: 'com.google.android.apps.fitness'
+                };
+              });
+
+              console.log('[GoogleHealthProvider] Processed calories metrics:', rawData.calories);
+            } catch (error) {
+              console.error('[GoogleHealthProvider] Error processing calories records:', error);
+              rawData.calories = [{
+                startDate: timeRangeFilter.startTime,
+                endDate: timeRangeFilter.endTime,
+                value: 0,
+                unit: 'kcal',
+                sourceBundle: 'com.google.android.apps.fitness'
+              }];
+            }
             break;
 
           case 'heart_rate':

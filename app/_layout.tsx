@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
@@ -19,49 +18,16 @@ import { theme } from '../src/theme/theme';
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;
 
 function ProtectedRoutes() {
-  const { session, loading } = useAuth();
+  const { session, loading, healthInitState } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const navigationInProgressRef = useRef(false);
-  const lastNavigationRef = useRef<string | null>(null);
+  
+  // Add health initialization to loading check
+  const isLoading = loading || healthInitState.isInitializing;
 
-  // Memoize the navigation function
-  const navigateToRoute = useCallback((route: string) => {
-    // Prevent duplicate navigations
-    if (lastNavigationRef.current === route) {
-      console.log('[ProtectedRoutes] Skipping duplicate navigation to:', route);
-      return;
-    }
-
-    // Prevent concurrent navigations
-    if (navigationInProgressRef.current) {
-      console.log('[ProtectedRoutes] Navigation already in progress, skipping');
-      return;
-    }
-
-    console.log('[ProtectedRoutes] Executing navigation to:', route);
-    navigationInProgressRef.current = true;
-    lastNavigationRef.current = route;
-
-    // Use setTimeout to ensure we're not blocking the main thread
-    setTimeout(() => {
-      router.replace(route);
-      // Reset navigation flag after a delay to prevent rapid re-triggers
-      setTimeout(() => {
-        navigationInProgressRef.current = false;
-      }, 100);
-    }, 0);
-  }, [router]);
-
-  // Handle route protection
   useEffect(() => {
-    // Skip if loading or no pathname
-    if (loading || !pathname) {
-      console.log('[ProtectedRoutes] Loading or no pathname, skipping navigation check');
-      return;
-    }
+    if (isLoading || !pathname) return;
 
-    // Parse route type
     const routeType = {
       isAuthRoute: pathname.startsWith('/(auth)'),
       isOnboardingRoute: pathname.startsWith('/(onboarding)'),
@@ -69,33 +35,26 @@ function ProtectedRoutes() {
       isRootRoute: pathname === '/'
     };
 
-    console.log('[ProtectedRoutes] Checking route protection:', {
+    console.log('[ProtectedRoutes] Route check:', {
       pathname,
       hasSession: !!session,
+      healthState: healthInitState,
       ...routeType
     });
 
-    // Handle unauthenticated users
-    if (!session) {
-      const requiresAuth = routeType.isAppRoute || routeType.isRootRoute;
-      if (requiresAuth && !routeType.isAuthRoute) {
-        console.log('[ProtectedRoutes] Unauthenticated user accessing protected route');
-        navigateToRoute('/(auth)/register');
-      }
+    // Wait for health initialization before routing
+    if (!session && (routeType.isAppRoute || routeType.isRootRoute)) {
+      router.replace('/(auth)/register');
       return;
     }
 
-    // Handle authenticated users
-    const isPublicRoute = routeType.isAuthRoute || routeType.isOnboardingRoute || routeType.isRootRoute;
-    if (isPublicRoute) {
-      console.log('[ProtectedRoutes] Authenticated user accessing public route');
-      navigateToRoute('/(app)/(home)');
+    if (session && (routeType.isAuthRoute || routeType.isRootRoute)) {
+      router.replace('/(app)/(home)');
     }
-  }, [session, loading, pathname, navigateToRoute]);
+  }, [session, isLoading, pathname, healthInitState]);
 
-  // Handle loading state
-  if (loading) {
-    return (
+  if (isLoading) {
+    return (  
       <SafeAreaView 
         style={[
           styles.loaderContainer, 
@@ -108,6 +67,7 @@ function ProtectedRoutes() {
         />
       </SafeAreaView>
     );
+
   }
 
   return <Slot />;

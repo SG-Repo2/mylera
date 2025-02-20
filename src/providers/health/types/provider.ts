@@ -60,6 +60,12 @@ export interface HealthProvider {
   getPermissionManager(): PermissionManager | null;
 
   /**
+   * Check if provider is initialized
+   * @returns true if the provider is initialized, false otherwise
+   */
+  isInitialized(): boolean;
+
+  /**
    * Fetch raw health metrics for a specified time range.
    * @param startDate - Start of the time range
    * @param endDate - End of the time range

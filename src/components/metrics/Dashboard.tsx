@@ -161,18 +161,26 @@ export const Dashboard = React.memo(function Dashboard({
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
-  console.log('[Dashboard] Rendering Dashboard Component', { userId, date, showAlerts });
+  const { healthInitState, healthPermissionStatus } = useAuth();
   
+  // Add comprehensive initialization check
+  const isFullyInitialized = useCallback(() => {
+    return (
+      healthInitState.isInitialized &&
+      !healthInitState.isInitializing &&
+      healthPermissionStatus === 'granted' && 
+      provider?.isInitialized()
+    );
+  }, [healthInitState, healthPermissionStatus, provider]);
+
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
+  const { healthPermissionStatus: authHealthPermissionStatus, requestHealthPermissions, user } = useAuth();
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
-  const [isProviderReady, setIsProviderReady] = useState(false);
-  
   const {
     loading,
     error,
@@ -182,36 +190,6 @@ export const Dashboard = React.memo(function Dashboard({
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
-
-  // Initialize provider
-  useEffect(() => {
-    let mounted = true;
-    
-    const initializeProvider = async () => {
-      if (!provider) return;
-      
-      try {
-        console.log('[Dashboard] Initializing provider...');
-        await provider.initialize();
-        if (mounted) {
-          setIsProviderReady(true);
-          console.log('[Dashboard] Provider initialized successfully');
-        }
-      } catch (error) {
-        console.error('[Dashboard] Provider initialization failed:', error);
-        if (mounted) {
-          setFetchError(error instanceof Error ? error : new Error('Failed to initialize provider'));
-          setIsProviderReady(false);
-        }
-      }
-    };
-
-    initializeProvider();
-    
-    return () => {
-      mounted = false;
-    };
-  }, [provider]);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -233,7 +211,10 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async () => {
-    if (!isInitialized || !isProviderReady) return;
+    if (!isFullyInitialized()) {
+      console.log('[Dashboard] Not fully initialized, skipping fetch');
+      return;
+    }
     
     try {
       console.log('[Dashboard] Fetching data for:', { userId, date });
@@ -278,12 +259,11 @@ export const Dashboard = React.memo(function Dashboard({
       setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
-    } catch (err) {
-      console.error('[Dashboard] Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
+    } catch (error) {
+      console.error('[Dashboard] Fetch error:', error);
+      setFetchError(error instanceof Error ? error : new Error('Fetch failed'));
     }
-  }, [userId, date, isInitialized, isProviderReady]);
+  }, [isFullyInitialized, userId, date]);
 
   useEffect(() => {
     fetchData();
@@ -331,7 +311,7 @@ export const Dashboard = React.memo(function Dashboard({
     return <LoadingView />;
   }
 
-  if (error || healthPermissionStatus === 'denied' || fetchError) {
+  if (error || authHealthPermissionStatus === 'denied' || fetchError) {
     return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
   }
 

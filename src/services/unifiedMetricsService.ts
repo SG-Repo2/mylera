@@ -75,16 +75,28 @@ export const unifiedMetricsService = {
       'steps', 'distance', 'calories', 'heart_rate',
       'basal_calories', 'flights_climbed', 'exercise'
     ];
-    await Promise.all(metricTypes.map(async type => {
+    
+    for (const type of metricTypes) {
       const value = metrics[type];
       if (typeof value === 'number') {
-        console.log(`[unifiedMetricsService] updateMetricsFromNative - Updating metric: ${type}, value: ${value}`);
+        console.log(`[unifiedMetricsService] Processing ${type}:`, {
+          value,
+          isValid: !isNaN(value)
+        });
+        
         try {
           await metricsService.updateMetric(userId, type, value);
+          
+          // Verify the update was successful
+          const updated = await metricsService.getDailyMetrics(userId, new Date().toISOString().split('T')[0]);
+          const metric = updated.find(m => m.metric_type === type);
+          if (!metric || metric.value !== value) {
+            console.warn(`[unifiedMetricsService] Metric update verification failed for ${type}`);
+          }
         } catch (error) {
           console.error(`[unifiedMetricsService] Error updating ${type}:`, error);
         }
       }
-    }));
+    }
   }
 };

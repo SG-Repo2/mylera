@@ -78,11 +78,27 @@ export const metricsService = {
 
   // Update a single metric
   async updateMetric(userId: string, metricType: MetricType, value: number) {
+    // Add detailed logging for distance metrics
+    if (metricType === 'distance') {
+      console.log('[MetricsService] Processing distance metric:', {
+        rawValue: value,
+        valueType: typeof value,
+        isNumber: !isNaN(value)
+      });
+    }
+
+    // Ensure value is a valid number
+    const numericValue = Number(value);
+    if (isNaN(numericValue)) {
+      console.error('[MetricsService] Invalid metric value:', { metricType, value });
+      throw new Error(`Invalid value for metric type ${metricType}`);
+    }
+
     console.log('[MetricsService] Updating metric:', {
       userId,
       metricType,
-      value,
-      valueType: typeof value,
+      value: numericValue,
+      valueType: typeof numericValue,
       timestamp: new Date().toISOString()
     });
 
@@ -98,7 +114,7 @@ export const metricsService = {
     }
 
     // Validate metric value
-    if (!validateMetricValue(metricType, value)) {
+    if (!validateMetricValue(metricType, numericValue)) {
       throw new Error(`Invalid value for metric type ${metricType}`);
     }
 
@@ -112,12 +128,12 @@ export const metricsService = {
     });
     
     // Calculate points and goal status using centralized scoring logic
-    const { points, goalReached } = calculateMetricPoints(metricType, value, config);
+    const { points, goalReached } = calculateMetricPoints(metricType, numericValue, config);
 
     console.log('[MetricsService] Calculated score:', {
       goalReached,
       points,
-      value,
+      value: numericValue,
       defaultGoal: config.defaultGoal
     });
     
@@ -126,7 +142,7 @@ export const metricsService = {
       user_id: userId,
       date: today,
       metric_type: metricType,
-      value,
+      value: numericValue,
       points,
       goal_reached: goalReached,
       updated_at: new Date().toISOString(),

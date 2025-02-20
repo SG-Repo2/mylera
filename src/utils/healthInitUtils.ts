@@ -3,6 +3,15 @@ import { HealthProviderError } from '../providers/health/types/errors';
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 import { PermissionStatus } from '../providers/health/types/permissions';
 import { logger } from './logger';
+
+export interface ProviderInitializationState {
+  isInitialized: boolean;
+  isInitializing: boolean;
+  permissionStatus: PermissionStatus;
+  error: Error | null;
+}
+
+export type InitializationStateCallback = (state: ProviderInitializationState) => void;
 /**
  * Configuration for provider initialization attempts
  */
@@ -33,7 +42,21 @@ export async function initializeWithRetry(
 
   for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
     try {
+      // Initialize the provider (which now includes permission initialization)
       await provider.initialize();
+      
+      // Verify initialization was successful
+      const permissionManager = provider.getPermissionManager();
+      if (!permissionManager) {
+        throw new Error('Permission manager not initialized after provider initialization');
+      }
+      
+      // Verify permissions are in a valid state
+      const permissionState = await permissionManager.getPermissionState();
+      if (!permissionState) {
+        throw new Error('Permission state not available after initialization');
+      }
+
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown error');
@@ -43,7 +66,6 @@ export async function initializeWithRetry(
       );
 
       if (attempt < config.maxRetries) {
-        // Calculate delay with exponential backoff
         const delay = Math.min(
           config.baseDelay * Math.pow(2, attempt - 1),
           config.maxDelay
@@ -88,69 +110,75 @@ export function validateProviderInitialization(provider: HealthProvider): void {
  */
 export async function initializeHealthProviderForUser(
   userId: string,
-  setPermissionStatus: (status: PermissionStatus) => void
+  setPermissionStatus: (status: PermissionStatus) => void,
+  updateState: InitializationStateCallback
 ): Promise<void> {
-  const operationId = Date.now().toString();
-  logger.info('health', 'Starting provider initialization', operationId, userId);
+  const operationId = Date.now();
+  logger.info('health', 'Starting provider initialization', operationId.toString(), userId);
+
+  updateState({
+    isInitialized: false,
+    isInitializing: true,
+    permissionStatus: 'not_determined',
+    error: null
+  });
 
   try {
+    // Step 1: Get provider instance
     const provider = await HealthProviderFactory.getProvider(undefined, userId);
-    logger.debug('health', 'Provider instance obtained', operationId, userId);
+    logger.debug('health', 'Provider instance obtained',  operationId.toString(), userId);
+    validateProviderInitialization(provider);
 
+    // Step 2: Initialize provider with retry (now includes permission initialization)
     try {
       await initializeWithRetry(provider);
-      logger.info('health', 'Provider initialized successfully', operationId, userId);
+      logger.info('health', 'Provider initialized successfully', operationId.toString(), userId);
     } catch (error) {
-      logger.error('health', 'Provider initialization failed', operationId, userId, error);
+      logger.error('health', 'Provider initialization failed', operationId.toString(), userId, error);
+      updateState({
+        isInitializing: false,
+        isInitialized: false,
+        permissionStatus: 'denied',
+        error: error instanceof Error ? error : new Error('Provider initialization failed')
+      });
       throw error;
     }
 
-    let permissionInitSuccess = false;
-    let permissionInitAttempt = 0;
-    const maxPermissionRetries = 2;
-
-    while (!permissionInitSuccess && permissionInitAttempt < maxPermissionRetries) {
-      permissionInitAttempt++;
-      try {
-        logger.debug('health', `Initializing permissions (attempt ${permissionInitAttempt})`, operationId, userId);
-        await provider.initializePermissions(userId);
-        permissionInitSuccess = true;
-        logger.info('health', 'Permissions initialized successfully', operationId, userId);
-      } catch (error) {
-        logger.warn('health', `Permission initialization attempt ${permissionInitAttempt} failed`, operationId, userId, error);
-        if (permissionInitAttempt >= maxPermissionRetries) {
-          throw error;
-        }
-      }
+    // Step 3: Verify permission state after initialization
+    const permissionManager = provider.getPermissionManager();
+    if (!permissionManager) {
+      throw new Error('Permission manager not available after initialization');
     }
 
-    // Step 4: Check and update permission status
-    try {
-      console.log(`[HealthProvider] [${operationId}] Checking current permission status`);
-      const permissionState = await provider.checkPermissionsStatus();
-      console.log(`[HealthProvider] [${operationId}] Permission status:`, permissionState.status);
-      
-      setPermissionStatus(permissionState.status);
-      
-      if (permissionState.status === 'granted') {
-        console.log(`[HealthProvider] [${operationId}] Permissions granted, provider ready`);
-      } else {
-        console.warn(
-          `[HealthProvider] [${operationId}] Permissions not granted:`,
-          permissionState.status
-        );
-      }
-    } catch (error) {
-      console.error(`[HealthProvider] [${operationId}] Error checking permission status:`, error);
-      setPermissionStatus('denied');
-      throw new HealthProviderError(
-        `Failed to check permission status: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    const permissionState = await permissionManager.getPermissionState();
+    if (!permissionState) {
+      throw new Error('Permission state not available after initialization');
+    }
+
+    // Update states based on verification results
+    setPermissionStatus(permissionState.status);
+    updateState({
+      isInitialized: permissionState.status === 'granted',
+      isInitializing: false,
+      permissionStatus: permissionState.status,
+      error: null
+    });
+
+    if (permissionState.status !== 'granted') {
+      logger.warn('health', 'Health permissions not granted after initialization', operationId.toString(), userId);
+    } else {
+      logger.info('health', 'Health provider fully initialized with permissions', operationId.toString(), userId);
     }
 
   } catch (error) {
-    logger.error('health', 'Fatal error during provider initialization', operationId, userId, error);
+    logger.error('health', 'Fatal error during provider initialization', operationId.toString(), userId, error);
     setPermissionStatus('denied');
+    updateState({
+      isInitialized: false,
+      isInitializing: false,
+      permissionStatus: 'denied',
+      error: error instanceof Error ? error : new Error('Provider initialization failed')
+    });
     throw error;
   }
 }

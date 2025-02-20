@@ -4,8 +4,7 @@ import type { HealthProvider } from '../providers/health/types/provider';
 import type { HealthMetrics } from '../providers/health/types/metrics';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
 import { unifiedMetricsService } from '../services/unifiedMetricsService';
-import { validateProviderInitialization, initializeWithRetry } from '../utils/healthInitUtils';
-import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
+import { useAuth } from '../providers/AuthProvider';
 
 /**
  * React hook for managing health data synchronization.
@@ -58,41 +57,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
   const syncInProgress = useRef(false);
-
-  const retryInitialization = useCallback(async () => {
-    if (!isMounted.current) return false;
-
-    try {
-      console.log('[useHealthData] Attempting provider initialization retry...');
-      
-      // Clean up existing provider
-      await HealthProviderFactory.cleanup();
-      console.log('[useHealthData] Provider cleanup complete');
-      
-      // Get a fresh provider instance
-      const newProvider = await HealthProviderFactory.getProvider();
-      console.log('[useHealthData] New provider instance created');
-      
-      // Validate and initialize new provider
-      validateProviderInitialization(newProvider);
-      console.log('[useHealthData] New provider validation successful');
-      
-      await withTimeout(
-        initializeWithRetry(newProvider),
-        DEFAULT_TIMEOUTS.INITIALIZATION,
-        'Health provider initialization timed out'
-      );
-      
-      console.log('[useHealthData] Provider initialization retry successful');
-      return true;
-    } catch (error) {
-      console.error('[useHealthData] Provider initialization retry failed:', error);
-      return false;
-    }
-  }, [isMounted]);
+  const { healthInitState } = useAuth();
 
   // Create debounced version of sync function with error handling
   const debouncedSync = useCallback(
@@ -104,77 +71,10 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       setError(null);
 
       try {
-        // Initialize and validate provider
-        try {
-          console.log('[useHealthData] Starting provider initialization...');
-          
-          // First ensure we have a valid provider instance
-          validateProviderInitialization(provider);
-          console.log('[useHealthData] Provider validation successful');
-          
-          // Then initialize it with timeout and retries
-          await withTimeout(
-            initializeWithRetry(provider),
-            DEFAULT_TIMEOUTS.INITIALIZATION,
-            'Health provider initialization timed out'
-          );
-          
-          setIsInitialized(true);
-          console.log('[useHealthData] Provider initialized successfully');
-        } catch (err) {
-          // If initial initialization fails, try one retry
-          console.log('[useHealthData] Initial initialization failed, attempting retry...');
-          const retrySuccessful = await retryInitialization();
-          if (!retrySuccessful) {
-            throw err;
-          }
-          setIsInitialized(true);
-          console.log('[useHealthData] Initialization retry succeeded');
-        }
-
-        // Initialize permissions with timeout
-        try {
-          console.log('[useHealthData] Initializing permissions for user:', userId);
-          await withTimeout(
-            provider.initializePermissions(userId),
-            DEFAULT_TIMEOUTS.INITIALIZATION,
-            'Permission initialization timed out'
-          );
-          console.log('[useHealthData] Permissions initialized successfully');
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          console.error('[useHealthData] Permission initialization failed:', message);
-          
-          // Try to clean up on permission failure
-          try {
-            await HealthProviderFactory.cleanup();
-          } catch (cleanupError) {
-            console.warn('[useHealthData] Cleanup after permission failure failed:', cleanupError);
-          }
-          
-          throw err;
-        }
-
-        // Check permissions with timeout
-        const permissionState = await withTimeout(
-          provider.checkPermissionsStatus(),
-          DEFAULT_TIMEOUTS.PERMISSION_CHECK,
-          'Permission check timed out'
-        );
-
-        if (permissionState.status !== 'granted') {
-          console.log('[useHealthData] Requesting health permissions...');
-          const granted = await withTimeout(
-            provider.requestPermissions(),
-            DEFAULT_TIMEOUTS.PERMISSION_CHECK,
-            'Permission request timed out'
-          );
-          if (granted !== 'granted') {
-            throw new Error(
-              'Health permissions are required to track your fitness metrics. ' +
-              'Please grant permissions in your device settings.'
-            );
-          }
+        // Only proceed if provider is properly initialized
+        if (!healthInitState.isInitialized) {
+          console.log('[useHealthData] Provider not initialized, skipping sync');
+          return;
         }
 
         console.log('[useHealthData] Permissions granted, fetching health data...');
@@ -194,7 +94,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         }
       }
     }, 800),
-    [provider, userId, retryInitialization]
+    [provider, userId, healthInitState.isInitialized]
   );
 
   // Cleanup on unmount
@@ -226,5 +126,5 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     syncHealthData();
   }, [syncHealthData, userId]);
 
-  return { loading, error, syncHealthData, isInitialized };
+  return { loading, error, syncHealthData, isInitialized: healthInitState.isInitialized };
 };
