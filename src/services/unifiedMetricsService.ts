@@ -78,6 +78,7 @@ export const unifiedMetricsService = {
     await Promise.all(metricTypes.map(async type => {
       const value = metrics[type];
       if (typeof value === 'number') {
+        console.log(`[unifiedMetricsService] updateMetricsFromNative - Updating metric: ${type}, value: ${value}`);
         try {
           await metricsService.updateMetric(userId, type, value);
         } catch (error) {

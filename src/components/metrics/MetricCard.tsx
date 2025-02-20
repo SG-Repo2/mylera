@@ -4,15 +4,14 @@ import { Text, useTheme, Surface, TouchableRipple } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
+import { MetricScore } from '@/src/utils/scoringUtils';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
 
 interface MetricCardProps {
   title: string;
-  value: number | null;
-  goal: number;
-  points: number;
+  score: MetricScore;
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   unit: string;
   metricType: MetricType;
@@ -22,15 +21,13 @@ interface MetricCardProps {
   measurementSystem?: MeasurementSystem;
 }
 
-const calculateProgress = (value: number | null, goal: number): number => {
-  return Math.min((value ?? 0) / goal, 1);
+const calculateProgress = (value: number, goal: number): number => {
+  return Math.min(value / goal, 1);
 };
 
 export const MetricCard = React.memo(function MetricCard({
   title,
-  value,
-  goal,
-  points,
+  score,
   icon,
   unit,
   metricType,
@@ -44,8 +41,8 @@ export const MetricCard = React.memo(function MetricCard({
   const { user } = useAuth();
   const measurementSystem = propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   
-  const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
+  const progress = useMemo(() => calculateProgress(score.value, score.goal), [score.value, score.goal]);
+  const formattedValue = healthMetrics[metricType].formatValue(score.value, measurementSystem);
   const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
   const percentage = Math.round(progress * 100);
   
@@ -189,7 +186,7 @@ export const MetricCard = React.memo(function MetricCard({
               </Animated.View>
               <View style={styles.progressInfo}>
                 <Text variant="labelSmall" style={styles.pointsText}>
-                  {points} pts {getPointsText()}
+                  {score.points} pts {getPointsText()}
                 </Text>
               </View>
             </View>

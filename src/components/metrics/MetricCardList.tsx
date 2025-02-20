@@ -6,6 +6,7 @@ import { MetricCard } from './MetricCard';
 import { MetricModal } from './MetricCardModal';
 import { MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
+import { calculateMetricPoints } from '@/src/utils/scoringUtils';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
@@ -18,33 +19,7 @@ interface MetricCardListProps {
   provider: HealthProvider;
 }
 
-type DisplayedMetricType = MetricType;
-
-const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
-  // Handle non-numeric values
-  if (typeof value !== 'number') {
-    return 0;
-  }
-
-  const config = healthMetrics[type];
-  
-  // Special handling for heart rate since it's based on target zone
-  if (type === 'heart_rate') {
-    const targetValue = config.defaultGoal;
-    const deviation = Math.abs(value - targetValue);
-    // Within 5 BPM = max points, then decreases linearly
-    const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-    return Math.round(points);
-  }
-
-  // For all other metrics, calculate points based on increment value
-  return Math.min(
-    Math.floor(value / config.pointIncrement.value),
-    config.pointIncrement.maxPoints
-  );
-};
-
-const metricOrder: DisplayedMetricType[] = [
+const metricOrder: MetricType[] = [
   'steps',
   'distance',
   'calories',
@@ -70,12 +45,16 @@ export const MetricCardList = React.memo(function MetricCardList({
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
-    return metricOrder.map(metricType => ({
-      type: metricType,
-      value: metrics[metricType] as number,
-      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
-      config: healthMetrics[metricType]
-    }));
+    return metricOrder.map(metricType => {
+      const config = healthMetrics[metricType];
+      const value = metrics[metricType] as number || 0;
+      const score = calculateMetricPoints(metricType, value, config);
+      return {
+        type: metricType,
+        score,
+        config
+      };
+    });
   }, [metrics]);
   // Create fade-in animations for each card
   const fadeAnims = React.useRef(
@@ -114,9 +93,9 @@ export const MetricCardList = React.memo(function MetricCardList({
   // Check for goal achievement
   useEffect(() => {
     const stepsMetric = memoizedMetrics.find(m => m.type === 'steps');
-    if (stepsMetric && stepsMetric.value >= stepsMetric.config.defaultGoal) {
+    if (stepsMetric?.score.goalReached) {
       setShowCelebration(true);
-      setCelebrationPoints(stepsMetric.points);
+      setCelebrationPoints(stepsMetric.score.points);
     }
   }, [memoizedMetrics]);
 
@@ -134,7 +113,7 @@ export const MetricCardList = React.memo(function MetricCardList({
             visible={modalVisible}
             onClose={handleModalClose}
             title={healthMetrics[selectedMetric].title}
-            value={metrics[selectedMetric] || 0}
+            value={memoizedMetrics.find(m => m.type === selectedMetric)?.score.value || 0}
             metricType={selectedMetric}
             userId={metrics.user_id}
             date={metrics.date}
@@ -146,13 +125,13 @@ export const MetricCardList = React.memo(function MetricCardList({
             },
             {
               label: 'Progress',
-              value: `${Math.round((metrics[selectedMetric] as number || 0) / healthMetrics[selectedMetric].defaultGoal * 100)}%`
+              value: `${Math.round((memoizedMetrics.find(m => m.type === selectedMetric)?.score.value || 0) / healthMetrics[selectedMetric].defaultGoal * 100)}%`
             }
           ]}
         />
       )}
       <View style={styles.grid}>
-        {memoizedMetrics.map(({ type: metricType, value, points, config }, index) => (
+        {memoizedMetrics.map(({ type: metricType, score, config }, index) => (
           <Animated.View 
             key={metricType} 
             style={[
@@ -176,9 +155,7 @@ export const MetricCardList = React.memo(function MetricCardList({
           >
             <MetricCard
               title={config.title}
-              value={value}
-              points={points}
-              goal={config.defaultGoal as number}
+              score={score}
               unit={DISPLAY_UNITS[metricType][measurementSystem]}
               icon={config.icon}
               color={metricColors[metricType]}

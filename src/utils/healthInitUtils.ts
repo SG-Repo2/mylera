@@ -2,6 +2,7 @@ import { HealthProvider } from '../providers/health/types/provider';
 import { HealthProviderError } from '../providers/health/types/errors';
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 import { PermissionStatus } from '../providers/health/types/permissions';
+import { logger } from './logger';
 /**
  * Configuration for provider initialization attempts
  */
@@ -89,31 +90,21 @@ export async function initializeHealthProviderForUser(
   userId: string,
   setPermissionStatus: (status: PermissionStatus) => void
 ): Promise<void> {
-  const initId = Date.now();
-  console.log(`[HealthProvider] [${initId}] Starting provider initialization for user:`, userId);
+  const operationId = Date.now().toString();
+  logger.info('health', 'Starting provider initialization', operationId, userId);
 
   try {
-    // Step 1: Get or create provider instance
-    console.log(`[HealthProvider] [${initId}] Retrieving provider instance`);
     const provider = await HealthProviderFactory.getProvider(undefined, userId);
-    
-    // Step 2: Initialize provider if needed
+    logger.debug('health', 'Provider instance obtained', operationId, userId);
+
     try {
-      console.log(`[HealthProvider] [${initId}] Checking provider initialization status`);
-      await initializeWithRetry(provider, {
-        maxRetries: 3,
-        baseDelay: 500,
-        maxDelay: 5000
-      });
-      console.log(`[HealthProvider] [${initId}] Provider initialized successfully`);
+      await initializeWithRetry(provider);
+      logger.info('health', 'Provider initialized successfully', operationId, userId);
     } catch (error) {
-      console.error(`[HealthProvider] [${initId}] Provider initialization failed:`, error);
-      throw new HealthProviderError(
-        `Provider initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      logger.error('health', 'Provider initialization failed', operationId, userId, error);
+      throw error;
     }
 
-    // Step 3: Initialize permissions with retry logic
     let permissionInitSuccess = false;
     let permissionInitAttempt = 0;
     const maxPermissionRetries = 2;
@@ -121,45 +112,36 @@ export async function initializeHealthProviderForUser(
     while (!permissionInitSuccess && permissionInitAttempt < maxPermissionRetries) {
       permissionInitAttempt++;
       try {
-        console.log(`[HealthProvider] [${initId}] Initializing permissions (attempt ${permissionInitAttempt})`);
+        logger.debug('health', `Initializing permissions (attempt ${permissionInitAttempt})`, operationId, userId);
         await provider.initializePermissions(userId);
         permissionInitSuccess = true;
-        console.log(`[HealthProvider] [${initId}] Permissions initialized successfully`);
+        logger.info('health', 'Permissions initialized successfully', operationId, userId);
       } catch (error) {
-        console.error(
-          `[HealthProvider] [${initId}] Permission initialization attempt ${permissionInitAttempt} failed:`,
-          error
-        );
-        
-        if (permissionInitAttempt < maxPermissionRetries) {
-          console.log(`[HealthProvider] [${initId}] Retrying permission initialization...`);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
-        } else {
-          throw new HealthProviderError(
-            `Failed to initialize permissions after ${maxPermissionRetries} attempts`
-          );
+        logger.warn('health', `Permission initialization attempt ${permissionInitAttempt} failed`, operationId, userId, error);
+        if (permissionInitAttempt >= maxPermissionRetries) {
+          throw error;
         }
       }
     }
 
     // Step 4: Check and update permission status
     try {
-      console.log(`[HealthProvider] [${initId}] Checking current permission status`);
+      console.log(`[HealthProvider] [${operationId}] Checking current permission status`);
       const permissionState = await provider.checkPermissionsStatus();
-      console.log(`[HealthProvider] [${initId}] Permission status:`, permissionState.status);
+      console.log(`[HealthProvider] [${operationId}] Permission status:`, permissionState.status);
       
       setPermissionStatus(permissionState.status);
       
       if (permissionState.status === 'granted') {
-        console.log(`[HealthProvider] [${initId}] Permissions granted, provider ready`);
+        console.log(`[HealthProvider] [${operationId}] Permissions granted, provider ready`);
       } else {
         console.warn(
-          `[HealthProvider] [${initId}] Permissions not granted:`,
+          `[HealthProvider] [${operationId}] Permissions not granted:`,
           permissionState.status
         );
       }
     } catch (error) {
-      console.error(`[HealthProvider] [${initId}] Error checking permission status:`, error);
+      console.error(`[HealthProvider] [${operationId}] Error checking permission status:`, error);
       setPermissionStatus('denied');
       throw new HealthProviderError(
         `Failed to check permission status: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -167,14 +149,9 @@ export async function initializeHealthProviderForUser(
     }
 
   } catch (error) {
-    console.error(
-      `[HealthProvider] [${initId}] Fatal error during provider initialization:`,
-      error instanceof Error ? error.message : 'Unknown error'
-    );
+    logger.error('health', 'Fatal error during provider initialization', operationId, userId, error);
     setPermissionStatus('denied');
     throw error;
-  } finally {
-    console.log(`[HealthProvider] [${initId}] Provider initialization process completed`);
   }
 }
 

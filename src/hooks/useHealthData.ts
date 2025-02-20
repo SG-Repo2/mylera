@@ -3,8 +3,7 @@ import { debounce } from 'lodash';
 import type { HealthProvider } from '../providers/health/types/provider';
 import type { HealthMetrics } from '../providers/health/types/metrics';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
-import { metricsService } from '../services/metricsService';
-import type { MetricType } from '../types/schemas';
+import { unifiedMetricsService } from '../services/unifiedMetricsService';
 import { validateProviderInitialization, initializeWithRetry } from '../utils/healthInitUtils';
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 
@@ -34,41 +33,6 @@ import { HealthProviderFactory } from '../providers/health/factory/HealthProvide
  * ```
  */
 export const useHealthData = (provider: HealthProvider, userId: string) => {
-  // Helper function to update health metrics
-  const updateHealthMetrics = async (healthData: HealthMetrics) => {
-    const healthMetrics: MetricType[] = [
-      'steps',
-      'distance',
-      'calories',
-      'heart_rate',
-      'basal_calories',
-      'flights_climbed',
-      'exercise'
-    ];
-    
-    let failedMetrics: string[] = [];
-    const updates = healthMetrics.map(async metric => {
-      const value = healthData[metric];
-      if (typeof value === 'number') {
-        try {
-          await metricsService.updateMetric(userId, metric, value);
-        } catch (err) {
-          if (err instanceof Error && err.name === 'MetricsAuthError') {
-            throw err;
-          }
-          console.error(`[useHealthData] Error updating metric ${metric}:`, err);
-          failedMetrics.push(metric);
-        }
-      }
-    });
-
-    await Promise.all(updates);
-
-    if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
-      console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
-    }
-  };
-
   // Helper function to handle sync errors
   const handleSyncError = (err: unknown) => {
     let errorMessage: string;
@@ -214,18 +178,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         }
 
         console.log('[useHealthData] Permissions granted, fetching health data...');
-        // Get health data with timeout
-        const healthData = await withTimeout(
-          provider.getMetrics(),
+        // Get health data with timeout using unifiedMetricsService
+        await withTimeout(
+          unifiedMetricsService.getMetrics(userId, undefined, provider),
           DEFAULT_TIMEOUTS.METRICS_FETCH,
           'Health metrics fetch timed out'
-        );
-        
-        // Update metrics with timeout
-        await withTimeout(
-          updateHealthMetrics(healthData),
-          DEFAULT_TIMEOUTS.SYNC,
-          'Metrics update timed out'
         );
 
       } catch (err) {

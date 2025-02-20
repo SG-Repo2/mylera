@@ -11,8 +11,6 @@ import {
 } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Animated, {
-  FadeInDown,
-  FadeOutUp,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -32,6 +30,7 @@ import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import { useStyles } from '@/src/styles/useMetricModalStyles';
 import { BarChart } from './BarChart';
 import { HealthProvider } from '@/src/providers/health/types/provider';
+import { calculateMetricPoints, MetricScore } from '@/src/utils/scoringUtils';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface HistoricalDataPoint {
@@ -39,13 +38,14 @@ interface HistoricalDataPoint {
   value: number;
   formattedDate: string;
   dayOfWeek: string;
+  score: MetricScore;
 }
 
 interface MetricModalProps {
   visible: boolean;
   onClose: () => void;
   title: string;
-  value: string | number;
+  value: number;
   metricType: MetricType;
   userId: string;
   date: string;
@@ -86,12 +86,10 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const opacity = useSharedValue(0);
   const chartProgress = useSharedValue(0);
   const progressWidth = useSharedValue(0);
+
   const ensureProviderInitialized = async () => {
     try {
-      // Initialize provider if needed
       await provider.initialize();
-      
-      // Initialize permissions if needed
       await provider.initializePermissions(userId);
     } catch (error) {
       console.error('[MetricModal] Provider initialization failed:', error);
@@ -101,21 +99,17 @@ export const MetricModal: React.FC<MetricModalProps> = ({
 
   const validateAndGetDateRange = (inputDate: string) => {
     try {
-      // Parse input date and ensure it's valid
       const parsedDate = new Date(inputDate);
       if (isNaN(parsedDate.getTime())) {
         throw new Error('Invalid input date');
       }
 
-      // Set to local midnight
       const endDate = new Date(parsedDate);
       endDate.setHours(0, 0, 0, 0);
 
-      // Calculate start date (7 days before)
       const startDate = new Date(endDate);
       startDate.setDate(startDate.getDate() - 6);
 
-      // Format dates in YYYY-MM-DD format
       const endDateStr = endDate.toISOString().split('T')[0];
       const startDateStr = startDate.toISOString().split('T')[0];
 
@@ -123,8 +117,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
         input: inputDate,
         startDate: startDateStr,
         endDate: endDateStr,
-        startDateObj: startDate.toISOString(),
-        endDateObj: endDate.toISOString()
       });
 
       return {
@@ -144,24 +136,18 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     setError(null);
     
     try {
-      // Ensure provider is properly initialized
       await ensureProviderInitialized();
-      
-      // Validate and get date range
       const dateRange = validateAndGetDateRange(date);
       
-      // Fetch data from both sources in parallel
       const [historicalMetrics, nativeMetrics] = await Promise.all([
         metricsService.getHistoricalMetrics(userId, metricType, dateRange.endDateStr),
         provider.fetchRawMetrics(dateRange.startDate, dateRange.endDate, [metricType])
       ]);
       
-      // Create a map of dates to values from metricsService
       const metricsMap = new Map(
         historicalMetrics.map((item: { date: string; value: number }) => [item.date, item.value])
       );
 
-      // Process native health data if available
       const nativeDataMap = new Map<string, number>();
       if (nativeMetrics[metricType]) {
         nativeMetrics[metricType]?.forEach((metric: { startDate: string; value: number }) => {
@@ -173,7 +159,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
         });
       }
       
-      // Create array for all 7 days
       const result: HistoricalDataPoint[] = [];
       for (let i = 6; i >= 0; i--) {
         const currentDate = new Date(dateRange.endDate);
@@ -182,22 +167,21 @@ export const MetricModal: React.FC<MetricModalProps> = ({
         
         const value = nativeDataMap.get(dateStr) || metricsMap.get(dateStr) || 0;
         const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'short' });
+        const score = calculateMetricPoints(metricType, value, metricConfig);
         
         result.push({
           date: dateStr,
           value,
           formattedDate: currentDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
           dayOfWeek,
+          score
         });
       }
 
       setHistoricalData(result);
-      
-      // Set today as the selected day by default
       const today = result[result.length - 1];
       setSelectedDay(today);
       
-      // Initialize progress bar animation
       progressWidth.value = withTiming(
         Math.min((today.value / goalValue) * 100, 100),
         {
@@ -209,21 +193,15 @@ export const MetricModal: React.FC<MetricModalProps> = ({
       console.error('[MetricModal] Error fetching historical data:', error);
       setError(error instanceof Error ? error.message : 'Failed to load historical data');
       
-      // Fallback to metricsService data only
       try {
         console.log('[MetricModal] Attempting fallback to metrics service only');
-        
         const dateRange = validateAndGetDateRange(date);
-        
         const historicalMetrics = await metricsService.getHistoricalMetrics(
           userId,
           metricType,
           dateRange.endDateStr
         );
 
-        console.log('[MetricModal] Fallback metrics retrieved:', historicalMetrics);
-        
-        // Create array for all 7 days
         const result: HistoricalDataPoint[] = [];
         for (let i = 6; i >= 0; i--) {
           const currentDate = new Date(dateRange.endDate);
@@ -231,13 +209,16 @@ export const MetricModal: React.FC<MetricModalProps> = ({
           const dateStr = currentDate.toISOString().split('T')[0];
           
           const metricForDate = historicalMetrics.find(m => m.date === dateStr);
+          const value = metricForDate?.value || 0;
           const dayOfWeek = currentDate.toLocaleDateString('en-US', { weekday: 'short' });
+          const score = calculateMetricPoints(metricType, value, metricConfig);
           
           result.push({
             date: dateStr,
-            value: metricForDate?.value || 0,
+            value,
             formattedDate: currentDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
             dayOfWeek,
+            score
           });
         }
         
@@ -259,12 +240,11 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [userId, metricType, date, provider, goalValue]);
+  }, [userId, metricType, date, provider, goalValue, metricConfig]);
 
   useEffect(() => {
     if (visible) {
       fetchHistoricalData();
-      // Animate modal in
       modalY.value = withTiming(0, { 
         duration: 400, 
         easing: Easing.bezier(0.25, 0.1, 0.25, 1)
@@ -275,7 +255,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
         easing: Easing.bezier(0.34, 1.56, 0.64, 1) 
       });
     } else {
-      // Reset values when closing
       modalY.value = 100;
       opacity.value = 0;
       chartProgress.value = 0;
@@ -294,7 +273,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     const selected = historicalData[index];
     setSelectedDay(selected);
     
-    // Animate progress bar
     progressWidth.value = withTiming(
       Math.min((selected.value / goalValue) * 100, 100),
       {
@@ -304,7 +282,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     );
   };
 
-  // Chart configuration
   const chartConfig = {
     backgroundColor: 'transparent',
     backgroundGradientFrom: theme.colors.surface,
@@ -329,7 +306,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     },
   };
 
-  // Format chart data
   const chartData = {
     labels: historicalData.map(item => item.dayOfWeek),
     datasets: [
@@ -341,13 +317,10 @@ export const MetricModal: React.FC<MetricModalProps> = ({
     ],
   };
 
-  // Format metrics
   const formattedMetricValue = (value: number) => {
     const formattedValue = formatMetricValue(value, metricType, measurementSystem);
     return `${formattedValue.value} ${formattedValue.unit}`;
   };
-
-
 
   return (
     <Portal>
@@ -396,7 +369,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: chartProgress }] }}>
                   <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                    {selectedDay ? formattedMetricValue(selectedDay.value) : formattedMetricValue(Number(value))}
+                    {selectedDay ? formattedMetricValue(selectedDay.value) : formattedMetricValue(value)}
                   </Text>
                 </Animated.View>
                 {selectedDay && (
@@ -443,25 +416,18 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                           dayName: item.dayOfWeek
                         }))}
                         onBarSelect={(value, dateStr, dayName) => {
-                          const newSelectedDay = {
-                            date: dateStr,
-                            value,
-                            formattedDate: new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-                            dayOfWeek: dayName,
-                          };
-                          setSelectedDay(newSelectedDay);
-                          
-                          // Trigger haptic feedback
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          
-                          // Animate progress bar
-                          progressWidth.value = withTiming(
-                            Math.min((value / goalValue) * 100, 100),
-                            {
-                              duration: 500,
-                              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-                            }
-                          );
+                          const selected = historicalData.find(item => item.date === dateStr);
+                          if (selected) {
+                            setSelectedDay(selected);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            progressWidth.value = withTiming(
+                              Math.min((value / goalValue) * 100, 100),
+                              {
+                                duration: 500,
+                                easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+                              }
+                            );
+                          }
                         }}
                       />
                     ) : (
@@ -470,7 +436,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                           ...chartData,
                           datasets: [{
                             ...chartData.datasets[0],
-                            // Add baseline data points if heart rate to maintain scale
                             data: metricType === 'heart_rate' 
                               ? [...chartData.datasets[0].data, 40, 200] 
                               : chartData.datasets[0].data
@@ -480,7 +445,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                         height={220}
                         chartConfig={{
                           ...chartConfig,
-                          // Customize Y axis based on metric type
                           decimalPlaces: metricType === 'heart_rate' ? 0 : 1,
                           formatYLabel: (value) => {
                             if (metricType === 'heart_rate') {
@@ -490,13 +454,11 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                             }
                             return value;
                           },
-                          // Adjust spacing and grid for better readability
                           propsForBackgroundLines: {
                             ...chartConfig.propsForBackgroundLines,
                             strokeDasharray: metricType === 'heart_rate' ? '' : '5, 5',
                             strokeOpacity: 0.15,
                           },
-                          // Enhanced dot and line styling
                           propsForDots: {
                             ...chartConfig.propsForDots,
                             r: '4',
@@ -537,13 +499,19 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                     <View style={styles.infoRow}>
                       <Text style={styles.infoLabel}>Current</Text>
                       <Text style={[styles.infoValue, { color: metricColor }]}>
-                        {formattedMetricValue(selectedDay?.value || Number(value))}
+                        {formattedMetricValue(selectedDay?.value || value)}
                       </Text>
                     </View>
                     <View style={styles.infoRow}>
                       <Text style={styles.infoLabel}>Daily Goal</Text>
                       <Text style={styles.infoValue}>
                         {formattedMetricValue(goalValue)}
+                      </Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Points</Text>
+                      <Text style={[styles.infoValue, { color: metricColor }]}>
+                        {selectedDay?.score.points || calculateMetricPoints(metricType, value, metricConfig).points} pts
                       </Text>
                     </View>
                     
@@ -570,7 +538,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                         />
                       </View>
                       <Text style={[styles.infoValue, { alignSelf: 'flex-end', marginTop: 4 }]}>
-                        {Math.round(((selectedDay?.value || Number(value)) / goalValue) * 100)}%
+                        {Math.round(((selectedDay?.value || value) / goalValue) * 100)}%
                       </Text>
                     </View>
                   </View>

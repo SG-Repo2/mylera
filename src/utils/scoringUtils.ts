@@ -115,29 +115,39 @@ export function validateMetricValue(
   metricType: MetricType,
   value: number
 ): boolean {
-  if (typeof value !== 'number' || isNaN(value)) return false;
-  
+  if (typeof value !== 'number' || isNaN(value)) {
+    console.log(`Invalid value type for ${metricType}: ${value}`);
+    return false;
+  }
+
   const config = healthMetrics[metricType];
-  if (!config) return false;
+  if (!config) {
+    console.log(`No config found for metric type: ${metricType}`);
+    return false;
+  }
 
   // Ensure value is within reasonable bounds.
-  if (value < 0) return false;
-  
+  if (value < 0) {
+    console.log(`Negative value for ${metricType}: ${value}`);
+    return false;
+  }
+
   switch (metricType) {
     case 'heart_rate':
-      return value >= 30 && value <= 220;
-    case 'steps':
-      return value <= 100000;
+      return (value >= 0 && value <= 220);
     case 'distance':
-      return value <= 160; // Max 160 km per day.
+      return value >= 0 && value <= 50000; // Max 50km (50000 meters) per day
+    case 'steps':
     case 'calories':
     case 'basal_calories':
-      return value <= 10000;
     case 'flights_climbed':
-      return value <= 500;
     case 'exercise':
-      return value <= 1440;
+      return value >= 0;
     default:
-      return true;
+      const validNumber = typeof value === 'number' && !isNaN(value);
+      if (!validNumber) {
+        console.log(`Invalid value for ${metricType}: ${value}`);
+      }
+      return validNumber;
   }
 }

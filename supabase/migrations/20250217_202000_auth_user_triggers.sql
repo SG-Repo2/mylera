@@ -8,10 +8,18 @@ RETURNS TRIGGER AS $$
 BEGIN
   RAISE NOTICE 'raw_user_meta_data: %', NEW.raw_user_meta_data;
 
-  -- Get the deviceType from raw_user_meta_data
-  deviceType text := COALESCE(NEW.raw_user_meta_data->>'deviceType', 'OS');
-  displayName text := COALESCE(NEW.raw_user_meta_data->>'displayName', null);
-  measurementSystem text := COALESCE(NEW.raw_user_meta_data->>'measurementSystem', 'metric');
+  -- Check if raw_user_meta_data is null
+  IF NEW.raw_user_meta_data IS NOT NULL THEN
+    -- Get the device_type from raw_user_meta_data
+    device_type := COALESCE(NEW.raw_user_meta_data->>'deviceType', 'OS');
+    display_name := COALESCE(NEW.raw_user_meta_data->>'displayName', null);
+    measurement_system := COALESCE(NEW.raw_user_meta_data->>'measurementSystem', 'metric');
+  ELSE
+    -- Set default values if raw_user_meta_data is null
+    device_type := 'OS';
+    display_name := null;
+    measurement_system := 'metric';
+  END IF;
 
   -- Validate the deviceType
   IF deviceType <> 'OS' AND deviceType <> 'fitbit' THEN

@@ -92,12 +92,13 @@ export default function HomeScreen() {
           console.log('[HomeScreen] Initialization complete:', currentInitId);
         }
       }
-    }, 1000),
+    }, 300), // Reduced from 1000ms to 300ms for faster initialization
     [user]
   );
 
   // Initialize provider when user or device type changes
   useEffect(() => {
+    console.log('[HomeScreen] useEffect - user, deviceType, debouncedInit - Triggered', { user, deviceType: user?.user_metadata?.deviceType, isInitializing });
     if (!user?.user_metadata?.deviceType) return;
 
     // Create new abort controller
@@ -110,6 +111,7 @@ export default function HomeScreen() {
 
     // Cleanup function
     return () => {
+      console.log('[HomeScreen] useEffect - cleanup - Triggered');
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
       if (provider) {
@@ -123,6 +125,7 @@ export default function HomeScreen() {
 
   // Cleanup on unmount
   useEffect(() => {
+    console.log('[HomeScreen] useEffect - unmount - Triggered');
     return () => {
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
@@ -133,6 +136,7 @@ export default function HomeScreen() {
   }, []);
 
   if (authLoading || isInitializing) {
+    console.log('[HomeScreen] Rendering LoadingScreen - authLoading:', authLoading, 'isInitializing:', isInitializing);
     return <LoadingScreen />;
   }
 

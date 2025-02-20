@@ -5,6 +5,7 @@ import { FitbitHealthProvider } from '../platforms/fitbit/FitbitHealthProvider';
 import type { HealthProvider } from '../types';
 import { Mutex } from 'async-mutex';
 import { HealthProviderError, HealthProviderInitializationError } from '../types/errors';
+import { logger } from '../../../utils/logger';
 
 export type HealthPlatform = 'apple' | 'google' | 'fitbit';
 
@@ -42,14 +43,7 @@ export class HealthProviderFactory {
     }
 
     this.initializationMetrics.set(key, metrics);
-    
-    // Log metrics for monitoring
-    console.log('[HealthProviderFactory] Initialization metrics:', {
-      key,
-      metrics,
-      currentAttempt: metrics.attempts,
-      timeSinceLastAttempt: Date.now() - metrics.lastAttempt
-    });
+    logger.debug('health', `Initialization metrics updated for ${key}`, undefined, undefined, metrics);
   }
 
   private static getInstanceKey(userId?: string, deviceType?: 'os' | 'fitbit'): string {
@@ -117,7 +111,7 @@ export class HealthProviderFactory {
   ): Promise<void> {
     const existing = this.initializationQueue.get(key);
     if (existing) {
-      console.log('[HealthProviderFactory] Waiting for existing initialization:', key);
+      logger.debug('health', 'Waiting for existing initialization', undefined, undefined, { key });
       return existing;
     }
 
@@ -128,7 +122,7 @@ export class HealthProviderFactory {
         try {
           this.logInitializationMetric(key);
           await initFn();
-          console.log(`[HealthProviderFactory] Initialization successful for ${key} on attempt ${attempt}`);
+          logger.info('health', 'Initialization successful', undefined, undefined, { key, attempt });
           return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error('Unknown error');
@@ -136,7 +130,7 @@ export class HealthProviderFactory {
           
           if (attempt < this.maxRetries) {
             const delay = this.retryDelay * Math.pow(2, attempt - 1);
-            console.log(`[HealthProviderFactory] Retrying initialization for ${key} in ${delay}ms (attempt ${attempt}/${this.maxRetries})`);
+            logger.debug('health', 'Retrying initialization', undefined, undefined, { key, attempt, maxRetries: this.maxRetries, delay });
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         }
@@ -162,46 +156,29 @@ export class HealthProviderFactory {
 
   static async getProvider(deviceType?: 'os' | 'fitbit', userId?: string): Promise<HealthProvider> {
     const key = this.getInstanceKey(userId, deviceType);
+    const operationId = Date.now().toString();
 
-    // Use mutex to ensure sequential initialization
     return this.initializationMutex.runExclusive(async () => {
-      // Check if there's already a provider instance
       const existingProvider = this.instances.get(key);
       if (existingProvider) {
+        logger.debug('health', 'Returning existing provider instance', operationId, userId);
         return existingProvider;
       }
 
-      // Check if there's a pending initialization
-      const pendingInit = this.initializationQueue.get(key);
-      if (pendingInit) {
-        console.log('[HealthProviderFactory] Waiting for existing initialization:', key);
-        await pendingInit;
-        const provider = this.instances.get(key);
-        if (provider) return provider;
-      }
-
-      // Create new provider instance
-      const provider = this.createProvider(deviceType);
-      this.instances.set(key, provider);
-      this.platforms.set(key, this.getPlatformForDevice(deviceType));
-
-      // Create initialization promise
-      const initPromise = this.queueInitialization(key, async () => {
-        await provider.initialize();
+      logger.info('health', 'Creating new provider instance', operationId, userId, {
+        deviceType,
+        platform: this.getPlatformForDevice(deviceType)
       });
 
-      this.initializationQueue.set(key, initPromise);
-
       try {
-        await initPromise;
+        const provider = this.createProvider(deviceType);
+        this.instances.set(key, provider);
+        this.platforms.set(key, this.getPlatformForDevice(deviceType));
+        
         return provider;
       } catch (error) {
-        // Clean up failed initialization
-        this.instances.delete(key);
-        this.platforms.delete(key);
+        logger.error('health', 'Failed to create provider', operationId, userId, error);
         throw error;
-      } finally {
-        this.initializationQueue.delete(key);
       }
     });
   }
@@ -223,7 +200,7 @@ export class HealthProviderFactory {
         // Cleanup specific provider instance
         const provider = this.instances.get(specificKey);
         if (provider) {
-          console.log(`[HealthProviderFactory] Cleaning up specific provider: ${specificKey}`);
+          logger.info('health', 'Cleaning up specific provider', undefined, undefined, { key: specificKey });
           try {
             await provider.cleanup();
             this.instances.delete(specificKey);
@@ -231,18 +208,19 @@ export class HealthProviderFactory {
             this.initializationQueue.delete(specificKey);
             this.initializationMetrics.delete(specificKey);
           } catch (error) {
-            console.error(`[HealthProviderFactory] Error during cleanup for ${specificKey}:`, error);
+            logger.error('health', 'Error during cleanup', undefined, undefined, { key: specificKey, error });
             throw new HealthProviderError(`Cleanup failed for ${specificKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
           return;
         }
       } else {
         // Full cleanup of all providers
-        console.log('[HealthProviderFactory] Starting full cleanup');
+        logger.info('health', 'Starting full cleanup');
         
         for (const [key, provider] of this.instances) {
           try {
-            console.log(`[HealthProviderFactory] Cleaning up provider: ${key}`, {
+            logger.debug('health', 'Cleaning up provider', undefined, undefined, {
+              key,
               platform: this.platforms.get(key),
               hasInitQueue: this.initializationQueue.has(key),
               metrics: this.initializationMetrics.get(key)
@@ -250,13 +228,13 @@ export class HealthProviderFactory {
             
             cleanupPromises.push(
               provider.cleanup().catch(error => {
-                console.error(`[HealthProviderFactory] Error during cleanup for ${key}:`, error);
+                logger.error('health', 'Error during cleanup', undefined, undefined, { key, error });
                 // Continue cleanup process despite errors
                 return Promise.resolve();
               })
             );
           } catch (error) {
-            console.error(`[HealthProviderFactory] Error queueing cleanup for ${key}:`, error);
+            logger.error('health', 'Error queueing cleanup', undefined, undefined, { key, error });
           }
         }
 
@@ -268,7 +246,7 @@ export class HealthProviderFactory {
         this.initializationQueue.clear();
         this.initializationMetrics.clear();
         
-        console.log('[HealthProviderFactory] Full cleanup completed');
+        logger.info('health', 'Full cleanup completed');
       }
     });
   }

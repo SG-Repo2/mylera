@@ -17,6 +17,7 @@ import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
+import { calculateTotalScore } from '@/src/utils/scoringUtils';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
@@ -40,7 +41,6 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
           style={styles.logo}
         />
         <View style={styles.statsContainer}>
-
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
@@ -118,33 +118,9 @@ const LoadingView = React.memo(() => {
   );
 });
 
-const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
-  return metrics.reduce((total, metric) => {
-    const config = healthMetrics[metric.metric_type];
-    if (!config || typeof metric.value !== 'number') return total;
-
-    let points = 0;
-    if (metric.metric_type === 'heart_rate') {
-      const targetValue = config.defaultGoal;
-      const deviation = Math.abs(metric.value - targetValue);
-      points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-    } else {
-      points = Math.floor(metric.value / config.pointIncrement.value);
-      points = Math.min(points, config.pointIncrement.maxPoints);
-      
-      // Cap bonus points at 25 for goal achievements
-      if (metric.value >= config.defaultGoal) {
-        points = Math.min(points, 25);
-      }
-    }
-    
-    return total + Math.round(points);
-  }, 0);
-};
-
 const transformMetricsToHealthMetrics = (
   metrics: DailyMetricScore[],
-  dailyTotal: DailyTotal | null,
+  totalScore: number,
   userId: string,
   date: string
 ): HealthMetrics => {
@@ -161,7 +137,7 @@ const transformMetricsToHealthMetrics = (
     exercise: null,
     basal_calories: null,
     flights_climbed: null,
-    daily_score: dailyTotal?.total_points || 0,
+    daily_score: totalScore,
     weekly_score: null,
     streak_days: null,
     last_updated: now,
@@ -171,8 +147,8 @@ const transformMetricsToHealthMetrics = (
 
   metrics.forEach(metric => {
     const metricType = metric.metric_type as MetricType;
-    if (metricType in result && typeof metric.value === 'number') {
-      result[metricType] = metric.value;
+    if (metricType in result) { // Removed typeof check, assuming value is always present but might be string
+      result[metricType] = Number(metric.value); // Explicitly convert to Number
     }
   });
 
@@ -185,6 +161,8 @@ export const Dashboard = React.memo(function Dashboard({
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
+  console.log('[Dashboard] Rendering Dashboard Component', { userId, date, showAlerts });
+  
   const styles = useDashboardStyles();
   const theme = useTheme();
   const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
@@ -258,24 +236,32 @@ export const Dashboard = React.memo(function Dashboard({
     if (!isInitialized || !isProviderReady) return;
     
     try {
-      console.log('Dashboard fetching data for:', { userId, date });
+      console.log('[Dashboard] Fetching data for:', { userId, date });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
         leaderboardService.getUserRank(userId, date)
       ]);
       
-      console.log('Daily totals:', totals);
-      console.log('Metric scores:', metricScores);
+      console.log('[Dashboard] Daily totals:', totals);
+      console.log('[Dashboard] Metric scores:', metricScores);
       
-      const totalPoints = calculateTotalPoints(metricScores);
+      // Calculate total score using the new scoring system
+      const totalScoreResult = calculateTotalScore(
+        metricScores.map(metric => ({
+          metric_type: metric.metric_type,
+          value: metric.value
+        }))
+      );
+      
+      console.log('[Dashboard] Calculated total score:', totalScoreResult);
       
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
         date: date,
-        total_points: totalPoints,
-        metrics_completed: metricScores.length,
+        total_points: totalScoreResult.totalPoints,
+        metrics_completed: totalScoreResult.metricsCompleted,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -283,17 +269,17 @@ export const Dashboard = React.memo(function Dashboard({
       
       const transformedMetrics = transformMetricsToHealthMetrics(
         metricScores,
-        userTotal,
+        totalScoreResult.totalPoints,
         userId,
         date
       );
-      console.log('Transformed metrics:', transformedMetrics);
+      console.log('[Dashboard] Transformed metrics:', transformedMetrics);
       
       setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
     } catch (err) {
-      console.error('Error fetching metrics:', err);
+      console.error('[Dashboard] Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
       setErrorDialogVisible(true);
     }

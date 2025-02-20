@@ -215,6 +215,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       avatarUri?: string | null;
     }
   ) => {
+    console.log('[AuthProvider] register - Start', { email, displayName: profile.displayName }); // Log function start
     try {
       setError(null);
       setLoading(true);
@@ -223,9 +224,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Use transaction-like pattern
       const cleanup = async () => {
         try {
+          console.warn('[AuthProvider] register - Cleanup error during rollback:');
           await HealthProviderFactory.cleanup();
         } catch (error) {
-          console.warn('[AuthProvider] Cleanup error during rollback:', error);
+          console.warn('[AuthProvider] register - Cleanup error during rollback:', error);
         }
         setSession(null);
         setUser(null);
@@ -234,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // Registration steps
+        console.log('[AuthProvider] register - Calling supabase.auth.signUp'); // Log before signUp call
         const { data, error: registrationError } = await supabase.auth.signUp({
           email,
           password,
@@ -246,20 +249,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             },
           },
         });
-        if (registrationError) throw registrationError;
+        if (registrationError) {
+          console.error('[AuthProvider] register - supabase.auth.signUp Error:', registrationError); // Log signUp error
+          throw registrationError;
+        }
+        console.log('[AuthProvider] register - supabase.auth.signUp Success', { data }); // Log signUp success
 
         // Initialize health provider
         if (data.user) {
+          console.log('[AuthProvider] register - Calling initializeHealthProviderForUser'); // Log before initializeHealthProviderForUser
           await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+          console.log('[AuthProvider] register - initializeHealthProviderForUser Success'); // Log initializeHealthProviderForUser success
         }
       } catch (error) {
         // Rollback on failure
+        console.warn('[AuthProvider] register - Rolling back on failure');
         await cleanup();
         throw error;
       }
     } catch (err) {
+      console.error('[AuthProvider] register - Overall Error:', err); // Log overall error
       setError(mapAuthError(err));
     } finally {
+      console.log('[AuthProvider] register - Finally block - setLoading(false)'); // Log finally block
       setLoading(false);
       setHealthInitState(prev => ({ ...prev, isInitializing: false }));
     }
