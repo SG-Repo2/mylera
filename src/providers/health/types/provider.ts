@@ -125,6 +125,9 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /** Flag indicating whether the provider has been initialized */
   protected initialized: boolean = false;
 
+  /** Promise tracking ongoing initialization */
+  private initializationPromise: Promise<void> | null = null;
+
   /** Timestamp of the last successful data sync */
   protected lastSyncTime: Date | null = null;
 
@@ -173,10 +176,45 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
   /**
    * Initialize the health provider.
+   * Implements a promise-based pattern to prevent race conditions.
+   * @throws {Error} If initialization fails or times out
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    this.initializationPromise = (async () => {
+      try {
+        await withTimeout(
+          this.performInitialization(),
+          DEFAULT_TIMEOUTS.INITIALIZATION,
+          'Provider initialization timed out'
+        );
+        this.initialized = true;
+        console.log('[BaseHealthProvider] Provider initialized successfully');
+      } catch (error) {
+        this.initialized = false;
+        console.error('[BaseHealthProvider] Provider initialization failed:', error);
+        throw error;
+      } finally {
+        this.initializationPromise = null;
+      }
+    })();
+
+    return this.initializationPromise;
+  }
+
+  /**
+   * Perform platform-specific initialization.
    * Must be implemented by platform-specific providers.
    * @throws {Error} If initialization fails
    */
-  abstract initialize(): Promise<void>;
+  protected abstract performInitialization(): Promise<void>;
 
   /**
    * Fetch raw health metrics from the platform.
@@ -319,20 +357,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   protected async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
       console.log('[BaseHealthProvider] Provider not initialized, attempting initialization...');
-      try {
-        await withTimeout(
-          this.initialize(),
-          DEFAULT_TIMEOUTS.INITIALIZATION,
-          'Provider initialization timed out'
-        );
-        if (!this.initialized) {
-          throw new Error('Provider initialization failed to set initialized flag');
-        }
-        console.log('[BaseHealthProvider] Provider initialized successfully');
-      } catch (error) {
-        console.error('[BaseHealthProvider] Provider initialization failed:', error);
-        throw error;
-      }
+      await this.initialize();
     }
   }
 

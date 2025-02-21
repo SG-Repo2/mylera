@@ -12,7 +12,8 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import debounce from 'lodash.debounce';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
@@ -181,6 +182,7 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const refreshInProgress = useRef(false);
   const {
     loading,
     error,
@@ -303,9 +305,23 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [error, requestHealthPermissions, syncHealthData]);
 
+  const debouncedRefresh = useCallback(
+    debounce(async () => {
+      if (refreshInProgress.current) return;
+      
+      refreshInProgress.current = true;
+      try {
+        await syncHealthData();
+      } finally {
+        refreshInProgress.current = false;
+      }
+    }, 500),
+    [syncHealthData]
+  );
+
   const handleRefresh = React.useCallback(() => {
-    syncHealthData();
-  }, [syncHealthData]);
+    debouncedRefresh();
+  }, [debouncedRefresh]);
 
   if (loading) {
     return <LoadingView />;

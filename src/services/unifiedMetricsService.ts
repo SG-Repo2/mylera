@@ -11,18 +11,36 @@ export const unifiedMetricsService = {
     date: string = DateUtils.getLocalDateString(),
     provider?: HealthProvider
   ): Promise<HealthMetrics> {
+    // Start Supabase transaction
+    const { error: txError } = await supabase.rpc('begin_transaction');
+    if (txError) {
+      console.error('[unifiedMetricsService] Failed to start transaction:', txError);
+      throw txError;
+    }
+
     try {
       // First attempt to get metrics from Supabase
       const dbMetrics = await metricsService.getDailyMetrics(userId, date);
-      
-      // If we have complete metrics in Supabase, return them
-      if (this.hasCompleteMetrics(dbMetrics)) {
+
+      // Check if we should fetch native metrics
+      const shouldFetch = this.shouldFetchNative(dbMetrics);
+
+      // If we have complete metrics in Supabase and shouldn't fetch, return them
+      if (this.hasCompleteMetrics(dbMetrics) && !shouldFetch) {
         console.log('[unifiedMetricsService] Complete metrics found in database');
-        return this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
+        const metrics = this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
+        
+        // Commit transaction since we're just reading
+        const { error: commitError } = await supabase.rpc('commit_transaction');
+        if (commitError) {
+          throw commitError;
+        }
+        
+        return metrics;
       }
 
-      // If we have a provider and either incomplete or no metrics, fetch from native
-      if (provider) {
+      // If we have a provider and should fetch, fetch from native
+      if (provider && shouldFetch) {
         console.log('[unifiedMetricsService] Fetching metrics from native provider');
         try {
           const nativeMetrics = await provider.getMetrics();
@@ -30,26 +48,45 @@ export const unifiedMetricsService = {
           // Update Supabase with the native metrics atomically
           await this.updateMetricsFromNative(nativeMetrics, userId);
           
+          // Commit transaction
+          const { error: commitError } = await supabase.rpc('commit_transaction');
+          if (commitError) {
+            throw commitError;
+          }
+
           // Return the native metrics since they're most up-to-date
           return nativeMetrics;
         } catch (providerError) {
           console.error('[unifiedMetricsService] Error fetching from provider:', providerError);
           
-          // If provider fails but we have some metrics in DB, return those
-          if (dbMetrics.length > 0) {
-            console.log('[unifiedMetricsService] Falling back to partial database metrics');
-            return this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
+          // Rollback on any error
+          const { error: rollbackError } = await supabase.rpc('rollback_transaction');
+          if (rollbackError) {
+            console.error('[unifiedMetricsService] Rollback failed:', rollbackError);
           }
           
-          // If both provider and DB fail, throw the provider error
+          // If provider fails, throw the error after rollback
           throw providerError;
         }
       }
 
-      // If no provider available, return whatever we have in the database
-      console.log('[unifiedMetricsService] No provider available, returning database metrics');
-      return this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
+      // If no provider available or shouldn't fetch, return whatever we have in the database
+      console.log('[unifiedMetricsService] No provider available or fresh data exists, returning database metrics');
+      const metrics = this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
+      
+      // Commit transaction since we're just reading
+      const { error: commitError } = await supabase.rpc('commit_transaction');
+      if (commitError) {
+        throw commitError;
+      }
+      
+      return metrics;
     } catch (error) {
+      // Rollback on any error
+      const { error: rollbackError } = await supabase.rpc('rollback_transaction');
+      if (rollbackError) {
+        console.error('[unifiedMetricsService] Rollback failed:', rollbackError);
+      }
       console.error('[unifiedMetricsService] Error in getMetrics:', error);
       throw error;
     }
@@ -118,13 +155,6 @@ export const unifiedMetricsService = {
       'steps', 'distance', 'calories', 'heart_rate',
       'basal_calories', 'flights_climbed', 'exercise'
     ];
-    
-    // Start a Supabase transaction
-    const { error: txError } = await supabase.rpc('begin_transaction');
-    if (txError) {
-      console.error('[unifiedMetricsService] Failed to start transaction:', txError);
-      throw txError;
-    }
 
     try {
       // Process all metrics atomically
@@ -148,12 +178,6 @@ export const unifiedMetricsService = {
       // Wait for all updates to complete
       await Promise.all(updatePromises);
 
-      // Commit the transaction
-      const { error: commitError } = await supabase.rpc('commit_transaction');
-      if (commitError) {
-        throw commitError;
-      }
-
       // Verify the updates
       const updated = await metricsService.getDailyMetrics(
         userId,
@@ -173,12 +197,17 @@ export const unifiedMetricsService = {
       });
 
     } catch (error) {
-      // Rollback on any error
-      const { error: rollbackError } = await supabase.rpc('rollback_transaction');
-      if (rollbackError) {
-        console.error('[unifiedMetricsService] Rollback failed:', rollbackError);
-      }
       throw error;
     }
+  },
+
+  shouldFetchNative(dbMetrics: DailyMetricScore[]): boolean {
+    const now = new Date();
+    const staleThreshold = 5 * 60 * 1000; // 5 minutes
+
+    return !dbMetrics.length || dbMetrics.some(metric => {
+      const updateTime = new Date(metric.updated_at).getTime();
+      return now.getTime() - updateTime > staleThreshold;
+    });
   }
 };

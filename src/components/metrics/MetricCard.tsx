@@ -197,4 +197,18 @@ export const MetricCard = React.memo(function MetricCard({
   );
 });
 
-export default MetricCard;
+export default React.memo(MetricCard, (prev, next) => {
+  // Only re-render if these specific props change
+  return (
+    prev.score.value === next.score.value &&
+    prev.score.points === next.score.points &&
+    prev.score.goal === next.score.goal &&
+    prev.title === next.title &&
+    prev.icon === next.icon &&
+    prev.unit === next.unit &&
+    prev.metricType === next.metricType &&
+    prev.color === next.color &&
+    prev.showAlert === next.showAlert &&
+    prev.measurementSystem === next.measurementSystem
+  );
+});

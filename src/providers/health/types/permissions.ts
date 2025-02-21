@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HealthProviderPermissionError } from './errors';
 
-export type PermissionStatus = 'granted' | 'denied' | 'not_determined';
+export type PermissionStatus = 'granted' | 'denied' | 'not_determined' | 'limited' | 'provisional';
 
 export interface PermissionState {
   status: PermissionStatus;
@@ -36,7 +36,7 @@ export async function cachePermissionState(
 
     // Validate state before saving
     if (typeof newState.status !== 'string' || 
-        !['granted', 'denied', 'not_determined'].includes(newState.status)) {
+        !['granted', 'denied', 'not_determined', 'limited', 'provisional'].includes(newState.status)) {
       throw new Error('Invalid permission status');
     }
 
@@ -83,6 +83,7 @@ export async function clearPermissionCache(userId: string): Promise<void> {
 
 export class PermissionManager {
   private userId: string;
+  private stateTransitionTimeout = 5 * 60 * 1000; // 5 minutes
 
   constructor(userId: string) {
     this.userId = userId;
@@ -103,6 +104,19 @@ export class PermissionManager {
         deniedPermissions: deniedPermissions || currentState?.deniedPermissions
       };
       
+      // Handle state transitions
+      if (currentState?.status !== status) {
+        console.log(`[PermissionManager] State transition: ${currentState?.status} -> ${status}`);
+        
+        // Handle specific transitions
+        if (status === 'limited' && currentState?.status === 'granted') {
+          console.warn('[PermissionManager] Permission downgraded from granted to limited');
+        } else if (status === 'provisional' && this.shouldUpgradeProvisional(currentState)) {
+          console.log('[PermissionManager] Attempting to upgrade provisional permissions');
+          return; // Let the caller handle the upgrade
+        }
+      }
+      
       await cachePermissionState(this.userId, state);
     } catch (error) {
       // If update fails, try to restore previous state
@@ -110,19 +124,53 @@ export class PermissionManager {
         try {
           await cachePermissionState(this.userId, currentState);
         } catch (restoreError) {
-          console.error('Failed to restore permission state:', restoreError);
+          console.error('[PermissionManager] Failed to restore permission state:', restoreError);
         }
       }
       throw error;
     }
   }
 
-  async clearCache(): Promise<void> {
-    await clearPermissionCache(this.userId);
+  private shouldUpgradeProvisional(currentState: PermissionState | null): boolean {
+    if (!currentState || currentState.status !== 'provisional') {
+      return false;
+    }
+    
+    // Check if enough time has passed since the last check
+    const timeSinceLastCheck = Date.now() - currentState.lastChecked;
+    return timeSinceLastCheck >= this.stateTransitionTimeout;
+  }
+
+  async handlePermissionDenial(): Promise<void> {
+    const currentState = await this.getPermissionState();
+    
+    // If transitioning from limited/provisional to denied, perform cleanup
+    if (currentState?.status === 'limited' || currentState?.status === 'provisional') {
+      console.log('[PermissionManager] Cleaning up after permission denial');
+      await this.clearCache();
+    }
+    
+    await this.updatePermissionState('denied');
   }
 
   async handlePermissionError(permission: string, error: any): Promise<never> {
-    await this.updatePermissionState('denied', [permission]);
+    console.error('[PermissionManager] Permission error:', {
+      permission,
+      error,
+      currentState: await this.getPermissionState()
+    });
+    
+    await this.handlePermissionDenial();
     throw new HealthProviderPermissionError(permission, error?.message);
+  }
+
+  async clearCache(): Promise<void> {
+    try {
+      await clearPermissionCache(this.userId);
+      console.log('[PermissionManager] Permission cache cleared successfully');
+    } catch (error) {
+      console.error('[PermissionManager] Error clearing permission cache:', error);
+      throw error;
+    }
   }
 }

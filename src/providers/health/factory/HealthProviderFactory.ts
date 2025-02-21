@@ -105,6 +105,77 @@ export class HealthProviderFactory {
     }
   }
 
+  private static async verifyProviderAccess(
+    provider: HealthProvider,
+    userId: string
+  ): Promise<boolean> {
+    try {
+      const permissionState = await provider.checkPermissionsStatus();
+      
+      logger.info('health', 'Checking permission state', undefined, userId, {
+        currentStatus: permissionState.status,
+        lastChecked: permissionState.lastChecked
+      });
+
+      switch (permissionState.status) {
+        case 'granted':
+          return true;
+
+        case 'limited':
+          // For limited access, we still allow the provider but log it
+          logger.warn('health', 'Limited permissions granted', undefined, userId, {
+            lastChecked: permissionState.lastChecked
+          });
+          return true;
+
+        case 'provisional':
+          // For provisional access, request full permissions
+          logger.info('health', 'Requesting full permissions', undefined, userId, {
+            currentStatus: permissionState.status
+          });
+          const newStatus = await provider.requestPermissions();
+          const granted = newStatus === 'granted' || newStatus === 'limited';
+          
+          logger.info('health', 'Permission request result', undefined, userId, {
+            granted,
+            newStatus
+          });
+          
+          return granted;
+
+        case 'denied':
+          // Handle denied state with cleanup
+          logger.warn('health', 'Permissions denied', undefined, userId);
+          await provider.handlePermissionDenial();
+          return false;
+
+        case 'not_determined':
+          // Request permissions for the first time
+          logger.info('health', 'Requesting initial permissions', undefined, userId);
+          const initialStatus = await provider.requestPermissions();
+          const initialGranted = initialStatus === 'granted' || initialStatus === 'limited';
+          
+          logger.info('health', 'Initial permission request result', undefined, userId, {
+            granted: initialGranted,
+            status: initialStatus
+          });
+          
+          return initialGranted;
+
+        default:
+          logger.error('health', 'Unknown permission state', undefined, userId, {
+            status: permissionState.status
+          });
+          return false;
+      }
+    } catch (error) {
+      logger.error('health', 'Permission verification failed', undefined, userId, error);
+      throw new HealthProviderError(
+        `Failed to verify provider access: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
   private static async queueInitialization(
     key: string, 
     initFn: () => Promise<void>
@@ -172,6 +243,22 @@ export class HealthProviderFactory {
 
       try {
         const provider = this.createProvider(deviceType, userId);
+        
+        // Initialize the provider
+        await this.queueInitialization(key, async () => {
+          await provider.initialize();
+          
+          // Only verify permissions if we have a userId
+          if (userId) {
+            await provider.initializePermissions(userId);
+            const hasAccess = await this.verifyProviderAccess(provider, userId);
+            
+            if (!hasAccess) {
+              throw new HealthProviderError('Permission denied by user');
+            }
+          }
+        });
+
         this.instances.set(key, provider);
         this.platforms.set(key, this.getPlatformForDevice(deviceType));
 
