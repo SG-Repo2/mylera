@@ -67,7 +67,7 @@ export class HealthProviderFactory {
     return Platform.OS === 'ios' ? 'apple' : 'google';
   }
 
-  private static createProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
+  private static createProvider(deviceType?: 'os' | 'fitbit', userId?: string): HealthProvider {
     this.validatePlatform(deviceType);
 
     let provider: HealthProvider;
@@ -77,7 +77,7 @@ export class HealthProviderFactory {
       } else if (Platform.OS === 'ios') {
         provider = new AppleHealthProvider();
       } else {
-        provider = new GoogleHealthProvider();
+        provider = new GoogleHealthProvider(userId);
       }
 
       // Validate provider before returning
@@ -171,10 +171,10 @@ export class HealthProviderFactory {
       });
 
       try {
-        const provider = this.createProvider(deviceType);
+        const provider = this.createProvider(deviceType, userId);
         this.instances.set(key, provider);
         this.platforms.set(key, this.getPlatformForDevice(deviceType));
-        
+
         return provider;
       } catch (error) {
         logger.error('health', 'Failed to create provider', operationId, userId, error);

@@ -18,54 +18,103 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiresAt: number | null = null;
+  private initializationPromise: Promise<void> | null = null;
 
   async initialize(): Promise<void> {
-    try {
-      // Check if already initialized
-      if (this.initialized) {
-        return;
-      }
+    console.log('[FitbitHealthProvider] Initialize called. Current state:', {
+      initialized: this.initialized,
+      initializationInProgress: !!this.initializationPromise
+    });
 
-      // Load stored tokens with additional error handling
-      const [accessToken, refreshToken, expiryStr] = await Promise.all([
-        SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN),
-        SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN),
-        SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY)
-      ]);
-
-      // Validate tokens exist
-      if (!accessToken || !refreshToken) {
-        throw new Error('Missing Fitbit tokens. Authentication required.');
-      }
-
-      this.accessToken = accessToken;
-      this.refreshToken = refreshToken;
-      this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
-
-      // Check token expiration and refresh if needed
-      if (this.tokenExpiresAt) {
-        // Add buffer time (5 minutes) to ensure token doesn't expire during use
-        if (Date.now() >= (this.tokenExpiresAt - 300000)) {
-          await this.refreshAccessToken();
-        }
-      } else {
-        throw new Error('Invalid token expiration time');
-      }
-
-      // Verify token is valid by making a test API call
-      try {
-        await this.fetchFromFitbit('https://api.fitbit.com/1/user/-/profile.json');
-      } catch (error) {
-        throw new Error(`Token validation failed: ${error}`);
-      }
-
-      this.initialized = true;
-      console.log('[FitbitHealthProvider] Successfully initialized');
-    } catch (error) {
-      this.initialized = false;
-      console.error('[FitbitHealthProvider] Initialization failed:', error);
-      throw new Error(`Failed to initialize Fitbit provider: ${error}`);
+    if (this.initialized) {
+      console.log('[FitbitHealthProvider] Already initialized');
+      return;
     }
+
+    // If initialization is already in progress, wait for it
+    if (this.initializationPromise) {
+      console.log('[FitbitHealthProvider] Waiting for existing initialization...');
+      await this.initializationPromise;
+      return;
+    }
+
+    // Start new initialization
+    console.log('[FitbitHealthProvider] Starting new initialization');
+    this.initializationPromise = (async () => {
+      try {
+        // Ensure we have a userId before proceeding
+        if (!this.userId) {
+          throw new Error('Cannot initialize provider without userId');
+        }
+
+        // Load stored tokens with additional error handling
+        const [accessToken, refreshToken, expiryStr] = await Promise.all([
+          SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN),
+          SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN),
+          SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY)
+        ]);
+
+        // Validate tokens exist
+        if (!accessToken || !refreshToken) {
+          throw new Error('Missing Fitbit tokens. Authentication required.');
+        }
+
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
+
+        // Check token expiration and refresh if needed
+        if (this.tokenExpiresAt) {
+          // Add buffer time (5 minutes) to ensure token doesn't expire during use
+          if (Date.now() >= (this.tokenExpiresAt - 300000)) {
+            await this.refreshAccessToken();
+          }
+        } else {
+          throw new Error('Invalid token expiration time');
+        }
+
+        // Initialize and verify permissions
+        console.log('[FitbitHealthProvider] Initializing permissions for user:', this.userId);
+        await this.initializePermissions(this.userId);
+        
+        // Explicitly verify permission manager state
+        const permissionManager = this.getPermissionManager();
+        if (!permissionManager) {
+          throw new Error('Permission manager initialization failed');
+        }
+        
+        // Verify token is valid by making a test API call
+        try {
+          await this.fetchFromFitbit('https://api.fitbit.com/1/user/-/profile.json');
+        } catch (error) {
+          throw new Error(`Token validation failed: ${error}`);
+        }
+
+        // Wait for and verify permission state
+        const permissionState = await permissionManager.getPermissionState();
+        if (!permissionState) {
+          throw new Error('Permission state not available after initialization');
+        }
+        
+        console.log('[FitbitHealthProvider] Permission state after initialization:', permissionState);
+        
+        // Only mark as initialized if permissions are properly set up
+        if (permissionState.status === 'granted' || permissionState.status === 'not_determined') {
+          this.initialized = true;
+          console.log('[FitbitHealthProvider] Initialization completed successfully');
+        } else {
+          throw new Error(`Invalid permission state: ${permissionState.status}`);
+        }
+      } catch (error) {
+        this.initialized = false;
+        console.error('[FitbitHealthProvider] Initialization failed:', error);
+        throw error;
+      } finally {
+        this.initializationPromise = null;
+      }
+    })();
+
+    await this.initializationPromise;
   }
 
   async requestPermissions(): Promise<PermissionStatus> {
@@ -209,11 +258,44 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: string[]
   ): Promise<RawHealthData> {
-    const permissionState = await this.checkPermissionsStatus();
-    if (permissionState.status !== 'granted') {
+    // Ensure initialization and permissions are complete
+    await this.ensureInitialized();
+
+    // Double-check permission manager state and wait for any pending initialization
+    if (this.initializationPromise) {
+      await this.initializationPromise;
+    }
+
+    const permissionManager = this.getPermissionManager();
+    if (!permissionManager) {
+      console.error('[FitbitHealthProvider] Permission manager not available for metrics fetch');
+      throw new Error('Permission manager not initialized');
+    }
+
+    // Verify current permission state with retry logic
+    let permissionState;
+    const maxRetries = 3;
+    const retryDelay = 1000;
+
+    for (let i = 0; i < maxRetries; i++) {
+      permissionState = await permissionManager.getPermissionState();
+      if (permissionState && permissionState.status === 'granted') {
+        break;
+      }
+      if (i < maxRetries - 1) {
+        console.log(`[FitbitHealthProvider] Waiting for permissions, attempt ${i + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+
+    if (!permissionState || permissionState.status !== 'granted') {
       throw new HealthProviderPermissionError('Fitbit', 'Permission not granted for Fitbit data access');
     }
-    await this.ensureInitialized();
+
+    // Check if token needs refresh before fetching metrics
+    if (this.tokenExpiresAt && Date.now() >= (this.tokenExpiresAt - 300000)) {
+      await this.refreshAccessToken();
+    }
 
     // Fitbit endpoints are typically date-based; we assume both dates are the same.
     const dateStr = startDate.toISOString().split('T')[0];
