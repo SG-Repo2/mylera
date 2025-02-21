@@ -7,6 +7,7 @@ import { HealthProviderPermissionError } from '../../types/errors';
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../../../services/supabaseClient';
+import { callWithTimeout, DEFAULT_TIMEOUTS } from '../../../../utils/asyncUtils';
 
 const STORAGE_KEY = {
   ACCESS_TOKEN: 'fitbit_access_token',
@@ -20,74 +21,67 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   private tokenExpiresAt: number | null = null;
 
   protected async performInitialization(): Promise<void> {
-    console.log('[FitbitHealthProvider] Starting initialization');
+    await callWithTimeout(
+      this.loadAndVerifyTokens(),
+      DEFAULT_TIMEOUTS.INITIALIZATION,
+      'Token verification timed out'
+    );
+    
+    await this.initializePermissionsAndVerify();
+    await this.verifyApiAccess();
+  }
 
+  private async loadAndVerifyTokens(): Promise<void> {
+    if (!this.userId) {
+      throw new Error('Cannot initialize provider without userId');
+    }
+
+    const [accessToken, refreshToken, expiryStr] = await Promise.all([
+      SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN),
+      SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN),
+      SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY)
+    ]);
+
+    if (!accessToken || !refreshToken) {
+      throw new Error('Missing Fitbit tokens. Authentication required.');
+    }
+
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
+    this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
+
+    if (this.tokenExpiresAt && Date.now() >= (this.tokenExpiresAt - 300000)) {
+      await this.refreshAccessToken();
+    }
+  }
+
+  private async verifyApiAccess(): Promise<void> {
     try {
-      // Ensure we have a userId before proceeding
-      if (!this.userId) {
-        throw new Error('Cannot initialize provider without userId');
-      }
-
-      // Load stored tokens with additional error handling
-      const [accessToken, refreshToken, expiryStr] = await Promise.all([
-        SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN),
-        SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN),
-        SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY)
-      ]);
-
-      // Validate tokens exist
-      if (!accessToken || !refreshToken) {
-        throw new Error('Missing Fitbit tokens. Authentication required.');
-      }
-
-      this.accessToken = accessToken;
-      this.refreshToken = refreshToken;
-      this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
-
-      // Check token expiration and refresh if needed
-      if (this.tokenExpiresAt) {
-        // Add buffer time (5 minutes) to ensure token doesn't expire during use
-        if (Date.now() >= (this.tokenExpiresAt - 300000)) {
-          await this.refreshAccessToken();
-        }
-      } else {
-        throw new Error('Invalid token expiration time');
-      }
-
-      // Initialize and verify permissions
-      console.log('[FitbitHealthProvider] Initializing permissions for user:', this.userId);
-      await this.initializePermissions(this.userId);
-      
-      // Explicitly verify permission manager state
-      const permissionManager = this.getPermissionManager();
-      if (!permissionManager) {
-        throw new Error('Permission manager initialization failed');
-      }
-      
-      // Verify token is valid by making a test API call
-      try {
-        await this.fetchFromFitbit('https://api.fitbit.com/1/user/-/profile.json');
-      } catch (error) {
-        throw new Error(`Token validation failed: ${error}`);
-      }
-
-      // Wait for and verify permission state
-      const permissionState = await permissionManager.getPermissionState();
-      if (!permissionState) {
-        throw new Error('Permission state not available after initialization');
-      }
-      
-      console.log('[FitbitHealthProvider] Permission state after initialization:', permissionState);
-      
-      // Only mark as initialized if permissions are properly set up
-      if (permissionState.status === 'granted' || permissionState.status === 'not_determined') {
-        console.log('[FitbitHealthProvider] Initialization completed successfully');
-      } else {
-        throw new Error(`Invalid permission state: ${permissionState.status}`);
-      }
+      await callWithTimeout(
+        this.fetchFromFitbit('https://api.fitbit.com/1/user/-/profile.json'),
+        DEFAULT_TIMEOUTS.API_CALL,
+        'API access verification timed out'
+      );
     } catch (error) {
-      console.error('[FitbitHealthProvider] Initialization failed:', error);
-      throw error;
+      throw new Error(`Token validation failed: ${error}`);
+    }
+  }
+
+  private async initializePermissionsAndVerify(): Promise<void> {
+    await this.initializePermissions(this.userId!);
+    
+    const permissionManager = this.getPermissionManager();
+    if (!permissionManager) {
+      throw new Error('Permission manager initialization failed');
+    }
+    
+    const permissionState = await permissionManager.getPermissionState();
+    if (!permissionState) {
+      throw new Error('Permission state not available after initialization');
+    }
+    
+    if (!(permissionState.status === 'granted' || permissionState.status === 'not_determined')) {
+      throw new Error(`Invalid permission state: ${permissionState.status}`);
     }
   }
 
@@ -213,11 +207,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
   }
 
-  /**
-   * checkPermissionsStatus
-   *
-   * Returns a cached permission state if available, or checks if the access token exists.
-   */
   async checkPermissionsStatus(): Promise<PermissionState> {
     if (this.permissionManager) {
       const cached = await this.permissionManager.getPermissionState();
@@ -257,9 +246,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     return state;
   }
 
-  /**
-   * Handle permission denial with proper cleanup
-   */
   async handlePermissionDenial(): Promise<void> {
     console.log('[FitbitHealthProvider] Handling permission denial');
     
@@ -278,7 +264,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
 
       // Update permission state and clear cache
       if (this.permissionManager) {
-        await this.permissionManager.handlePermissionDenial();
+        await this.permissionManager.handlePermissionDenial('Fitbit');
       }
 
       console.log('[FitbitHealthProvider] Permission denial cleanup completed');
@@ -288,11 +274,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
   }
 
-  /**
-   * Helper: fetchFromFitbit
-   *
-   * Makes a GET request to the specified Fitbit URL with the Bearer token.
-   */
   private async fetchFromFitbit(url: string): Promise<any> {
     if (!this.accessToken) {
       throw new Error('No Fitbit access token available');
@@ -308,19 +289,13 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     return response.json();
   }
 
-  /**
-   * fetchRawMetrics
-   *
-   * For simplicity, this implementation assumes that the startDate and endDate
-   * fall on the same day. Fitbit's daily endpoints are used to fetch raw metrics.
-   */
   async fetchRawMetrics(
     startDate: Date,
     endDate: Date,
     types: string[]
   ): Promise<RawHealthData> {
     // Ensure initialization and permissions are complete
-    await this.initialize();
+    await this.ensureInitialized();
 
     const permissionManager = this.getPermissionManager();
     if (!permissionManager) {
@@ -388,10 +363,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     return rawData;
   }
 
-  // ----- Below are helper methods to fetch each metric type via Fitbit API -----
-
   private async fetchStepsRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/steps/date/{date}/1d.json
     const url = `https://api.fitbit.com/1/user/-/activities/steps/date/${dateStr}/1d.json`;
     const data = await this.fetchFromFitbit(url);
     if (data && data['activities-steps'] && data['activities-steps'].length > 0) {
@@ -407,7 +379,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchDistanceRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/distance/date/{date}/1d.json
     const url = `https://api.fitbit.com/1/user/-/activities/distance/date/${dateStr}/1d.json`;
     const data = await this.fetchFromFitbit(url);
     if (data && data['activities-distance'] && data['activities-distance'].length > 0) {
@@ -423,7 +394,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/calories/date/{date}/1d.json
     const url = `https://api.fitbit.com/1/user/-/activities/calories/date/${dateStr}/1d.json`;
     const data = await this.fetchFromFitbit(url);
     if (data && data['activities-calories'] && data['activities-calories'].length > 0) {
@@ -439,14 +409,12 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchHeartRateRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/heart/date/{date}/1d.json
     const url = `https://api.fitbit.com/1/user/-/activities/heart/date/${dateStr}/1d.json`;
     const data = await this.fetchFromFitbit(url);
     if (data && data['activities-heart'] && data['activities-heart'].length > 0) {
       return data['activities-heart'].map((item: any) => ({
         startDate: `${item.dateTime}T00:00:00.000Z`,
         endDate: `${item.dateTime}T23:59:59.999Z`,
-        // Here we use restingHeartRate if available; otherwise default to 0.
         value: item.value.restingHeartRate ? Number(item.value.restingHeartRate) : 0,
         unit: METRIC_UNITS.HEART_RATE,
         sourceBundle: 'com.fitbit.api'
@@ -456,8 +424,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchBasalCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Fitbit does not provide a direct endpoint for basal calories.
-    // Return a placeholder (zero value) for now.
     return [{
       startDate: `${dateStr}T00:00:00.000Z`,
       endDate: `${dateStr}T23:59:59.999Z`,
@@ -468,8 +434,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchFlightsClimbedRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // There is no direct Fitbit endpoint for flights climbed.
-    // Return a placeholder (zero value) for now.
     return [{
       startDate: `${dateStr}T00:00:00.000Z`,
       endDate: `${dateStr}T23:59:59.999Z`,
@@ -480,8 +444,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   }
 
   private async fetchExerciseRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // For this example, we assume no dedicated exercise endpoint.
-    // You might consider using "active minutes" or another metric.
     return [{
       startDate: `${dateStr}T00:00:00.000Z`,
       endDate: `${dateStr}T23:59:59.999Z`,
@@ -491,11 +453,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }];
   }
 
-  /**
-   * normalizeMetrics
-   *
-   * Converts raw Fitbit data into the standard NormalizedMetric format.
-   */
   normalizeMetrics(rawData: RawHealthData, type: string): NormalizedMetric[] {
     const metrics: NormalizedMetric[] = [];
     switch (type) {
@@ -573,11 +530,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     return metrics;
   }
 
-  /**
-   * getMetrics
-   *
-   * Aggregates the normalized metrics into a HealthMetrics object.
-   */
   async getMetrics(): Promise<HealthMetrics> {
     try {
       await this.refreshTokenIfNeeded();
@@ -623,20 +575,10 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
   }
 
-  /**
-   * aggregateMetric
-   *
-   * A simple aggregation (summing) of normalized metric values.
-   */
   private aggregateMetric(metrics: NormalizedMetric[]): number {
     return metrics.reduce((sum, metric) => sum + metric.value, 0);
   }
 
-  /**
-   * setAccessToken
-   *
-   * Sets the Fitbit access token; this method should be called after a successful OAuth flow.
-   */
   setAccessToken(token: string): void {
     this.accessToken = token;
   }

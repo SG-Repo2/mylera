@@ -1,7 +1,7 @@
 import type { HealthMetrics, RawHealthData, NormalizedMetric } from './metrics';
 import type { MetricType } from '../../../types/metrics';
 import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
-import { withTimeout, DEFAULT_TIMEOUTS } from '../../../utils/timeoutUtils';
+import { callWithTimeout, DEFAULT_TIMEOUTS } from '../../../utils/asyncUtils';
 
 /**
  * Interface representing a platform-specific health data provider.
@@ -126,7 +126,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   protected initialized: boolean = false;
 
   /** Promise tracking ongoing initialization */
-  private initializationPromise: Promise<void> | null = null;
+  protected initializationPromise: Promise<void> | null = null;
 
   /** Timestamp of the last successful data sync */
   protected lastSyncTime: Date | null = null;
@@ -190,16 +190,14 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
     this.initializationPromise = (async () => {
       try {
-        await withTimeout(
+        await callWithTimeout(
           this.performInitialization(),
           DEFAULT_TIMEOUTS.INITIALIZATION,
           'Provider initialization timed out'
         );
         this.initialized = true;
-        console.log('[BaseHealthProvider] Provider initialized successfully');
       } catch (error) {
         this.initialized = false;
-        console.error('[BaseHealthProvider] Provider initialization failed:', error);
         throw error;
       } finally {
         this.initializationPromise = null;
@@ -257,7 +255,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     }
 
     try {
-      await withTimeout(
+      await callWithTimeout(
         (async () => {
           await manager.clearCache();
           await manager.updatePermissionState('denied');
@@ -299,7 +297,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async cleanup(): Promise<void> {
     console.log('[BaseHealthProvider] Starting provider cleanup');
     
-    await withTimeout(
+    await callWithTimeout(
       (async () => {
         try {
           if (this.abortController) {
@@ -366,9 +364,9 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns Date of last sync or null if never synced
    */
   async getLastSyncTime(): Promise<Date | null> {
-    return withTimeout(
+    return callWithTimeout(
       Promise.resolve(this.lastSyncTime),
-      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      DEFAULT_TIMEOUTS.PERMISSION,
       'Get last sync time timed out'
     );
   }
@@ -378,9 +376,9 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @param date - The timestamp to set
    */
   async setLastSyncTime(date: Date): Promise<void> {
-    await withTimeout(
+    await callWithTimeout(
       Promise.resolve(this.lastSyncTime = date),
-      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      DEFAULT_TIMEOUTS.PERMISSION,
       'Set last sync time timed out'
     );
   }
@@ -391,9 +389,9 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns true if the service is available
    */
   async isAvailable(): Promise<boolean> {
-    return withTimeout(
+    return callWithTimeout(
       Promise.resolve(true),
-      DEFAULT_TIMEOUTS.PERMISSION_CHECK,
+      DEFAULT_TIMEOUTS.PERMISSION,
       'Availability check timed out'
     );
   }
@@ -422,7 +420,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     await this.ensureInitialized();
     this.userId = userId;
 
-    await withTimeout(
+    await callWithTimeout(
       (async () => {
         try {
           this.permissionManager = new PermissionManager(userId);

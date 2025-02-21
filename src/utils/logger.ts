@@ -1,7 +1,16 @@
 import { Platform } from 'react-native';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-export type LogCategory = 'health' | 'auth' | 'metrics' | 'general';
+export enum LogCategory {
+  Network = 'network',
+  Retry = 'retry',
+  Health = 'health',
+  Auth = 'auth',
+  Metrics = 'metrics',
+  Performance = 'performance',
+  Timeout = 'timeout',
+  Error = 'error'
+}
 
 interface LogMetadata {
   category: LogCategory;

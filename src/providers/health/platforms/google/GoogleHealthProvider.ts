@@ -22,7 +22,7 @@ import {
   HealthMetricError
 } from '../../types/errors';
 import { HEALTH_PERMISSIONS } from './permissions';
-
+import { callWithTimeout, DEFAULT_TIMEOUTS } from '../../../../utils/asyncUtils';
 
 interface StepsRecord {
   startTime: string;
@@ -71,92 +71,48 @@ interface ExerciseRecord {
 }
 
 export class GoogleHealthProvider extends BaseHealthProvider {
-  private initializationPromise: Promise<void> | null = null;
-
   constructor(userId?: string) {
     super();
     this.userId = userId || null;
   }
 
-  async initialize(): Promise<void> {
-    console.log('[GoogleHealthProvider] Initialize called. Current state:', {
-      initialized: this.initialized,
-      initializationInProgress: !!this.initializationPromise
-    });
-
-    if (this.initialized) {
-      console.log('[GoogleHealthProvider] Already initialized');
-      return;
-    }
-
-    // If initialization is already in progress, wait for it
-    if (this.initializationPromise) {
-      console.log('[GoogleHealthProvider] Waiting for existing initialization...');
-      await this.initializationPromise;
-      return;
-    }
-
-    // Start new initialization
-    console.log('[GoogleHealthProvider] Starting new initialization');
-    this.initializationPromise = (async () => {
-      try {
-        // First initialize the platform
-        await this.performInitialization();
-        
-        // Ensure we have a userId before proceeding
-        if (!this.userId) {
-          throw new Error('Cannot initialize provider without userId');
-        }
-
-        // Initialize and verify permissions
-        console.log('[GoogleHealthProvider] Initializing permissions for user:', this.userId);
-        await this.initializePermissions(this.userId);
-        
-        // Explicitly verify permission manager state
-        const permissionManager = this.getPermissionManager();
-        if (!permissionManager) {
-          throw new Error('Permission manager initialization failed');
-        }
-        
-        // Wait for and verify permission state
-        const permissionState = await permissionManager.getPermissionState();
-        if (!permissionState) {
-          throw new Error('Permission state not available after initialization');
-        }
-        
-        console.log('[GoogleHealthProvider] Permission state after initialization:', permissionState);
-        
-        // Only mark as initialized if permissions are properly set up
-        if (permissionState.status === 'granted' || permissionState.status === 'not_determined') {
-          this.initialized = true;
-          console.log('[GoogleHealthProvider] Initialization completed successfully');
-        } else {
-          throw new Error(`Invalid permission state: ${permissionState.status}`);
-        }
-      } catch (error) {
-        console.error('[GoogleHealthProvider] Initialization failed:', error);
-        this.initialized = false;
-        throw error;
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
-
-    await this.initializationPromise;
-  }
-
-  private async performInitialization(): Promise<void> {
+  protected async performInitialization(): Promise<void> {
     if (Platform.OS !== 'android') {
       throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
-    console.log('[GoogleHealthProvider] Starting platform initialization...');
-    
-    const available = await initialize();
-    console.log('[GoogleHealthProvider] Health Connect availability:', available);
+    const available = await callWithTimeout(
+      initialize(),
+      DEFAULT_TIMEOUTS.INITIALIZATION,
+      'Health Connect initialization timed out'
+    );
     
     if (!available) {
       throw new Error('Health Connect is not available');
+    }
+
+    await this.initializePermissionsAndVerify();
+  }
+
+  private async initializePermissionsAndVerify(): Promise<void> {
+    if (!this.userId) {
+      throw new Error('Cannot initialize provider without userId');
+    }
+
+    await this.initializePermissions(this.userId);
+    
+    const permissionManager = this.getPermissionManager();
+    if (!permissionManager) {
+      throw new Error('Permission manager initialization failed');
+    }
+    
+    const permissionState = await permissionManager.getPermissionState();
+    if (!permissionState) {
+      throw new Error('Permission state not available after initialization');
+    }
+    
+    if (!(permissionState.status === 'granted' || permissionState.status === 'not_determined')) {
+      throw new Error(`Invalid permission state: ${permissionState.status}`);
     }
   }
 
@@ -247,13 +203,17 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         endTime: now.toISOString(),
       };
 
-      // First verify basic permissions
-      const basicPermissionsResult = await Promise.all([
-        readRecords('Steps', { timeRangeFilter: testRange }),
-        readRecords('Distance', { timeRangeFilter: testRange }),
-        readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
-        readRecords('HeartRate', { timeRangeFilter: testRange })
-      ]);
+      // Verify basic permissions with timeout
+      const basicPermissionsResult = await callWithTimeout(
+        Promise.all([
+          readRecords('Steps', { timeRangeFilter: testRange }),
+          readRecords('Distance', { timeRangeFilter: testRange }),
+          readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
+          readRecords('HeartRate', { timeRangeFilter: testRange }), 
+        ]),
+        DEFAULT_TIMEOUTS.PERMISSION,
+        'Permission verification timed out'
+      );
 
       // Separately verify BasalMetabolicRate permission
       try {
@@ -274,6 +234,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
   async handlePermissionDenial(): Promise<void> {
     await super.handlePermissionDenial();
     // Additional platform-specific handling could be added here
+    console.error('[GoogleHealthProvider] Permission denied');
   }
 
   async fetchRawMetrics(
@@ -283,11 +244,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
   ): Promise<RawHealthData> {
     // Ensure initialization and permissions are complete
     await this.ensureInitialized();
-
-    // Double-check permission manager state and wait for any pending initialization
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    }
+    console.log('[GoogleHealthProvider] Initialized');
 
     const permissionManager = this.getPermissionManager();
     if (!permissionManager) {
@@ -378,21 +335,12 @@ export class GoogleHealthProvider extends BaseHealthProvider {
               console.log('[GoogleHealthProvider] Fetching distance records...');
               const distanceResponse = await readRecords('Distance', { timeRangeFilter });
               
-              // Log detailed response structure
-              console.log('[GoogleHealthProvider] Distance response structure:', {
-                hasRecords: !!distanceResponse?.records,
-                recordCount: distanceResponse?.records?.length,
-                firstRecord: distanceResponse?.records?.[0],
-                timeRange: timeRangeFilter
-              });
-
               if (!distanceResponse?.records || !Array.isArray(distanceResponse.records)) {
                 const error = new HealthMetricError('distance', 'Invalid response format from Health Connect');
                 console.error('[GoogleHealthProvider]', error.message, distanceResponse);
                 throw error;
               }
 
-              // Validate and map records with detailed logging
               const validRecords = (distanceResponse.records as DistanceRecord[])
                 .filter(record => {
                   const isValid = record?.distance?.inMeters != null && 
@@ -412,11 +360,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
               console.log('[GoogleHealthProvider] Processed distance metrics:', {
                 validRecordCount: validRecords.length,
-                totalDistance: validRecords.reduce((sum, record) => sum + record.value, 0),
-                timeWindow: {
-                  start: timeRangeFilter.startTime,
-                  end: timeRangeFilter.endTime
-                }
+                totalDistance: validRecords.reduce((sum, record) => sum + record.value, 0)
               });
 
               rawData.distance = validRecords;
@@ -433,7 +377,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
             try {
               console.log('[GoogleHealthProvider] Fetching active calories records...');
               const activeCalories = await readRecords('ActiveCaloriesBurned', { timeRangeFilter });
-              console.log('[GoogleHealthProvider] Raw active calories response:', activeCalories);
 
               if (!activeCalories.records || !Array.isArray(activeCalories.records)) {
                 const error = new HealthMetricError('calories', 'Invalid response format from Health Connect');
@@ -459,7 +402,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                   sourceBundle: 'com.google.android.apps.fitness'
                 }));
 
-              console.log('[GoogleHealthProvider] Processed calories metrics:', validRecords);
               rawData.calories = validRecords;
             } catch (error) {
               console.error('[GoogleHealthProvider] Error processing calories records:', error);
@@ -511,13 +453,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                     }));
                 });
 
-              console.log('[GoogleHealthProvider] Processed heart rate metrics:', {
-                validSampleCount: validHeartRates.length,
-                averageHeartRate: validHeartRates.length > 0 
-                  ? Math.round(validHeartRates.reduce((sum, record) => sum + record.value, 0) / validHeartRates.length)
-                  : 0
-              });
-
               rawData.heart_rate = validHeartRates;
             } catch (error) {
               console.error('[GoogleHealthProvider] Error processing heart rate records:', error);
@@ -557,7 +492,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
           case 'exercise':
             try {
               console.log('[GoogleHealthProvider] Fetching exercise records...');
-              // Google Health Connect uses ExerciseSession for tracking exercise time
               const exerciseResponse = await readRecords('ExerciseSession', { timeRangeFilter });
 
               if (!exerciseResponse?.records || !Array.isArray(exerciseResponse.records)) {
@@ -586,11 +520,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                     sourceBundle: 'com.google.android.apps.fitness'
                   };
                 });
-
-              console.log('[GoogleHealthProvider] Processed exercise metrics:', {
-                validRecordCount: validRecords.length,
-                totalExerciseMinutes: validRecords.reduce((sum, record) => sum + record.value, 0)
-              });
 
               rawData.exercise = validRecords;
             } catch (error) {

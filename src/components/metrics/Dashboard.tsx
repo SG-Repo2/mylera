@@ -22,7 +22,7 @@ import { calculateTotalScore } from '@/src/utils/scoringUtils';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
-
+import { determineHealthPlatform } from '@/src/utils/healthUtils';
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
@@ -285,14 +285,23 @@ export const Dashboard = React.memo(function Dashboard({
         console.log('[Dashboard] Health permissions granted');
       }
 
+      if (!user) {
+        throw new Error('User must be logged in to retry');
+      }
+
       // Clean up existing provider
       console.log('[Dashboard] Cleaning up existing provider...');
       await HealthProviderFactory.cleanup();
       console.log('[Dashboard] Provider cleanup complete');
       
-      // Re-initialize provider and sync data
+      // Get platform and initialize new provider
+      const platform = determineHealthPlatform(user);
+      if (!platform) {
+        throw new Error('Could not determine health platform for user');
+      }
+
       console.log('[Dashboard] Initializing new provider...');
-      const newProvider = await HealthProviderFactory.getProvider();
+      const newProvider = await HealthProviderFactory.getProvider(platform, user.id);
       await newProvider.initialize();
       console.log('[Dashboard] New provider initialized');
       
@@ -303,7 +312,7 @@ export const Dashboard = React.memo(function Dashboard({
       setErrorDialogVisible(true);
       setFetchError(error instanceof Error ? error : new Error('Failed to retry health data sync'));
     }
-  }, [error, requestHealthPermissions, syncHealthData]);
+  }, [error, requestHealthPermissions, syncHealthData, user]);
 
   const debouncedRefresh = useCallback(
     debounce(async () => {

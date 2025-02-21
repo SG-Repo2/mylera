@@ -14,6 +14,7 @@ import { initializeHealthProviderForUser, type ProviderInitializationState } fro
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
+import { determineHealthPlatform } from '../utils/healthUtils';
 
 interface AuthContextType {
   session: Session | null;
@@ -78,7 +79,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             
             // If initialization successful, refresh metrics
             if (healthInitState.isInitialized) {
-              const provider = await HealthProviderFactory.getProvider(undefined, user.id);
+              const platform = determineHealthPlatform(user);
+              if (!platform) {
+                throw new Error('Could not determine health platform for user');
+              }
+              
+              const provider = await HealthProviderFactory.getProvider(platform, user.id);
               await provider.getMetrics();
             }
             
@@ -120,6 +126,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           initializationLock.current = (async () => {
             try {
+              const platform = determineHealthPlatform(session.user);
+              if (!platform) {
+                throw new Error('Could not determine health platform for user');
+              }
+
+              console.log('[AuthProvider] Initializing health provider with platform:', platform);
+              
               await initializeHealthProviderForUser(
                 session.user.id,
                 setHealthPermissionStatus,
@@ -135,6 +148,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('[AuthProvider] Initialization error:', error);
         setHealthPermissionStatus('denied');
+        setHealthInitState(prev => ({
+          ...prev,
+          isInitialized: false,
+          isInitializing: false,
+          error: error instanceof Error ? error : new Error('Failed to initialize health provider')
+        }));
       } finally {
         setLoading(false);
       }
@@ -332,7 +351,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
 
-      const provider = await HealthProviderFactory.getProvider();
+      const platform = determineHealthPlatform(user);
+      if (!platform) {
+        throw new Error('Could not determine health platform for user');
+      }
+
+      const provider = await HealthProviderFactory.getProvider(platform, user.id);
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       

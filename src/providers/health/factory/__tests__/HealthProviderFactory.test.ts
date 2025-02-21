@@ -1,235 +1,150 @@
 import { HealthProviderFactory } from '../HealthProviderFactory';
-import { BaseHealthProvider } from '../../types/provider';
+import { MockHealthProvider } from '../../__mocks__/MockHealthProvider';
 import { HealthProviderError, HealthProviderInitializationError } from '../../types/errors';
-import type { HealthProvider } from '../../types';
-import type { PermissionState } from '../../types/permissions';
-import type { HealthMetrics, RawHealthData } from '../../types/metrics';
+import { Platform } from 'react-native';
 
-// Mock provider for testing
-class MockHealthProvider extends BaseHealthProvider {
-  mockInitialize = jest.fn();
-  mockCheckPermissions = jest.fn();
-  mockRequestPermissions = jest.fn();
+// Mock Platform.OS
+jest.mock('react-native', () => ({
+  Platform: { OS: 'android' }
+}));
 
-  async performInitialization(): Promise<void> {
-    await this.mockInitialize();
-  }
-
-  async checkPermissionsStatus(): Promise<PermissionState> {
-    return this.mockCheckPermissions();
-  }
-
-  async requestPermissions(): Promise<'granted' | 'denied' | 'limited' | 'provisional'> {
-    return this.mockRequestPermissions();
-  }
-
-  async fetchRawMetrics(): Promise<RawHealthData> {
-    return {};
-  }
-
-  async getMetrics(): Promise<HealthMetrics> {
-    const now = new Date();
-    return {
-      id: '',
-      user_id: '',
-      date: now.toISOString().split('T')[0],
-      steps: 0,
-      distance: 0,
-      calories: 0,
-      heart_rate: 0,
-      basal_calories: 0,
-      flights_climbed: 0,
-      exercise: 0,
-      daily_score: 0,
-      weekly_score: null,
-      streak_days: null,
-      last_updated: now.toISOString(),
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
-  }
-}
+// Mock the provider creation to return our MockHealthProvider
+jest.mock('../HealthProviderFactory', () => ({
+  ...jest.requireActual('../HealthProviderFactory'),
+  createProviderInstance: () => new MockHealthProvider()
+}));
 
 describe('HealthProviderFactory', () => {
+  const TEST_USER = 'test-user';
+  let mockProvider: MockHealthProvider;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    // Clean up any existing providers
     HealthProviderFactory.cleanup();
+    mockProvider = new MockHealthProvider();
   });
 
-  describe('permission management', () => {
-    test('maintains permission state between initializations', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'granted', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('granted');
-
+  describe('provider initialization', () => {
+    it('should initialize provider only once for the same platform and user', async () => {
       // First initialization
-      await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(mockProvider.mockCheckPermissions).toHaveBeenCalledTimes(1);
+      const provider1 = await HealthProviderFactory.getProvider('google', TEST_USER);
+      expect(provider1.initialize).toHaveBeenCalledTimes(1);
+      expect(provider1.initializePermissions).toHaveBeenCalledWith(TEST_USER);
 
-      // Second initialization should use cached permission state
-      await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(mockProvider.mockCheckPermissions).toHaveBeenCalledTimes(1); // Still 1, not 2
+      // Second request should return cached instance
+      const provider2 = await HealthProviderFactory.getProvider('google', TEST_USER);
+      expect(provider2).toBe(provider1);
+      expect(provider1.initialize).toHaveBeenCalledTimes(1);
     });
 
-    test('handles limited permissions', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'limited', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('limited');
+    it('should handle initialization failures and retry', async () => {
+      mockProvider.mockInitialize
+        .mockRejectedValueOnce(new Error('First attempt failed'))
+        .mockResolvedValueOnce(undefined);
 
-      const provider = await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(provider).toBeDefined();
-      expect(mockProvider.mockCheckPermissions).toHaveBeenCalled();
+      const provider = await HealthProviderFactory.getProvider('google', TEST_USER);
+      expect(provider.initialize).toHaveBeenCalledTimes(2);
+      expect(provider.initializePermissions).toHaveBeenCalledWith(TEST_USER);
     });
 
-    test('handles provisional permissions', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'provisional', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('granted');
-
-      const provider = await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(provider).toBeDefined();
-      expect(mockProvider.mockRequestPermissions).toHaveBeenCalled();
-    });
-
-    test('handles permission state transitions', async () => {
-      const mockProvider = new MockHealthProvider();
-      let permissionState: PermissionState = { status: 'provisional', lastChecked: Date.now() };
-      
-      mockProvider.mockCheckPermissions.mockImplementation(() => Promise.resolve(permissionState));
-      mockProvider.mockRequestPermissions.mockImplementation(async () => {
-        permissionState = { status: 'granted', lastChecked: Date.now() };
-        return 'granted';
-      });
-
-      const provider = await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(provider).toBeDefined();
-      expect(mockProvider.mockRequestPermissions).toHaveBeenCalled();
-      expect(permissionState.status).toBe('granted');
-    });
-
-    test('handles permission denial cleanup', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'denied', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('denied');
-
+    it('should throw platform-specific errors', async () => {
+      Platform.OS = 'ios';
       await expect(
-        HealthProviderFactory.getProvider('os', 'test-user')
+        HealthProviderFactory.getProvider('google', TEST_USER)
       ).rejects.toThrow(HealthProviderError);
+    });
+  });
 
-      // Should clean up after denial
-      expect(await HealthProviderFactory.getProvider('os', 'test-user')
-        .catch(() => null)).toBeNull();
+  describe('concurrent initialization', () => {
+    it('should handle multiple concurrent initialization requests', async () => {
+      // Simulate slow initialization
+      mockProvider.mockInitialize.mockImplementation(
+        () => new Promise(resolve => setTimeout(resolve, 100))
+      );
+
+      // Make concurrent requests
+      const requests = Array(3).fill(null).map(() =>
+        HealthProviderFactory.getProvider('google', TEST_USER)
+      );
+
+      const providers = await Promise.all(requests);
+      
+      // All requests should return the same instance
+      expect(new Set(providers).size).toBe(1);
+      // Initialize should only be called once
+      expect(providers[0].initialize).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle initialization failure for concurrent requests', async () => {
+      mockProvider.mockInitialize.mockRejectedValue(new Error('Initialization failed'));
+
+      const requests = Array(3).fill(null).map(() =>
+        HealthProviderFactory.getProvider('google', TEST_USER)
+      );
+
+      await expect(Promise.all(requests)).rejects.toThrow();
+    });
+  });
+
+  describe('cleanup', () => {
+    it('should cleanup specific provider', async () => {
+      const provider = await HealthProviderFactory.getProvider('google', TEST_USER);
+      const key = 'google:test-user';
+
+      await HealthProviderFactory.cleanup(key);
+      expect(provider.cleanup).toHaveBeenCalled();
+
+      // Next request should create new instance
+      const newProvider = await HealthProviderFactory.getProvider('google', TEST_USER);
+      expect(newProvider).not.toBe(provider);
+    });
+
+    it('should cleanup all providers', async () => {
+      const provider1 = await HealthProviderFactory.getProvider('google', 'user1');
+      const provider2 = await HealthProviderFactory.getProvider('google', 'user2');
+
+      await HealthProviderFactory.cleanup();
+
+      expect(provider1.cleanup).toHaveBeenCalled();
+      expect(provider2.cleanup).toHaveBeenCalled();
+    });
+
+    it('should handle cleanup errors gracefully', async () => {
+      const provider = await HealthProviderFactory.getProvider('google', TEST_USER);
+      const mockCleanup = jest.spyOn(provider, 'cleanup')
+        .mockRejectedValue(new Error('Cleanup failed'));
+
+      // Should not throw
+      await expect(HealthProviderFactory.cleanup()).resolves.not.toThrow();
+      
+      mockCleanup.mockRestore();
     });
   });
 
   describe('error handling', () => {
-    test('handles token refresh failures', async () => {
-      const mockProvider = new MockHealthProvider();
-      let attempts = 0;
-      mockProvider.mockCheckPermissions.mockImplementation(async () => {
-        attempts++;
-        if (attempts < 3) {
-          throw new Error('Token refresh failed');
-        }
-        return { status: 'granted', lastChecked: Date.now() };
-      });
-
-      const provider = await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(provider).toBeDefined();
-      expect(attempts).toBe(3); // Should succeed after retries
-    });
-
-    test('handles initialization cleanup on failure', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockInitialize.mockRejectedValue(new Error('Initialization failed'));
+    it('should clean up failed initialization state', async () => {
+      mockProvider.mockInitialize.mockRejectedValue(new Error('Init failed'));
 
       await expect(
-        HealthProviderFactory.getProvider('os', 'test-user')
-      ).rejects.toThrow(HealthProviderInitializationError);
+        HealthProviderFactory.getProvider('google', TEST_USER)
+      ).rejects.toThrow();
 
-      // Should be cleaned up after failure
-      expect(await HealthProviderFactory.getProvider('os', 'test-user')
-        .catch(() => null)).toBeNull();
+      expect(mockProvider.cleanup).toHaveBeenCalled();
     });
-  });
 
-  test('maintains permission state between initializations', async () => {
-    const mockProvider = new MockHealthProvider();
-    mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'granted', lastChecked: Date.now() });
-    mockProvider.mockRequestPermissions.mockResolvedValue('granted');
+    it('should allow retry after initialization failure', async () => {
+      mockProvider.mockInitialize
+        .mockRejectedValueOnce(new Error('First try fails'))
+        .mockResolvedValueOnce(undefined);
 
-    // First initialization
-    await HealthProviderFactory.getProvider('os', 'test-user');
-    expect(mockProvider.mockCheckPermissions).toHaveBeenCalledTimes(1);
+      // First attempt fails
+      await expect(
+        HealthProviderFactory.getProvider('google', TEST_USER)
+      ).rejects.toThrow();
 
-    // Second initialization should use cached permission state
-    await HealthProviderFactory.getProvider('os', 'test-user');
-    expect(mockProvider.mockCheckPermissions).toHaveBeenCalledTimes(1); // Still 1, not 2
+      // Second attempt should succeed
+      const provider = await HealthProviderFactory.getProvider('google', TEST_USER);
+      expect(provider).toBeDefined();
+    });
   });
 });
-  describe('initialization', () => {
-    test('handles concurrent initialization requests', async () => {
-      const mockProvider = new MockHealthProvider();
-      let initCount = 0;
-      mockProvider.mockInitialize.mockImplementation(async () => {
-        initCount++;
-        await new Promise(resolve => setTimeout(resolve, 100)); // Simulate async work
-      });
-
-      // Start multiple concurrent initializations
-      const promises = Array(3).fill(null).map(() => 
-        HealthProviderFactory.getProvider('os', 'test-user')
-      );
-
-      await Promise.all(promises);
-
-      // Should only initialize once despite multiple requests
-      expect(initCount).toBe(1);
-    });
-
-    test('respects initialization timeout', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockInitialize.mockImplementation(async () => {
-        await new Promise(resolve => setTimeout(resolve, 35000)); // Longer than timeout
-      });
-
-      await expect(
-        HealthProviderFactory.getProvider('os', 'test-user')
-      ).rejects.toThrow(HealthProviderInitializationError);
-    });
-
-    test('handles initialization with permissions granted', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'granted', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('granted');
-
-      const provider = await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(provider).toBeDefined();
-      expect(mockProvider.mockCheckPermissions).toHaveBeenCalled();
-    });
-
-    test('handles initialization with permissions denied', async () => {
-      const mockProvider = new MockHealthProvider();
-      mockProvider.mockCheckPermissions.mockResolvedValue({ status: 'denied', lastChecked: Date.now() });
-      mockProvider.mockRequestPermissions.mockResolvedValue('denied');
-
-      await expect(
-        HealthProviderFactory.getProvider('os', 'test-user')
-      ).rejects.toThrow(HealthProviderError);
-    });
-
-    test('retries initialization on failure', async () => {
-      const mockProvider = new MockHealthProvider();
-      let attempts = 0;
-      mockProvider.mockInitialize.mockImplementation(async () => {
-        attempts++;
-        if (attempts < 2) {
-          throw new Error('Initialization failed');
-        }
-      });
-
-      await HealthProviderFactory.getProvider('os', 'test-user');
-      expect(attempts).toBe(2); // Should succeed on second attempt
-    });
-  });

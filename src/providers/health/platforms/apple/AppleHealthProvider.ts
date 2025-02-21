@@ -18,87 +18,52 @@ import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
 import { DateUtils } from '../../../../utils/DateUtils';
+import { callWithTimeout, DEFAULT_TIMEOUTS } from '../../../../utils/asyncUtils';
 
 export class AppleHealthProvider extends BaseHealthProvider {
-  private initializationPromise: Promise<void> | null = null;
-
-  async initialize(): Promise<void> {
+  protected async performInitialization(): Promise<void> {
     if (Platform.OS !== 'ios') {
       throw new Error('AppleHealthProvider can only be used on iOS');
     }
 
-    console.log('[AppleHealthProvider] Initialize called. Current state:', {
-      initialized: this.initialized,
-      initializationInProgress: !!this.initializationPromise
-    });
-
-    if (this.initialized) {
-      console.log('[AppleHealthProvider] Already initialized');
-      return;
-    }
-
-    // If initialization is already in progress, wait for it
-    if (this.initializationPromise) {
-      console.log('[AppleHealthProvider] Waiting for existing initialization...');
-      await this.initializationPromise;
-      return;
-    }
-
-    // Start new initialization
-    console.log('[AppleHealthProvider] Starting new initialization');
-    this.initializationPromise = (async () => {
-      try {
-        // First initialize HealthKit
-        await new Promise<void>((resolve, reject) => {
-          AppleHealthKit.initHealthKit(permissions, (error: string) => {
-            if (error) {
-              reject(new Error(error));
-              return;
-            }
-            resolve();
-          });
+    // First initialize HealthKit with timeout
+    await callWithTimeout(
+      new Promise<void>((resolve, reject) => {
+        AppleHealthKit.initHealthKit(permissions, (error: string) => {
+          if (error) {
+            reject(new Error(error));
+            return;
+          }
+          resolve();
         });
+      }),
+      DEFAULT_TIMEOUTS.INITIALIZATION,
+      'HealthKit initialization timed out'
+    );
 
-        // Ensure we have a userId before proceeding
-        if (!this.userId) {
-          throw new Error('Cannot initialize provider without userId');
-        }
+    await this.initializePermissionsAndVerify();
+  }
 
-        // Initialize and verify permissions
-        console.log('[AppleHealthProvider] Initializing permissions for user:', this.userId);
-        await this.initializePermissions(this.userId);
-        
-        // Explicitly verify permission manager state
-        const permissionManager = this.getPermissionManager();
-        if (!permissionManager) {
-          throw new Error('Permission manager initialization failed');
-        }
-        
-        // Wait for and verify permission state
-        const permissionState = await permissionManager.getPermissionState();
-        if (!permissionState) {
-          throw new Error('Permission state not available after initialization');
-        }
-        
-        console.log('[AppleHealthProvider] Permission state after initialization:', permissionState);
-        
-        // Only mark as initialized if permissions are properly set up
-        if (permissionState.status === 'granted' || permissionState.status === 'not_determined') {
-          this.initialized = true;
-          console.log('[AppleHealthProvider] Initialization completed successfully');
-        } else {
-          throw new Error(`Invalid permission state: ${permissionState.status}`);
-        }
-      } catch (error) {
-        console.error('[AppleHealthProvider] Initialization failed:', error);
-        this.initialized = false;
-        throw error;
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
+  private async initializePermissionsAndVerify(): Promise<void> {
+    if (!this.userId) {
+      throw new Error('Cannot initialize provider without userId');
+    }
 
-    await this.initializationPromise;
+    await this.initializePermissions(this.userId);
+    
+    const permissionManager = this.getPermissionManager();
+    if (!permissionManager) {
+      throw new Error('Permission manager initialization failed');
+    }
+    
+    const permissionState = await permissionManager.getPermissionState();
+    if (!permissionState) {
+      throw new Error('Permission state not available after initialization');
+    }
+    
+    if (!(permissionState.status === 'granted' || permissionState.status === 'not_determined')) {
+      throw new Error(`Invalid permission state: ${permissionState.status}`);
+    }
   }
 
   async requestPermissions(): Promise<PermissionStatus> {
@@ -391,7 +356,11 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      const results = await promisify<{ value: number }>(AppleHealthKit.getStepCount, options);
+      const results = await callWithTimeout(
+        promisify<{ value: number }>(AppleHealthKit.getStepCount, options),
+        DEFAULT_TIMEOUTS.API_CALL,
+        'Steps fetch timed out'
+      );
       return [{
         startDate: options.startDate || new Date().toISOString(),
         endDate: options.endDate || new Date().toISOString(),

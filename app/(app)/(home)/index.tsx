@@ -10,6 +10,7 @@ import { Animated } from 'react-native';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { debounce } from 'lodash';
+import { determineHealthPlatform } from '@/src/utils/healthUtils';
 
 const LoadingScreen = React.memo(() => {
   const insets = useSafeAreaInsets();
@@ -30,11 +31,14 @@ const LoadingScreen = React.memo(() => {
 });
 
 export default function HomeScreen() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, healthInitState } = useAuth();
   const insets = useSafeAreaInsets();
   const [provider, setProvider] = useState<HealthProvider | null>(null);
   const [providerError, setProviderError] = useState<Error | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  
+  // Add health initialization state check
+  const isLoading = authLoading || isInitializing || healthInitState.isInitializing;
   
   // Refs for cleanup and cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -49,7 +53,6 @@ export default function HomeScreen() {
 
       try {
         setIsInitializing(prev => {
-          // Only set to true if we weren't already initializing
           if (!prev) console.log('[HomeScreen] Starting initialization:', currentInitId);
           return true;
         });
@@ -63,8 +66,13 @@ export default function HomeScreen() {
           return;
         }
 
-        const deviceType = user.user_metadata?.deviceType as 'os' | 'fitbit' | undefined;
-        const newProvider = await HealthProviderFactory.getProvider(deviceType, user.id);
+        // Determine the correct platform based on user's device type
+        const platform = determineHealthPlatform(user);
+        if (!platform) {
+          throw new Error('Could not determine health platform for user');
+        }
+
+        const newProvider = await HealthProviderFactory.getProvider(platform, user.id);
 
         // Check if cancelled again
         if (signal.aborted) {
@@ -84,7 +92,7 @@ export default function HomeScreen() {
         if (!signal.aborted) {
           console.error('[HomeScreen] Provider initialization failed:', currentInitId, error);
           setProvider(null);
-          setProviderError(prev => error instanceof Error ? error : new Error('Failed to initialize health provider'));
+          setProviderError(error instanceof Error ? error : new Error('Failed to initialize health provider'));
         }
       } finally {
         if (!signal.aborted) {
@@ -92,7 +100,7 @@ export default function HomeScreen() {
           console.log('[HomeScreen] Initialization complete:', currentInitId);
         }
       }
-    }, 300), // Reduced from 1000ms to 300ms for faster initialization
+    }, 300),
     [user]
   );
 
