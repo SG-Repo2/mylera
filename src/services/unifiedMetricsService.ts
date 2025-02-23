@@ -6,55 +6,64 @@ import type { MetricType, DailyMetricScore } from '../types/schemas';
 import { supabase } from './supabaseClient';
 
 interface MetricSource {
-  source: string;
+  source: 'native' | 'calculated' | 'composite';
   priority: number;
   staleness: number;
   lastSynced: Date | null;
   metricTypes: string[];
   dataSourceName: string;
+  fallbackSource?: 'native' | 'calculated' | 'composite';
+  requiresValidation?: boolean;
 }
 
-// First, extract the initial configuration to a constant
+// Enhanced metric source configuration
 const INITIAL_METRIC_SOURCES: Record<MetricType, MetricSource> = {
   steps: {
     source: 'native',
-    priority: 2,
+    priority: 1,
     staleness: 5,
     lastSynced: null,
     metricTypes: ['steps'],
-    dataSourceName: "Device Health API"
+    dataSourceName: "Device Health API",
+    requiresValidation: true
   },
   distance: {
-    source: 'native',
+    source: 'composite',
     priority: 2,
     staleness: 5,
     lastSynced: null,
-    metricTypes: ['distance'],
-    dataSourceName: "Device Health API"
+    metricTypes: ['distance', 'steps'],
+    dataSourceName: "Device Health API + Calculation",
+    fallbackSource: 'calculated',
+    requiresValidation: true
   },
   calories: {
-    source: 'native',
+    source: 'composite',
     priority: 2,
     staleness: 5,
     lastSynced: null,
-    metricTypes: ['calories'],
-    dataSourceName: "Device Health API"
+    metricTypes: ['calories', 'steps', 'distance'],
+    dataSourceName: "Device Health API + Calculation",
+    fallbackSource: 'calculated',
+    requiresValidation: true
   },
   heart_rate: {
     source: 'native',
-    priority: 2,
-    staleness: 5,
+    priority: 1,
+    staleness: 2, // More frequent updates for heart rate
     lastSynced: null,
     metricTypes: ['heart_rate'],
-    dataSourceName: "Device Health API"
+    dataSourceName: "Device Health API",
+    requiresValidation: true
   },
   basal_calories: {
-    source: 'native',
-    priority: 2,
-    staleness: 5,
+    source: 'calculated',
+    priority: 3,
+    staleness: 60, // Less frequent updates needed
     lastSynced: null,
-    metricTypes: ['basal_calories'],
-    dataSourceName: "Device Health API"
+    metricTypes: ['basal_calories', 'heart_rate'],
+    dataSourceName: "Calculated from Heart Rate",
+    requiresValidation: false
   },
   flights_climbed: {
     source: 'native',
@@ -62,25 +71,57 @@ const INITIAL_METRIC_SOURCES: Record<MetricType, MetricSource> = {
     staleness: 5,
     lastSynced: null,
     metricTypes: ['flights_climbed'],
-    dataSourceName: "Device Health API"
+    dataSourceName: "Device Health API",
+    requiresValidation: true
   },
   exercise: {
-    source: 'native',
+    source: 'composite',
     priority: 2,
     staleness: 5,
     lastSynced: null,
-    metricTypes: ['exercise'],
-    dataSourceName: "Device Health API"
+    metricTypes: ['exercise', 'heart_rate', 'steps'],
+    dataSourceName: "Device Health API + Calculation",
+    fallbackSource: 'calculated',
+    requiresValidation: true
   }
 };
 
-// Then modify the service to use a mutable copy
+import { scoreCalculatorService } from './scoreCalculatorService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
+
+// Mutable copy of the configuration
 let METRIC_SOURCES: Record<MetricType, MetricSource> = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
 
+// Cache keys
+const METRIC_CACHE_KEY = '@MyLera:metrics:';
+const SYNC_STATUS_KEY = '@MyLera:sync_status';
+
 export const unifiedMetricsService = {
-  // Add reset function
   resetState() {
     METRIC_SOURCES = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
+  },
+
+  // Cache management
+  async cacheMetrics(userId: string, metrics: HealthMetrics) {
+    try {
+      await AsyncStorage.setItem(
+        `${METRIC_CACHE_KEY}${userId}`,
+        JSON.stringify({ metrics, timestamp: Date.now() })
+      );
+    } catch (error) {
+      console.warn('[unifiedMetricsService] Failed to cache metrics:', error);
+    }
+  },
+
+  async getCachedMetrics(userId: string): Promise<{ metrics: HealthMetrics; timestamp: number } | null> {
+    try {
+      const cached = await AsyncStorage.getItem(`${METRIC_CACHE_KEY}${userId}`);
+      return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+      console.warn('[unifiedMetricsService] Failed to get cached metrics:', error);
+      return null;
+    }
   },
 
   async getMetrics(
@@ -211,6 +252,7 @@ export const unifiedMetricsService = {
     return hasAllMetrics && hasValidValues;
   },
 
+  // Transform database metrics to HealthMetrics with enhanced validation and scoring
   transformDatabaseMetricsToHealthMetrics(
     dbMetrics: DailyMetricScore[],
     userId: string, 
@@ -236,20 +278,68 @@ export const unifiedMetricsService = {
       updated_at: now,
     };
 
-    // Calculate total points from valid metrics
-    const totalPoints = dbMetrics.reduce((sum, metric) => sum + (metric.points || 0), 0);
-    result.daily_score = totalPoints;
-
-    // Map metric values
+    // Map and validate metric values
     dbMetrics.forEach(metric => {
       const key = metric.metric_type;
       if (key in result && typeof metric.value === 'number' && !isNaN(metric.value)) {
-        result[key] = metric.value;
+        const validation = scoreCalculatorService.calculateMetricScore(key, metric.value);
+        if (!validation.validationErrors?.length) {
+          result[key] = metric.value;
+        } else {
+          console.warn(`[transformDatabaseMetricsToHealthMetrics] Invalid metric value:`, {
+            type: key,
+            value: metric.value,
+            errors: validation.validationErrors
+          });
+        }
       }
     });
 
+    // Calculate total score using scoreCalculatorService
+    result.daily_score = scoreCalculatorService.calculateTotalScore(result);
+
+    // Verify the calculated score matches the sum of individual metrics
+    const scoreVerified = scoreCalculatorService.verifyTotalScore(dbMetrics, result.daily_score);
+    if (!scoreVerified) {
+      console.warn('[transformDatabaseMetricsToHealthMetrics] Score verification failed:', {
+        calculated: result.daily_score,
+        metrics: dbMetrics
+      });
+    }
+
     return result;
   },
+
+  // Calculate metrics that can be derived from other metrics
+  calculateDerivedMetrics(metrics: HealthMetrics): Partial<HealthMetrics> {
+    const derived: Partial<HealthMetrics> = {};
+
+    // Calculate basal calories if we have heart rate
+    if (metrics.heart_rate !== null) {
+      // Basic BMR calculation using heart rate
+      // This is a simplified example - you'd want to use a more sophisticated formula
+      derived.basal_calories = Math.round(metrics.heart_rate * 7.5);
+    }
+
+    // Calculate calories from steps if direct calorie measurement is missing
+    if (metrics.calories === null && metrics.steps !== null) {
+      // Basic calculation: ~0.04 calories per step
+      derived.calories = Math.round(metrics.steps * 0.04);
+    }
+
+    // Calculate distance from steps if direct distance measurement is missing
+    if (metrics.distance === null && metrics.steps !== null) {
+      // Basic calculation: ~0.762 meters per step
+      derived.distance = Math.round(metrics.steps * 0.762);
+    }
+
+    return derived;
+  },
+
+  // Debounced version of synchronizeMetrics to prevent rapid consecutive calls
+  debouncedSync: debounce(async (metrics: HealthMetrics, userId: string) => {
+    await unifiedMetricsService.synchronizeMetrics(metrics, userId);
+  }, 1000, { leading: true, trailing: false }),
 
   // Check if a specific metric is stale based on configuration
   isMetricStale(metricType: MetricType, lastUpdate?: string): boolean {
@@ -339,78 +429,118 @@ export const unifiedMetricsService = {
       });
   },
 
-  // Synchronize native metrics with the database atomically
+  // Enhanced synchronization with retry logic and derived metrics
   async synchronizeMetrics(
     nativeMetrics: HealthMetrics,
-    userId: string
+    userId: string,
+    retryCount: number = 0
   ): Promise<void> {
     console.log('[synchronizeMetrics] Starting synchronization:', {
       userId,
       date: nativeMetrics.date,
+      retryCount,
       metrics: Object.entries(METRIC_SOURCES)
         .filter(([, source]) => source.source === 'native')
         .map(([type]) => type)
     });
 
     const syncStartTime = Date.now();
+    const MAX_RETRIES = 3;
 
     try {
-      // Build updates array for native metrics
-      const updates = Object.entries(METRIC_SOURCES)
-        .filter(([type, source]) => 
-          source.source === 'native' && 
-          nativeMetrics[type as MetricType] !== null &&
-          typeof nativeMetrics[type as MetricType] === 'number' &&
-          !isNaN(nativeMetrics[type as MetricType] as number)
-        )
-        .map(([type]) => ({
-          user_id: userId,
-          date: nativeMetrics.date,
-          metric_type: type,
-          value: nativeMetrics[type as MetricType],
-          updated_at: new Date().toISOString()
-        }));
+      // Calculate any derived metrics
+      const derivedMetrics = this.calculateDerivedMetrics(nativeMetrics);
+      const combinedMetrics = { ...nativeMetrics, ...derivedMetrics };
 
-      if (updates.length === 0) {
+      // Validate all metrics before updating
+      const updates = await Promise.all(
+        Object.entries(METRIC_SOURCES).map(async ([type, source]) => {
+          const metricType = type as MetricType;
+          const value = combinedMetrics[metricType];
+
+          // Skip if no value or invalid
+          if (value === null || isNaN(value)) return null;
+
+          // Validate metric if required
+          if (source.requiresValidation) {
+            const validation = scoreCalculatorService.calculateMetricScore(metricType, value);
+            if (validation.validationErrors?.length) {
+              console.warn(`[synchronizeMetrics] Validation failed for ${metricType}:`, validation.validationErrors);
+              return null;
+            }
+          }
+
+          return {
+            user_id: userId,
+            date: nativeMetrics.date,
+            metric_type: metricType,
+            value,
+            points: scoreCalculatorService.calculateMetricScore(metricType, value).points,
+            updated_at: new Date().toISOString()
+          };
+        })
+      );
+
+      // Filter out null values
+      const validUpdates = updates.filter(update => update !== null);
+
+      if (validUpdates.length === 0) {
         console.log('[synchronizeMetrics] No valid metrics to update');
         return;
       }
 
+      // Cache metrics before database update
+      await this.cacheMetrics(userId, combinedMetrics);
+
       // Perform atomic update via RPC
       const { error: updateError } = await supabase.rpc('update_metrics_transaction', {
-        updates: JSON.stringify(updates)
+        updates: JSON.stringify(validUpdates)
       });
 
       if (updateError) {
-        console.error("[synchronizeMetrics] Transaction error:", updateError);
         throw updateError;
       }
 
       // Verify the updates
-      const verificationResults = await this.verifyMetricUpdates(nativeMetrics, userId);
-      
-      // Log verification results
+      const verificationResults = await this.verifyMetricUpdates(combinedMetrics, userId);
       const failedVerifications = verificationResults.filter(r => !r.matched);
+
       if (failedVerifications.length > 0) {
         console.warn('[synchronizeMetrics] Verification failures:', failedVerifications);
+        
+        // Retry if verification failed and we haven't exceeded max retries
+        if (retryCount < MAX_RETRIES) {
+          console.log(`[synchronizeMetrics] Retrying synchronization (attempt ${retryCount + 1})`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+          return this.synchronizeMetrics(nativeMetrics, userId, retryCount + 1);
+        }
       } else {
         console.log('[synchronizeMetrics] All metrics verified successfully');
       }
 
       // Update sync status for processed metrics
-      updates.forEach(update => {
+      validUpdates.forEach(update => {
         this.updateSyncStatus(update.metric_type as MetricType);
       });
 
       const syncDuration = Date.now() - syncStartTime;
       console.log('[synchronizeMetrics] Synchronization completed:', {
         duration: syncDuration,
-        updatedMetrics: updates.length,
-        verificationFailures: failedVerifications.length
+        updatedMetrics: validUpdates.length,
+        verificationFailures: failedVerifications.length,
+        retryCount
       });
 
     } catch (error) {
       console.error('[synchronizeMetrics] Synchronization failed:', error);
+      
+      // Retry on error if we haven't exceeded max retries
+      if (retryCount < MAX_RETRIES) {
+        console.log(`[synchronizeMetrics] Retrying after error (attempt ${retryCount + 1})`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+        return this.synchronizeMetrics(nativeMetrics, userId, retryCount + 1);
+      }
+      
       throw error;
     }
   }

@@ -1,7 +1,6 @@
 import { supabase } from './supabaseClient';
 import type { MetricType } from '../types/schemas';
-import { healthMetrics } from '../config/healthMetrics';
-import { calculateMetricPoints, validateMetricValue } from '../utils/scoringUtils';
+import { scoreCalculatorService } from './scoreCalculatorService';
 
 // Error class for authentication/authorization errors
 class MetricsAuthError extends Error {
@@ -76,29 +75,12 @@ export const metricsService = {
     return data || [];
   },
 
-  // Update a single metric
+  // Update a single metric using the centralized scoring system
   async updateMetric(userId: string, metricType: MetricType, value: number) {
-    // Add detailed logging for distance metrics
-    if (metricType === 'distance') {
-      console.log('[MetricsService] Processing distance metric:', {
-        rawValue: value,
-        valueType: typeof value,
-        isNumber: !isNaN(value)
-      });
-    }
-
-    // Ensure value is a valid number
-    const numericValue = Number(value);
-    if (isNaN(numericValue)) {
-      console.error('[MetricsService] Invalid metric value:', { metricType, value });
-      throw new Error(`Invalid value for metric type ${metricType}`);
-    }
-
     console.log('[MetricsService] Updating metric:', {
       userId,
       metricType,
-      value: numericValue,
-      valueType: typeof numericValue,
+      value,
       timestamp: new Date().toISOString()
     });
 
@@ -113,38 +95,24 @@ export const metricsService = {
       throw new MetricsAuthError('Cannot update metrics for another user');
     }
 
-    // Validate metric value
-    if (!validateMetricValue(metricType, numericValue)) {
-      throw new Error(`Invalid value for metric type ${metricType}`);
+    // Calculate score using centralized scoring service
+    const scoreResult = scoreCalculatorService.calculateMetricScore(metricType, value);
+    if (scoreResult.validationErrors?.length) {
+      console.error('[MetricsService] Validation errors:', scoreResult.validationErrors);
+      throw new Error(scoreResult.validationErrors.join(', '));
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const config = healthMetrics[metricType];
+    console.log('[MetricsService] Calculated score:', scoreResult);
     
-    console.log('[MetricsService] Metric config:', {
-      metricType,
-      defaultGoal: config.defaultGoal,
-      unit: config.unit
-    });
-    
-    // Calculate points and goal status using centralized scoring logic
-    const { points, goalReached } = calculateMetricPoints(metricType, numericValue, config);
-
-    console.log('[MetricsService] Calculated score:', {
-      goalReached,
-      points,
-      value: numericValue,
-      defaultGoal: config.defaultGoal
-    });
-    
-    // Prepare the metric data
+    // Prepare the metric data with validated score
     const metricData = {
       user_id: userId,
       date: today,
       metric_type: metricType,
-      value: numericValue,
-      points,
-      goal_reached: goalReached,
+      value: value,
+      points: scoreResult.points,
+      goal_reached: scoreResult.goalReached,
       updated_at: new Date().toISOString(),
       is_test_data: false
     };
@@ -183,9 +151,15 @@ export const metricsService = {
 
     console.log('[MetricsService] Current metrics state:', metrics);
 
-    // Calculate totals using the actual stored values
-    const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
-    const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
+    // Calculate totals using scoreCalculatorService
+    const totalPoints = metrics?.reduce((sum, m) => {
+      const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
+      return sum + score.points;
+    }, 0) ?? 0;
+    const metricsCompleted = metrics?.filter(m => {
+      const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
+      return score.goalReached;
+    }).length ?? 0;
 
     // Update daily total
     const { data: totalResult, error: totalError } = await supabase

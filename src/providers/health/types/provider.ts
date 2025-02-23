@@ -114,6 +114,12 @@ export interface HealthProvider {
    * @param date - The timestamp to set
    */
   setLastSyncTime?(date: Date): Promise<void>;
+
+  /**
+   * Get the current user ID associated with the provider
+   * @returns The user ID or null if not set
+   */
+  getUserId(): string | null;
 }
 
 /**
@@ -190,6 +196,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
     this.initializationPromise = (async () => {
       try {
+        // Don't check userId here - it will be set during initializePermissions
         await callWithTimeout(
           this.performInitialization(),
           DEFAULT_TIMEOUTS.INITIALIZATION,
@@ -357,6 +364,10 @@ export abstract class BaseHealthProvider implements HealthProvider {
       console.log('[BaseHealthProvider] Provider not initialized, attempting initialization...');
       await this.initialize();
     }
+
+    if (!this.userId) {
+      throw new Error('Provider not properly initialized: userId not set');
+    }
   }
 
   /**
@@ -404,6 +415,13 @@ export abstract class BaseHealthProvider implements HealthProvider {
   }
 
   /**
+   * Get the current user ID
+   */
+  public getUserId(): string | null {
+    return this.userId;
+  }
+
+  /**
    * Set initialization state
    */
   protected setInitialized(state: boolean): void {
@@ -417,29 +435,23 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async initializePermissions(userId: string): Promise<void> {
     console.log('[BaseHealthProvider] Initializing permissions for user:', userId);
     
-    await this.ensureInitialized();
+    // Set userId first, before any other operations
     this.userId = userId;
 
-    await callWithTimeout(
-      (async () => {
-        try {
-          this.permissionManager = new PermissionManager(userId);
-          console.log('[BaseHealthProvider] Created permission manager for user:', userId);
-          
-          await this.permissionManager.clearCache();
-          console.log('[BaseHealthProvider] Cleared permission cache');
-          
-          const status = await this.checkPermissionsStatus();
-          await this.permissionManager.updatePermissionState(status.status);
-          console.log('[BaseHealthProvider] Updated permission state:', status.status);
-        } catch (error) {
-          console.error('[BaseHealthProvider] Failed to initialize permissions:', error);
-          this.permissionManager = null;
-          throw error;
-        }
-      })(),
-      DEFAULT_TIMEOUTS.INITIALIZATION,
-      'Permission initialization timed out'
-    );
+    try {
+      this.permissionManager = new PermissionManager(userId);
+      console.log('[BaseHealthProvider] Created permission manager for user:', userId);
+      
+      await this.permissionManager.clearCache();
+      console.log('[BaseHealthProvider] Cleared permission cache');
+      
+      const status = await this.checkPermissionsStatus();
+      await this.permissionManager.updatePermissionState(status.status);
+      console.log('[BaseHealthProvider] Updated permission state:', status.status);
+    } catch (error) {
+      console.error('[BaseHealthProvider] Failed to initialize permissions:', error);
+      this.permissionManager = null;
+      throw error;
+    }
   }
 }

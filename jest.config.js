@@ -9,6 +9,9 @@ module.exports = {
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '^react-native-health$': '<rootDir>/__mocks__/react-native-health.ts',
+    '^react-native-health-connect$': '<rootDir>/__mocks__/react-native-health-connect.ts',
+    '^react-native$': '<rootDir>/__mocks__/react-native.ts'
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   collectCoverage: true,

@@ -42,17 +42,41 @@ export class HealthProviderFactory {
     key: string
   ): Promise<void> {
     try {
-      // Set userId before any initialization
-      await provider.setUserId(userId);
-      
-      await initializeProviderWithRetry(provider, {
-        operationId: key,
-        maxRetries: 2
-      });
-      
+      logger.info(
+        LogCategory.Health,
+        'Starting provider initialization',
+        key,
+        userId,
+        { platform }
+      );
+
+      // First, set up permissions which will set the userId
       await provider.initializePermissions(userId);
+      
+      // Then initialize the provider
+      await provider.initialize();
+
+      // Finally, verify the initialization
+      if (!provider.isInitialized()) {
+        throw new Error('Provider failed to initialize properly');
+      }
+
       this.instances.set(key, provider);
+      
+      logger.info(
+        LogCategory.Health,
+        'Provider initialization complete',
+        key,
+        userId
+      );
     } catch (error) {
+      logger.error(
+        LogCategory.Health,
+        'Provider initialization failed',
+        key,
+        userId,
+        { error }
+      );
       await this.cleanup(key);
       throw error;
     } finally {
@@ -70,21 +94,23 @@ export class HealthProviderFactory {
 
     return this.mutex.runExclusive(async () => {
       const key = `${platform}:${userId}`;
-      console.log('[HealthProviderFactory] Getting provider for:', { platform, userId, key });
+      logger.debug(
+        LogCategory.Health,
+        'Getting provider',
+        key,
+        userId,
+        { platform }
+      );
 
       // Return existing initialized provider
       const existingProvider = this.instances.get(key);
       if (existingProvider) {
-        console.log('[HealthProviderFactory] Returning existing provider');
         return existingProvider;
       }
 
       // Create new provider
       const provider = this.createProviderInstance(platform);
       
-      // Set userId immediately after creation
-      await provider.setUserId(userId);
-
       // Initialize the provider
       const initPromise = this.initializeProvider(provider, platform, userId, key);
       this.initStates.set(key, { provider, initPromise });

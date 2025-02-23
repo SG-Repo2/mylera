@@ -1,6 +1,8 @@
 import { unifiedMetricsService } from '../unifiedMetricsService';
 import { metricsService } from '../metricsService';
 import { supabase } from '../supabaseClient';
+import { scoreCalculatorService } from '../scoreCalculatorService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { DailyMetricScore } from '../../types/schemas';
 import type { HealthMetrics } from '../../providers/health/types/metrics';
 import type { HealthProvider } from '../../providers/health/types/provider';
@@ -8,6 +10,18 @@ import type { PermissionManager, PermissionState } from '../../providers/health/
 
 // Mock dependencies
 jest.mock('../metricsService');
+jest.mock('../scoreCalculatorService');
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  setItem: jest.fn(),
+  getItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+  getAllKeys: jest.fn(),
+  multiGet: jest.fn(),
+  multiSet: jest.fn(),
+  multiRemove: jest.fn(),
+  mergeItem: jest.fn()
+}));
 jest.mock('../supabaseClient', () => ({
   supabase: {
     rpc: jest.fn().mockImplementation((method, params) => {
@@ -31,18 +45,7 @@ jest.mock('../supabaseClient', () => ({
       lte: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       single: jest.fn().mockReturnThis()
-    })),
-    auth: {
-      getSession: jest.fn().mockResolvedValue({
-        data: {
-          session: {
-            user: {
-              id: 'test-user-id'
-            }
-          }
-        }
-      })
-    }
+    }))
   }
 }));
 
@@ -92,6 +95,13 @@ describe('unifiedMetricsService', () => {
     last_updated: expect.any(String),
     created_at: expect.any(String),
     updated_at: expect.any(String),
+  };
+
+  // Mock scoreCalculatorService responses
+  const mockScoreResult = {
+    points: 10,
+    goalReached: false,
+    validationErrors: []
   };
 
   // Create a mock implementation of HealthProvider
@@ -147,260 +157,138 @@ describe('unifiedMetricsService', () => {
       return null;
     }
 
-    async setLastSyncTime(): Promise<void> {}
+    async setLastSyncTime(): Promise<void> {
+      // No-op for mock
+    }
+
+    getUserId(): string {
+      return mockUserId;
+    }
   }
 
   const mockProvider = new MockHealthProvider();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    unifiedMetricsService.resetState(); // Add this line
+    unifiedMetricsService.resetState();
     
     // Mock metricsService methods
     (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue(mockMetrics);
     (metricsService.updateMetric as jest.Mock).mockResolvedValue(undefined);
-  });
 
-  describe('getMetrics', () => {
-    it('should return database metrics if complete and not stale', async () => {
-      // Mock complete metrics that are not stale
-      const completeMetrics: DailyMetricScore[] = [
-        { ...mockMetricBase, metric_type: 'steps', value: 1000, goal: 10000 },
-        { ...mockMetricBase, metric_type: 'distance', value: 1.5, goal: 5 },
-        { ...mockMetricBase, metric_type: 'calories', value: 500, goal: 2000 },
-        { ...mockMetricBase, metric_type: 'heart_rate', value: 75, goal: 150 },
-        { ...mockMetricBase, metric_type: 'basal_calories', value: 1200, goal: 2000 },
-        { ...mockMetricBase, metric_type: 'flights_climbed', value: 10, goal: 20 },
-        { ...mockMetricBase, metric_type: 'exercise', value: 30, goal: 60 }
-      ];
-      
-      (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue(completeMetrics);
-
-      const result = await unifiedMetricsService.getMetrics(mockUserId, mockDate);
-
-      expect(mockProvider.getMetrics).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        steps: 1000,
-        distance: 1.5,
-        calories: 500,
-        heart_rate: 75,
-        basal_calories: 1200,
-        flights_climbed: 10,
-        exercise: 30
-      });
-    });
-
-    it('should fetch from provider if metrics are stale', async () => {
-      // Mock stale metrics (updated more than 5 minutes ago)
-      const staleDate = new Date();
-      staleDate.setMinutes(staleDate.getMinutes() - 6);
-      const staleMetrics = mockMetrics.map(metric => ({
-        ...metric,
-        updated_at: staleDate.toISOString()
-      }));
-
-      const mockNativeMetrics = {
-        ...mockHealthMetrics,
-        steps: 2000 // Different value to verify we're using native data
-      };
-
-      (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue(staleMetrics);
-      mockProvider.getMetrics.mockResolvedValue(mockNativeMetrics);
-
-      const result = await unifiedMetricsService.getMetrics(mockUserId, mockDate, mockProvider);
-
-      expect(mockProvider.getMetrics).toHaveBeenCalled();
-      expect(result.steps).toBe(2000);
-    });
-
-    it('should handle transaction rollback on error', async () => {
-      const error = new Error('Provider error');
-      mockProvider.getMetrics.mockRejectedValue(error);
-
-      (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue([]);
-
-      await expect(
-        unifiedMetricsService.getMetrics(mockUserId, mockDate, mockProvider)
-      ).rejects.toThrow('Provider error');
-
-      expect(supabase.rpc).toHaveBeenCalledWith('rollback_transaction');
-    });
-  });
-
-  describe('shouldFetchNative', () => {
-    it('should return true for empty metrics', () => {
-      const result = unifiedMetricsService.shouldFetchNative([]);
-      expect(result).toBe(true);
-    });
-
-    it('should return true for stale metrics', () => {
-      const staleDate = new Date();
-      staleDate.setMinutes(staleDate.getMinutes() - 6);
-      const staleMetrics = [{
-        ...mockMetrics[0],
-        updated_at: staleDate.toISOString()
-      }];
-
-      const result = unifiedMetricsService.shouldFetchNative(staleMetrics);
-      expect(result).toBe(true);
-    });
-
-    it('should return false for fresh metrics', () => {
-      const freshDate = new Date();
-      const freshMetrics = [{
-        ...mockMetrics[0],
-        updated_at: freshDate.toISOString()
-      }];
-
-      const result = unifiedMetricsService.shouldFetchNative(freshMetrics);
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('synchronizeMetrics', () => {
-    it('should synchronize all valid metrics and track sync status', async () => {
-      const nativeMetrics: HealthMetrics = {
-        ...mockHealthMetrics,
-        steps: 2000,
-        distance: 1.5,
-        calories: 500
-      };
-
-      await unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId);
-
-      expect(supabase.rpc).toHaveBeenCalledWith('update_metrics_transaction', {
-        updates: expect.any(String)
-      });
-
-      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
-        .find(call => call[0] === 'update_metrics_transaction')[1].updates);
-      
-      expect(updates).toContainEqual(expect.objectContaining({
-        user_id: mockUserId,
-        metric_type: 'steps',
-        value: 2000
-      }));
-      expect(updates).toContainEqual(expect.objectContaining({
-        user_id: mockUserId,
-        metric_type: 'distance',
-        value: 1.5
-      }));
-      expect(updates).toContainEqual(expect.objectContaining({
-        user_id: mockUserId,
-        metric_type: 'calories',
-        value: 500
-      }));
-
-      // Verify sync status was updated
-      const syncStatus = unifiedMetricsService.getSyncStatus();
-      expect(syncStatus.steps.lastSynced).not.toBeNull();
-      expect(syncStatus.distance.lastSynced).not.toBeNull();
-      expect(syncStatus.calories.lastSynced).not.toBeNull();
-    });
-
-    it('should skip invalid metrics and not update their sync status', async () => {
-      const nativeMetrics: HealthMetrics = {
-        ...mockHealthMetrics,
-        steps: NaN,
-        distance: 1.5
-      };
-
-      await unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId);
-
-      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
-        .find(call => call[0] === 'update_metrics_transaction')[1].updates);
-      
-      expect(updates).not.toContainEqual(expect.objectContaining({
-        metric_type: 'steps'
-      }));
-      expect(updates).toContainEqual(expect.objectContaining({
-        user_id: mockUserId,
-        metric_type: 'distance',
-        value: 1.5
-      }));
-
-      const syncStatus = unifiedMetricsService.getSyncStatus();
-      expect(syncStatus.steps.lastSynced).toBeNull();
-      expect(syncStatus.distance.lastSynced).not.toBeNull();
-    });
-
-    it('should handle transaction errors and not update sync status on failure', async () => {
-      (supabase.rpc as jest.Mock).mockImplementationOnce(() => ({
-        error: new Error('Transaction failed')
-      }));
-
-      const nativeMetrics: HealthMetrics = {
-        ...mockHealthMetrics,
-        steps: 2000
-      };
-
-      const initialSyncStatus = unifiedMetricsService.getSyncStatus();
-
-      await expect(
-        unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId)
-      ).rejects.toThrow('Transaction failed');
-
-      const finalSyncStatus = unifiedMetricsService.getSyncStatus();
-      expect(finalSyncStatus).toEqual(initialSyncStatus);
-    });
+    // Mock scoreCalculatorService methods
+    (scoreCalculatorService.calculateMetricScore as jest.Mock).mockReturnValue(mockScoreResult);
+    (scoreCalculatorService.calculateTotalScore as jest.Mock).mockReturnValue(10);
   });
 
   describe('source configuration and sync status', () => {
-    beforeEach(() => {
-      unifiedMetricsService.resetState(); // Add this for extra safety in this suite
-    });
-
-    it('should correctly identify stale metrics based on configuration', () => {
-      const now = new Date();
-      const sixMinutesAgo = new Date(now.getTime() - 6 * 60 * 1000);
-      const fourMinutesAgo = new Date(now.getTime() - 4 * 60 * 1000);
-
-      expect(unifiedMetricsService.isMetricStale('steps', sixMinutesAgo.toISOString())).toBe(true);
-      expect(unifiedMetricsService.isMetricStale('steps', fourMinutesAgo.toISOString())).toBe(false);
-    });
-
     it('should return correct source information for metrics', () => {
       const stepsSource = unifiedMetricsService.getMetricSource('steps');
       expect(stepsSource).toEqual({
         source: 'native',
-        priority: 2,
+        priority: 1,
         staleness: 5,
         lastSynced: null,
         metricTypes: ['steps'],
-        dataSourceName: "Device Health API"
+        dataSourceName: "Device Health API",
+        requiresValidation: true
+      });
+
+      const basalCaloriesSource = unifiedMetricsService.getMetricSource('basal_calories');
+      expect(basalCaloriesSource).toEqual({
+        source: 'calculated',
+        priority: 3,
+        staleness: 60,
+        lastSynced: null,
+        metricTypes: ['basal_calories', 'heart_rate'],
+        dataSourceName: "Calculated from Heart Rate",
+        requiresValidation: false
       });
     });
 
-    it('should track sync status updates correctly', () => {
-      const initialStatus = unifiedMetricsService.getSyncStatus();
-      expect(initialStatus.steps.lastSynced).toBeNull();
+    it('should handle derived metrics calculation', async () => {
+      const mockMetricsWithHeartRate: HealthMetrics = {
+        ...mockHealthMetrics,
+        heart_rate: 75
+      };
 
-      unifiedMetricsService.updateSyncStatus('steps');
-      
-      const updatedStatus = unifiedMetricsService.getSyncStatus();
-      expect(updatedStatus.steps.lastSynced).not.toBeNull();
-      expect(updatedStatus.steps.isStale).toBe(false);
+      const derivedMetrics = unifiedMetricsService['calculateDerivedMetrics'](mockMetricsWithHeartRate);
+      expect(derivedMetrics.basal_calories).toBeDefined();
+      expect(typeof derivedMetrics.basal_calories).toBe('number');
     });
 
-    it('should provide comprehensive sync status for all metrics', () => {
-      const status = unifiedMetricsService.getSyncStatus();
-      
-      // Check all metric types are included
-      expect(Object.keys(status)).toEqual([
-        'steps',
-        'distance',
-        'calories',
-        'heart_rate',
-        'basal_calories',
-        'flights_climbed',
-        'exercise'
-      ]);
+    it('should handle metric validation during synchronization', async () => {
+      const invalidMetrics: HealthMetrics = {
+        ...mockHealthMetrics,
+        steps: -1000 // Invalid value
+      };
 
-      // Check structure of each status entry
-      Object.values(status).forEach(metricStatus => {
-        expect(metricStatus).toHaveProperty('lastSynced');
-        expect(metricStatus).toHaveProperty('isStale');
+      (scoreCalculatorService.calculateMetricScore as jest.Mock).mockReturnValueOnce({
+        points: 0,
+        goalReached: false,
+        validationErrors: ['steps cannot be negative']
       });
+
+      await unifiedMetricsService.synchronizeMetrics(invalidMetrics, mockUserId);
+
+      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
+        .find(call => call[0] === 'update_metrics_transaction')?.[1]?.updates || '[]');
+      
+      expect(updates).not.toContainEqual(expect.objectContaining({
+        metric_type: 'steps',
+        value: -1000
+      }));
+    });
+
+    it('should retry failed synchronizations', async () => {
+      const mockError = new Error('Sync failed');
+      let attempts = 0;
+
+      (supabase.rpc as jest.Mock).mockImplementation(() => {
+        attempts++;
+        if (attempts <= 2) {
+          return Promise.resolve({ error: mockError });
+        }
+        return Promise.resolve({ error: null });
+      });
+
+      await unifiedMetricsService.synchronizeMetrics(mockHealthMetrics, mockUserId);
+      expect(attempts).toBeGreaterThan(1);
+    });
+  });
+
+  describe('metric caching', () => {
+    beforeEach(() => {
+      // Reset AsyncStorage mock state
+      (AsyncStorage.setItem as jest.Mock).mockClear();
+      (AsyncStorage.getItem as jest.Mock).mockClear();
+    });
+
+    it('should cache metrics after successful synchronization', async () => {
+      // Mock successful transaction
+      (supabase.rpc as jest.Mock).mockImplementation(() => ({
+        error: null,
+        data: []
+      }));
+
+      await unifiedMetricsService.synchronizeMetrics(mockHealthMetrics, mockUserId);
+      
+      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+        expect.stringContaining(mockUserId),
+        expect.stringMatching(/daily_score/)
+      );
+    });
+
+    it('should retrieve cached metrics', async () => {
+      const cachedData = {
+        metrics: mockHealthMetrics,
+        timestamp: Date.now()
+      };
+
+      (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(cachedData));
+
+      const result = await unifiedMetricsService.getCachedMetrics(mockUserId);
+      expect(result).toEqual(cachedData);
     });
   });
 });

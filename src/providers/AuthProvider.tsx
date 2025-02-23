@@ -252,11 +252,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (registrationError) throw registrationError;
 
       if (data.user) {
-        await initializeHealthProviderForUser(
-          data.user.id,
-          setHealthPermissionStatus,
-          (state) => setHealthInitState(state)
-        );
+        try {
+          await initializeHealthProviderForUser(
+            data.user.id,
+            setHealthPermissionStatus,
+            (state) => setHealthInitState(state)
+          );
+        } catch (healthInitError) {
+          console.error('[AuthProvider] register - Health provider initialization error:', healthInitError);
+          setError(mapAuthError(healthInitError));
+          await HealthProviderFactory.cleanup();
+          setSession(null);
+          setUser(null);
+          setHealthPermissionStatus(null);
+          return;
+        }
       }
     } catch (err) {
       console.error('[AuthProvider] register - Error:', err);

@@ -7,26 +7,9 @@ import {
   UserProfile,
   LeaderboardTimeframe
 } from '@/src/types/leaderboard';
-import { healthMetrics } from '@/src/config/healthMetrics';
-import type { MetricType } from '@/src/types/metrics';
+import { scoreCalculatorService } from '@/src/services/scoreCalculatorService';
 import type { DailyMetricScore } from '@/src/types/schemas';
-
-const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
-  return metrics.reduce((total, metric) => {
-    const config = healthMetrics[metric.metric_type];
-    if (!config || typeof metric.value !== 'number') return total;
-
-    if (metric.metric_type === 'heart_rate') {
-      const targetValue = config.defaultGoal;
-      const deviation = Math.abs(metric.value - targetValue);
-      const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-      return total + Math.round(points);
-    }
-
-    const points = Math.floor(metric.value / config.pointIncrement.value);
-    return total + Math.min(points, config.pointIncrement.maxPoints);
-  }, 0);
-};
+import type { MetricType } from '@/src/types/metrics';
 
 // Helper function to get week start date
 function getWeekStart(date: Date): string {
@@ -85,13 +68,25 @@ export const leaderboardService = {
         userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
       });
 
-      // Calculate points using the same function as Dashboard
+      // Calculate points using scoreCalculatorService
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
-        userPoints.set(userId, {
-          total: calculateTotalPoints(metrics),
-          completed: metrics.length
+        const validMetrics = metrics.filter(metric => {
+          const validation = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return !validation.validationErrors?.length;
         });
+        
+        const total = validMetrics.reduce((sum, metric) => {
+          const score = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return sum + score.points;
+        }, 0);
+
+        const completed = validMetrics.filter(metric => {
+          const score = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return score.goalReached;
+        }).length;
+
+        userPoints.set(userId, { total, completed });
       });
 
       // Get user profiles
@@ -253,13 +248,25 @@ export const leaderboardService = {
         userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
       });
 
-      // Calculate points using the same function as Dashboard
+      // Calculate points using scoreCalculatorService for weekly metrics
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
-        userPoints.set(userId, {
-          total: calculateTotalPoints(metrics),
-          completed: metrics.length
+        const validMetrics = metrics.filter(metric => {
+          const validation = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return !validation.validationErrors?.length;
         });
+        
+        const total = validMetrics.reduce((sum, metric) => {
+          const score = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return sum + score.points;
+        }, 0);
+
+        const completed = validMetrics.filter(metric => {
+          const score = scoreCalculatorService.calculateMetricScore(metric.metric_type, metric.value);
+          return score.goalReached;
+        }).length;
+
+        userPoints.set(userId, { total, completed });
       });
 
       // Get user profiles
