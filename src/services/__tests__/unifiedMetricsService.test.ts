@@ -10,12 +10,14 @@ import type { PermissionManager, PermissionState } from '../../providers/health/
 jest.mock('../metricsService');
 jest.mock('../supabaseClient', () => ({
   supabase: {
-    rpc: jest.fn().mockImplementation((method) => {
+    rpc: jest.fn().mockImplementation((method, params) => {
       switch (method) {
         case 'begin_transaction':
         case 'commit_transaction':
         case 'rollback_transaction':
           return Promise.resolve({ error: null });
+        case 'update_metrics_transaction':
+          return Promise.resolve({ error: null, data: JSON.parse(params.updates) });
         default:
           return Promise.resolve({ error: new Error(`Unknown method: ${method}`) });
       }
@@ -152,8 +154,8 @@ describe('unifiedMetricsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    unifiedMetricsService.resetState(); // Add this line
     
-
     // Mock metricsService methods
     (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue(mockMetrics);
     (metricsService.updateMetric as jest.Mock).mockResolvedValue(undefined);
@@ -255,8 +257,8 @@ describe('unifiedMetricsService', () => {
     });
   });
 
-  describe('updateMetricsFromNative', () => {
-    it('should update all valid metrics and track sync status', async () => {
+  describe('synchronizeMetrics', () => {
+    it('should synchronize all valid metrics and track sync status', async () => {
       const nativeMetrics: HealthMetrics = {
         ...mockHealthMetrics,
         steps: 2000,
@@ -264,12 +266,30 @@ describe('unifiedMetricsService', () => {
         calories: 500
       };
 
-      await unifiedMetricsService.updateMetricsFromNative(nativeMetrics, mockUserId);
+      await unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId);
 
-      expect(metricsService.updateMetric).toHaveBeenCalledTimes(3);
-      expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'steps', 2000);
-      expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'distance', 1.5);
-      expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'calories', 500);
+      expect(supabase.rpc).toHaveBeenCalledWith('update_metrics_transaction', {
+        updates: expect.any(String)
+      });
+
+      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
+        .find(call => call[0] === 'update_metrics_transaction')[1].updates);
+      
+      expect(updates).toContainEqual(expect.objectContaining({
+        user_id: mockUserId,
+        metric_type: 'steps',
+        value: 2000
+      }));
+      expect(updates).toContainEqual(expect.objectContaining({
+        user_id: mockUserId,
+        metric_type: 'distance',
+        value: 1.5
+      }));
+      expect(updates).toContainEqual(expect.objectContaining({
+        user_id: mockUserId,
+        metric_type: 'calories',
+        value: 500
+      }));
 
       // Verify sync status was updated
       const syncStatus = unifiedMetricsService.getSyncStatus();
@@ -285,19 +305,29 @@ describe('unifiedMetricsService', () => {
         distance: 1.5
       };
 
-      await unifiedMetricsService.updateMetricsFromNative(nativeMetrics, mockUserId);
+      await unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId);
 
-      expect(metricsService.updateMetric).toHaveBeenCalledTimes(1);
-      expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'distance', 1.5);
+      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
+        .find(call => call[0] === 'update_metrics_transaction')[1].updates);
+      
+      expect(updates).not.toContainEqual(expect.objectContaining({
+        metric_type: 'steps'
+      }));
+      expect(updates).toContainEqual(expect.objectContaining({
+        user_id: mockUserId,
+        metric_type: 'distance',
+        value: 1.5
+      }));
 
       const syncStatus = unifiedMetricsService.getSyncStatus();
       expect(syncStatus.steps.lastSynced).toBeNull();
       expect(syncStatus.distance.lastSynced).not.toBeNull();
     });
 
-    it('should handle update errors and not update sync status on failure', async () => {
-      const error = new Error('Update failed');
-      (metricsService.updateMetric as jest.Mock).mockRejectedValue(error);
+    it('should handle transaction errors and not update sync status on failure', async () => {
+      (supabase.rpc as jest.Mock).mockImplementationOnce(() => ({
+        error: new Error('Transaction failed')
+      }));
 
       const nativeMetrics: HealthMetrics = {
         ...mockHealthMetrics,
@@ -307,8 +337,8 @@ describe('unifiedMetricsService', () => {
       const initialSyncStatus = unifiedMetricsService.getSyncStatus();
 
       await expect(
-        unifiedMetricsService.updateMetricsFromNative(nativeMetrics, mockUserId)
-      ).rejects.toThrow('Update failed');
+        unifiedMetricsService.synchronizeMetrics(nativeMetrics, mockUserId)
+      ).rejects.toThrow('Transaction failed');
 
       const finalSyncStatus = unifiedMetricsService.getSyncStatus();
       expect(finalSyncStatus).toEqual(initialSyncStatus);
@@ -316,6 +346,10 @@ describe('unifiedMetricsService', () => {
   });
 
   describe('source configuration and sync status', () => {
+    beforeEach(() => {
+      unifiedMetricsService.resetState(); // Add this for extra safety in this suite
+    });
+
     it('should correctly identify stale metrics based on configuration', () => {
       const now = new Date();
       const sixMinutesAgo = new Date(now.getTime() - 6 * 60 * 1000);

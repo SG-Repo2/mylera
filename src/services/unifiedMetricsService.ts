@@ -5,18 +5,17 @@ import type { HealthMetrics } from '../providers/health/types/metrics';
 import type { MetricType, DailyMetricScore } from '../types/schemas';
 import { supabase } from './supabaseClient';
 
-// Interface defining the structure of a metric source
 interface MetricSource {
-  source: 'native' | 'database';
+  source: string;
+  priority: number;
+  staleness: number;
   lastSynced: Date | null;
-  metricTypes: MetricType[];
-  priority: number; // Higher number = higher priority (e.g., native > database)
-  staleness: number; // Minutes until considered stale
-  dataSourceName: string; // e.g., "Apple Health", "Google Health Connect", "Database"
+  metricTypes: string[];
+  dataSourceName: string;
 }
 
-// Configuration mapping each metric type to its source information
-const METRIC_SOURCES: Record<MetricType, MetricSource> = {
+// First, extract the initial configuration to a constant
+const INITIAL_METRIC_SOURCES: Record<MetricType, MetricSource> = {
   steps: {
     source: 'native',
     priority: 2,
@@ -75,7 +74,15 @@ const METRIC_SOURCES: Record<MetricType, MetricSource> = {
   }
 };
 
+// Then modify the service to use a mutable copy
+let METRIC_SOURCES: Record<MetricType, MetricSource> = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
+
 export const unifiedMetricsService = {
+  // Add reset function
+  resetState() {
+    METRIC_SOURCES = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
+  },
+
   async getMetrics(
     userId: string,
     date: string = DateUtils.getLocalDateString(),
@@ -141,14 +148,14 @@ export const unifiedMetricsService = {
             }
           });
           
-          // Update Supabase with the native metrics atomically
-          await this.updateMetricsFromNative(nativeMetrics, userId);
+          // Synchronize native metrics with the database
+          await this.synchronizeMetrics(nativeMetrics, userId);
           
           // Commit transaction
           const { error: commitError } = await supabase.rpc('commit_transaction');
           if (commitError) throw commitError;
 
-          console.log('[unifiedMetricsService] Successfully updated with native metrics');
+          console.log('[unifiedMetricsService] Successfully synchronized native metrics');
           return nativeMetrics;
         } catch (providerError) {
           console.error('[unifiedMetricsService] Provider error:', providerError);
@@ -244,97 +251,6 @@ export const unifiedMetricsService = {
     return result;
   },
 
-  async updateMetricsFromNative(metrics: HealthMetrics, userId: string): Promise<void> {
-    // Get list of metric types from our source configuration
-    const metricTypes = Object.keys(METRIC_SOURCES) as MetricType[];
-    
-    console.log('[unifiedMetricsService] Starting native metrics update:', {
-      userId,
-      availableMetrics: metricTypes.filter(type => metrics[type] !== null)
-    });
-
-    try {
-      // Process all metrics atomically, but only update those configured for native source
-      const updatePromises = metricTypes
-        .filter(type => {
-          const source = this.getMetricSource(type);
-          const value = metrics[type];
-          // Only process metrics that are:
-          // 1. From native source
-          // 2. Have a non-null value
-          // 3. Are valid numbers
-          return source.source === 'native' && 
-                 value !== null && 
-                 typeof value === 'number' && 
-                 !isNaN(value);
-        })
-        .map(async (type) => {
-          const value = metrics[type];
-          const source = this.getMetricSource(type);
-          
-          console.log(`[unifiedMetricsService] Processing ${type}:`, {
-            value,
-            source: source.dataSourceName,
-            priority: source.priority
-          });
-          
-          try {
-            if (value !== null && typeof value === 'number' && !isNaN(value)) {
-              await metricsService.updateMetric(userId, type, value);
-            }
-            // Update sync status only after successful update
-            this.updateSyncStatus(type);
-          } catch (error) {
-            console.error(`[unifiedMetricsService] Error updating ${type}:`, error);
-            throw error;
-          }
-        });
-
-      // Wait for all updates to complete
-      await Promise.all(updatePromises);
-
-      // Verify the updates
-      const updated = await metricsService.getDailyMetrics(
-        userId,
-        new Date().toISOString().split('T')[0]
-      );
-
-      // Enhanced verification logging
-      const verificationResults = metricTypes.map(type => {
-        const metric = updated.find(m => m.metric_type === type);
-        const expectedValue = metrics[type];
-        const source = this.getMetricSource(type);
-        
-        return {
-          type,
-          source: source.dataSourceName,
-          expected: expectedValue,
-          actual: metric?.value,
-          synced: source.lastSynced,
-          isMatch: metric?.value === expectedValue
-        };
-      });
-
-      console.log('[unifiedMetricsService] Verification results:', verificationResults);
-
-      // Log any mismatches as warnings
-      verificationResults
-        .filter(result => !result.isMatch && result.expected !== null)
-        .forEach(result => {
-          console.warn(`[unifiedMetricsService] Metric verification warning for ${result.type}:`, {
-            source: result.source,
-            expected: result.expected,
-            actual: result.actual,
-            lastSynced: result.synced
-          });
-        });
-
-    } catch (error) {
-      console.error('[unifiedMetricsService] Update failed:', error);
-      throw error;
-    }
-  },
-
   // Check if a specific metric is stale based on configuration
   isMetricStale(metricType: MetricType, lastUpdate?: string): boolean {
     const source = METRIC_SOURCES[metricType];
@@ -382,5 +298,120 @@ export const unifiedMetricsService = {
     });
     
     return status;
+  },
+
+  // Verify metric updates by comparing with database values
+  async verifyMetricUpdates(
+    nativeMetrics: HealthMetrics,
+    userId: string
+  ): Promise<Array<{
+    metricType: MetricType;
+    expected: number | null;
+    actual: number | null;
+    matched: boolean;
+    timestamp: string;
+  }>> {
+    const { data: verifiedMetrics, error: verificationError } = await supabase
+      .from('daily_metric_scores')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', nativeMetrics.date);
+
+    if (verificationError) {
+      console.warn("[synchronizeMetrics] Warning: Error verifying updates:", verificationError);
+      return [];
+    }
+
+    return Object.entries(METRIC_SOURCES)
+      .filter(([, source]) => source.source === 'native')
+      .map(([type]) => {
+        const metricType = type as MetricType;
+        const expectedValue = nativeMetrics[metricType];
+        const actualValue = verifiedMetrics?.find(m => m.metric_type === metricType)?.value ?? null;
+        
+        return {
+          metricType,
+          expected: expectedValue,
+          actual: actualValue,
+          matched: expectedValue === actualValue,
+          timestamp: new Date().toISOString()
+        };
+      });
+  },
+
+  // Synchronize native metrics with the database atomically
+  async synchronizeMetrics(
+    nativeMetrics: HealthMetrics,
+    userId: string
+  ): Promise<void> {
+    console.log('[synchronizeMetrics] Starting synchronization:', {
+      userId,
+      date: nativeMetrics.date,
+      metrics: Object.entries(METRIC_SOURCES)
+        .filter(([, source]) => source.source === 'native')
+        .map(([type]) => type)
+    });
+
+    const syncStartTime = Date.now();
+
+    try {
+      // Build updates array for native metrics
+      const updates = Object.entries(METRIC_SOURCES)
+        .filter(([type, source]) => 
+          source.source === 'native' && 
+          nativeMetrics[type as MetricType] !== null &&
+          typeof nativeMetrics[type as MetricType] === 'number' &&
+          !isNaN(nativeMetrics[type as MetricType] as number)
+        )
+        .map(([type]) => ({
+          user_id: userId,
+          date: nativeMetrics.date,
+          metric_type: type,
+          value: nativeMetrics[type as MetricType],
+          updated_at: new Date().toISOString()
+        }));
+
+      if (updates.length === 0) {
+        console.log('[synchronizeMetrics] No valid metrics to update');
+        return;
+      }
+
+      // Perform atomic update via RPC
+      const { error: updateError } = await supabase.rpc('update_metrics_transaction', {
+        updates: JSON.stringify(updates)
+      });
+
+      if (updateError) {
+        console.error("[synchronizeMetrics] Transaction error:", updateError);
+        throw updateError;
+      }
+
+      // Verify the updates
+      const verificationResults = await this.verifyMetricUpdates(nativeMetrics, userId);
+      
+      // Log verification results
+      const failedVerifications = verificationResults.filter(r => !r.matched);
+      if (failedVerifications.length > 0) {
+        console.warn('[synchronizeMetrics] Verification failures:', failedVerifications);
+      } else {
+        console.log('[synchronizeMetrics] All metrics verified successfully');
+      }
+
+      // Update sync status for processed metrics
+      updates.forEach(update => {
+        this.updateSyncStatus(update.metric_type as MetricType);
+      });
+
+      const syncDuration = Date.now() - syncStartTime;
+      console.log('[synchronizeMetrics] Synchronization completed:', {
+        duration: syncDuration,
+        updatedMetrics: updates.length,
+        verificationFailures: failedVerifications.length
+      });
+
+    } catch (error) {
+      console.error('[synchronizeMetrics] Synchronization failed:', error);
+      throw error;
+    }
   }
 };
