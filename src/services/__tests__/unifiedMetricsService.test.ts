@@ -256,7 +256,7 @@ describe('unifiedMetricsService', () => {
   });
 
   describe('updateMetricsFromNative', () => {
-    it('should update all valid metrics', async () => {
+    it('should update all valid metrics and track sync status', async () => {
       const nativeMetrics: HealthMetrics = {
         ...mockHealthMetrics,
         steps: 2000,
@@ -270,9 +270,15 @@ describe('unifiedMetricsService', () => {
       expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'steps', 2000);
       expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'distance', 1.5);
       expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'calories', 500);
+
+      // Verify sync status was updated
+      const syncStatus = unifiedMetricsService.getSyncStatus();
+      expect(syncStatus.steps.lastSynced).not.toBeNull();
+      expect(syncStatus.distance.lastSynced).not.toBeNull();
+      expect(syncStatus.calories.lastSynced).not.toBeNull();
     });
 
-    it('should skip invalid metrics', async () => {
+    it('should skip invalid metrics and not update their sync status', async () => {
       const nativeMetrics: HealthMetrics = {
         ...mockHealthMetrics,
         steps: NaN,
@@ -283,9 +289,13 @@ describe('unifiedMetricsService', () => {
 
       expect(metricsService.updateMetric).toHaveBeenCalledTimes(1);
       expect(metricsService.updateMetric).toHaveBeenCalledWith(mockUserId, 'distance', 1.5);
+
+      const syncStatus = unifiedMetricsService.getSyncStatus();
+      expect(syncStatus.steps.lastSynced).toBeNull();
+      expect(syncStatus.distance.lastSynced).not.toBeNull();
     });
 
-    it('should handle update errors', async () => {
+    it('should handle update errors and not update sync status on failure', async () => {
       const error = new Error('Update failed');
       (metricsService.updateMetric as jest.Mock).mockRejectedValue(error);
 
@@ -294,9 +304,69 @@ describe('unifiedMetricsService', () => {
         steps: 2000
       };
 
+      const initialSyncStatus = unifiedMetricsService.getSyncStatus();
+
       await expect(
         unifiedMetricsService.updateMetricsFromNative(nativeMetrics, mockUserId)
       ).rejects.toThrow('Update failed');
+
+      const finalSyncStatus = unifiedMetricsService.getSyncStatus();
+      expect(finalSyncStatus).toEqual(initialSyncStatus);
+    });
+  });
+
+  describe('source configuration and sync status', () => {
+    it('should correctly identify stale metrics based on configuration', () => {
+      const now = new Date();
+      const sixMinutesAgo = new Date(now.getTime() - 6 * 60 * 1000);
+      const fourMinutesAgo = new Date(now.getTime() - 4 * 60 * 1000);
+
+      expect(unifiedMetricsService.isMetricStale('steps', sixMinutesAgo.toISOString())).toBe(true);
+      expect(unifiedMetricsService.isMetricStale('steps', fourMinutesAgo.toISOString())).toBe(false);
+    });
+
+    it('should return correct source information for metrics', () => {
+      const stepsSource = unifiedMetricsService.getMetricSource('steps');
+      expect(stepsSource).toEqual({
+        source: 'native',
+        priority: 2,
+        staleness: 5,
+        lastSynced: null,
+        metricTypes: ['steps'],
+        dataSourceName: "Device Health API"
+      });
+    });
+
+    it('should track sync status updates correctly', () => {
+      const initialStatus = unifiedMetricsService.getSyncStatus();
+      expect(initialStatus.steps.lastSynced).toBeNull();
+
+      unifiedMetricsService.updateSyncStatus('steps');
+      
+      const updatedStatus = unifiedMetricsService.getSyncStatus();
+      expect(updatedStatus.steps.lastSynced).not.toBeNull();
+      expect(updatedStatus.steps.isStale).toBe(false);
+    });
+
+    it('should provide comprehensive sync status for all metrics', () => {
+      const status = unifiedMetricsService.getSyncStatus();
+      
+      // Check all metric types are included
+      expect(Object.keys(status)).toEqual([
+        'steps',
+        'distance',
+        'calories',
+        'heart_rate',
+        'basal_calories',
+        'flights_climbed',
+        'exercise'
+      ]);
+
+      // Check structure of each status entry
+      Object.values(status).forEach(metricStatus => {
+        expect(metricStatus).toHaveProperty('lastSynced');
+        expect(metricStatus).toHaveProperty('isStale');
+      });
     });
   });
 });
