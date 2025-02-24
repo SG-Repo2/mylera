@@ -256,17 +256,16 @@ export const Dashboard = React.memo(function Dashboard({
       // Clean up existing provider
       console.log('[Dashboard] Cleaning up existing provider...');
       const factory = HealthProviderFactory.getInstance();
-      await factory.cleanupProvider(user.id);
-      console.log('[Dashboard] Provider cleanup complete');
-      
-      // Get platform and initialize new provider
       const platform = determineHealthPlatform(user);
       if (!platform) {
         throw new Error('Could not determine health platform for user');
       }
-
+      await factory.cleanup(`${platform}:${user.id}`);
+      console.log('[Dashboard] Provider cleanup complete');
+      
+      // Get platform and initialize new provider
       console.log('[Dashboard] Initializing new provider...');
-      const provider = await factory.initializeProvider(user.id, platform);
+      const provider = await factory.getProvider(platform, user.id);
       console.log('[Dashboard] New provider initialized');
       
       syncHealthData();

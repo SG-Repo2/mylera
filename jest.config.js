@@ -2,16 +2,13 @@ const { defaults: tsjPreset } = require('ts-jest/presets');
 
 module.exports = {
   ...tsjPreset,
-  preset: 'jest-expo',
-  setupFilesAfterEnv: ['./jest.setup.js'],
+  preset: 'react-native',
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-reanimated|react-native-paper|react-native-safe-area-context)',
+    'node_modules/(?!(react-native|@react-native|@react-navigation)/)'
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
-    '^react-native-health$': '<rootDir>/__mocks__/react-native-health.ts',
-    '^react-native-health-connect$': '<rootDir>/__mocks__/react-native-health-connect.ts',
-    '^react-native$': '<rootDir>/__mocks__/react-native.ts'
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   collectCoverage: true,
@@ -31,10 +28,8 @@ module.exports = {
   },
   globals: {
     'ts-jest': {
-      tsconfig: {
-        jsx: 'react',
-      },
-    },
+      tsconfig: 'tsconfig.jest.json'
+    }
   },
   verbose: true,
   testTimeout: 30000,

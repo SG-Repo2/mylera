@@ -1,151 +1,312 @@
+/**
+ * Enhanced useHealthData Hook
+ * 
+ * A custom hook for fetching and managing health data with proper cancellation
+ * support and resource cleanup to prevent memory leaks and race conditions.
+ */
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { debounce } from 'lodash';
 import type { HealthProvider } from '../providers/health/types/provider';
 import type { HealthMetrics } from '../providers/health/types/metrics';
-import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
+import { logger, LogCategory } from '../utils/logger';
 import { unifiedMetricsService } from '../services/unifiedMetricsService';
 import { useAuth } from '../providers/AuthProvider';
-import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
+import { callWithTimeout, DEFAULT_TIMEOUTS } from '../utils/asyncUtils';
+
 /**
- * React hook for managing health data synchronization.
- * Handles initialization, permission management, and data fetching from platform-specific health providers.
- * 
- * @param provider - Platform-specific health provider instance (Apple HealthKit or Google Health Connect)
- * @param userId - Unique identifier of the user for permission management
- * @returns Object containing:
- *  - loading: Boolean indicating if a sync operation is in progress
- *  - error: Error object if the last operation failed, null otherwise
- *  - syncHealthData: Function to manually trigger a health data sync
- * 
- * @example
- * ```tsx
- * const { loading, error, syncHealthData } = useHealthData(healthProvider, userId);
- * 
- * // Handle loading state
- * if (loading) return <LoadingSpinner />;
- * 
- * // Handle error state
- * if (error) return <ErrorView error={error} />;
- * 
- * // Trigger manual sync
- * const handleRefresh = () => syncHealthData();
- * ```
+ * Interface for useHealthData hook return value
  */
-export const useHealthData = (provider: HealthProvider, userId: string) => {
-  // Helper function to handle sync errors
-  const handleSyncError = (err: unknown) => {
-    let errorMessage: string;
-    
+interface UseHealthDataResult {
+  /** The current health metrics data */
+  data: HealthMetrics | null;
+  /** Whether data is currently being loaded */
+  loading: boolean;
+  /** Any error that occurred during data loading */
+  error: Error | null;
+  /** Function to manually trigger data synchronization */
+  syncHealthData: () => void;
+  /** Whether the provider is fully initialized */
+  isInitialized: boolean;
+}
+
+/**
+ * Custom hook for managing health data synchronization.
+ * 
+ * This hook handles initialization, permission management, data fetching, and cleanup
+ * with proper AbortController integration for cancellation support.
+ * 
+ * @param provider Platform-specific health provider instance
+ * @param userId Unique identifier of the user
+ * @returns Object containing data, loading state, error, and functions to control data sync
+ */
+export const useHealthData = (
+  provider: HealthProvider, 
+  userId: string
+): UseHealthDataResult => {
+  // State
+  const [data, setData] = useState<HealthMetrics | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<Error | null>(null);
+  
+  // Context from AuthProvider
+  const { healthInitState } = useAuth();
+  
+  // Refs to track request state
+  const isMounted = useRef<boolean>(true);
+  const syncInProgress = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const syncRequestId = useRef<number>(0);
+  
+  /**
+   * Helper function to create a descriptive error message
+   */
+  const createErrorMessage = (err: unknown): string => {
     if (err instanceof Error) {
-      if (err.name === 'MetricsAuthError') {
-        errorMessage = 'Your session has expired. Please sign in again.';
+      if (err.name === 'AbortError') {
+        return 'Data fetch was cancelled';
+      } else if (err.name === 'TimeoutError') {
+        return 'Data fetch timed out. Please try again.';
       } else if (err.message.includes('permission')) {
-        errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
+        return 'Unable to access health data. Please check your permissions in device settings.';
       } else if (err.message.includes('network') || err.message.includes('timeout')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
+        return 'Network error. Please check your connection and try again.';
       } else {
-        errorMessage = err.message.includes('health') ? err.message :
-          'Unable to sync health data. Please try again later.';
+        return err.message;
       }
-    } else {
-      errorMessage = 'An unexpected error occurred. Please try again.';
+    }
+    return 'An unexpected error occurred. Please try again later.';
+  };
+  
+  /**
+   * Helper function to handle sync errors consistently
+   */
+  const handleSyncError = useCallback((err: unknown, requestId: number) => {
+    // Ignore if component unmounted or request was superseded
+    if (!isMounted.current || requestId !== syncRequestId.current) {
+      logger.debug(
+        LogCategory.Health,
+        `Ignoring error from stale request`,
+        `sync-${requestId}`,
+        userId,
+        { error: err }
+      );
+      return;
     }
     
+    // Handle abort errors silently
+    if (err instanceof Error && err.name === 'AbortError') {
+      logger.debug(
+        LogCategory.Health,
+        `Sync request aborted`,
+        `sync-${requestId}`,
+        userId
+      );
+      return;
+    }
+    
+    // Log error details
+    logger.error(
+      LogCategory.Health,
+      `Health data sync error`,
+      `sync-${requestId}`,
+      userId,
+      { error: err }
+    );
+    
+    // Update error state with user-friendly message
+    const errorMessage = createErrorMessage(err);
     setError(new Error(errorMessage));
-    console.error('[useHealthData] Health sync error:', err);
-  };
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const isMounted = useRef(true);
-  const syncInProgress = useRef(false);
-  const { healthInitState } = useAuth();
-
-  // Create debounced version of sync function with error handling
+    
+    // Reset loading state
+    setLoading(false);
+    syncInProgress.current = false;
+  }, [userId]);
+  
+  /**
+   * Debounced sync function to prevent rapid consecutive syncs
+   */
   const debouncedSync = useCallback(
-    debounce(async () => {
-      if (!isMounted.current || syncInProgress.current) return;
+    debounce(async (requestId: number) => {
+      // Skip if unmounted, sync in progress, or provider not initialized
+      if (!isMounted.current || syncInProgress.current || !healthInitState.isInitialized) {
+        logger.debug(
+          LogCategory.Health,
+          `Skipping sync: ${!isMounted.current ? 'unmounted' : 
+                          syncInProgress.current ? 'in progress' : 
+                          'provider not initialized'}`,
+          `sync-${requestId}`,
+          userId
+        );
+        return;
+      }
       
       syncInProgress.current = true;
       setLoading(true);
-      setError(null);
-
+      
+      // Clear previous error
+      if (error) setError(null);
+      
+      logger.info(
+        LogCategory.Health,
+        `Starting health data sync`,
+        `sync-${requestId}`,
+        userId
+      );
+      
       try {
-        // Check provider and initialization state
-        if (!provider?.isInitialized() || !healthInitState.isInitialized) {
-          console.log('[useHealthData] Provider or health state not initialized, skipping sync', {
-            providerInitialized: provider?.isInitialized(),
-            healthStateInitialized: healthInitState.isInitialized
-          });
+        // Create new AbortController for this sync
+        if (abortControllerRef.current) {
+          logger.debug(
+            LogCategory.Health,
+            `Aborting previous sync`,
+            `sync-${requestId}`,
+            userId
+          );
+          abortControllerRef.current.abort();
+        }
+        
+        abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
+        
+        // Fetch data with timeout
+        const metrics = await callWithTimeout(
+          unifiedMetricsService.getMetrics(userId, undefined, provider),
+          DEFAULT_TIMEOUTS.API_CALL,
+          `Health metrics fetch timed out after ${DEFAULT_TIMEOUTS.API_CALL}ms`
+        );
+        
+        // Check if request was aborted or component unmounted
+        if (signal.aborted || !isMounted.current || requestId !== syncRequestId.current) {
+          logger.debug(
+            LogCategory.Health,
+            `Request ${signal.aborted ? 'aborted' : 'stale'}, ignoring result`,
+            `sync-${requestId}`,
+            userId
+          );
           return;
         }
-
-        // Log sync attempt
-        console.log('[useHealthData] Starting health data sync:', {
+        
+        logger.debug(
+          LogCategory.Health,
+          `Health data sync completed successfully`,
+          `sync-${requestId}`,
           userId,
-          healthInitState
-        });
-
-        // Get health data with timeout using unifiedMetricsService
-        const metrics = await withTimeout(
-          unifiedMetricsService.getMetrics(userId, undefined, provider),
-          DEFAULT_TIMEOUTS.METRICS_FETCH,
-          'Health metrics fetch timed out'
+          { 
+            metricsReceived: !!metrics,
+            hasSteps: !!metrics?.steps,
+            hasDistance: !!metrics?.distance,
+            hasCalories: !!metrics?.calories,
+          }
         );
-
-        // Verify metrics were received
-        if (!metrics) {
-          throw new Error('No metrics data received');
-        }
-
+        
+        // Update state with fetched data
+        setData(metrics);
+        setError(null);
       } catch (err) {
-        handleSyncError(err);
+        handleSyncError(err, requestId);
       } finally {
-        if (isMounted.current) {
+        // Only update state if still mounted and request is current
+        if (isMounted.current && requestId === syncRequestId.current) {
           setLoading(false);
           syncInProgress.current = false;
         }
       }
     }, 800),
-    [provider, userId, healthInitState.isInitialized]
+    [provider, userId, healthInitState.isInitialized, error, handleSyncError]
   );
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-      debouncedSync.cancel();
-      if (provider && userId) {
-        const factory = HealthProviderFactory.getInstance();
-        factory.cleanupProvider(userId).catch(error => {
-          console.error('[useHealthData] Error during cleanup:', error);
-        });
-      }
-    };
-  }, [debouncedSync, provider]);
-
+  
+  /**
+   * Public function to trigger health data sync
+   */
   const syncHealthData = useCallback(() => {
-    if (!isMounted.current || syncInProgress.current) return;
-    debouncedSync();
-  }, [debouncedSync]);
-
-  // Initial sync
+    // Skip if sync already in progress
+    if (syncInProgress.current) {
+      logger.debug(
+        LogCategory.Health,
+        `Sync already in progress, skipping`,
+        `sync-request`,
+        userId
+      );
+      return;
+    }
+    
+    // Generate new request ID
+    const requestId = Date.now();
+    syncRequestId.current = requestId;
+    
+    logger.debug(
+      LogCategory.Health,
+      `Triggering health data sync`,
+      `sync-${requestId}`,
+      userId
+    );
+    
+    // Trigger debounced sync with new request ID
+    debouncedSync(requestId);
+  }, [debouncedSync, userId]);
+  
+  /**
+   * Fetch data on initial mount and when dependencies change
+   */
   useEffect(() => {
     if (!userId) {
-      console.warn('useHealthData: No userId available - skipping sync');
+      logger.warn(
+        LogCategory.Health,
+        `No userId available - skipping initial sync`,
+        'initial-sync',
+        'unknown'
+      );
       setLoading(false);
       return;
     }
     
+    logger.debug(
+      LogCategory.Health,
+      `Initial health data sync triggered`,
+      'initial-sync',
+      userId
+    );
+    
     syncHealthData();
-  }, [syncHealthData, userId]);
-
-  const isInitialized = provider?.isInitialized() ?? false;
+    
+    // Cleanup on unmount
+    return () => {
+      logger.debug(
+        LogCategory.Health,
+        `Cleaning up health data hook`,
+        'cleanup',
+        userId
+      );
+      
+      isMounted.current = false;
+      debouncedSync.cancel();
+      
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
+      if (provider) {
+        provider.cleanup().catch(error => {
+          logger.error(
+            LogCategory.Health,
+            `Error during provider cleanup:`,
+            'cleanup',
+            userId,
+            { error }
+          );
+        });
+      }
+    };
+  }, [syncHealthData, userId, provider, debouncedSync]);
   
+  // Return hook API
   return { 
+    data,
     loading, 
     error, 
-    syncHealthData, 
-    isInitialized 
+    syncHealthData,
+    isInitialized: healthInitState.isInitialized
   };
 };

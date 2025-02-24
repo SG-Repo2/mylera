@@ -229,4 +229,27 @@ export async function retryWithBackoff<T>(
   }
 
   throw lastError || new Error('Operation failed after retries');
-} 
+}
+
+export const withTimeout = <T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  timeoutError?: Error
+): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(timeoutError || new Error('Operation timed out'));
+    }, timeoutMs);
+
+    fn().then(
+      (result) => {
+        clearTimeout(timeout);
+        resolve(result);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}; 

@@ -145,7 +145,7 @@ export async function initializeHealthProviderForUser(
   try {
     // Get provider instance using factory
     const factory = HealthProviderFactory.getInstance();
-    const provider = await factory.initializeProvider(userId, platform);
+    const provider = await factory.getProvider(platform, userId);
     
     // Verify initialization
     if (!provider.isInitialized()) {
@@ -213,3 +213,34 @@ export async function safeProviderCleanup(provider: HealthProvider): Promise<voi
     );
   }
 }
+
+export async function initializeProviderWithRetry(
+  provider: HealthProvider,
+  config: InitializationConfig = DEFAULT_CONFIG
+): Promise<void> {
+  let lastError: Error | null = null;
+  const operationId = Date.now();
+
+  for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
+    try {
+      await provider.initialize();
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      console.warn(
+        `[HealthProvider] Initialization attempt ${attempt}/${config.maxRetries} failed:`,
+        lastError.message
+      );
+      
+      const delay = Math.min(
+        config.baseDelay * Math.pow(2, attempt - 1),
+        config.maxDelay
+      );
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw new HealthProviderError(
+    `Failed to initialize provider after ${config.maxRetries} attempts: ${lastError?.message || 'Unknown error'}`
+  );
+} 

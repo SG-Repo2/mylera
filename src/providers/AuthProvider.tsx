@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // If initialization successful, refresh metrics
             if (healthInitState.isInitialized) {
               const factory = HealthProviderFactory.getInstance();
-              const provider = await factory.initializeProvider(user.id, platform);
+              const provider = await factory.getProvider(platform, user.id);
               await provider.getMetrics();
             }
             
@@ -197,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (user?.id) {
         const factory = HealthProviderFactory.getInstance();
         if (user?.id) {
-        await factory.cleanupProvider(user.id);
+        await factory.cleanup(user.id);
       }
       }
           console.log(`[AuthProvider] [${operationId}] Provider cleanup completed`);
@@ -284,7 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setError(mapAuthError(healthInitError));
           const factory = HealthProviderFactory.getInstance();
       if (user?.id) {
-        await factory.cleanupProvider(user.id);
+        await factory.cleanup(user.id);
       }
           setSession(null);
           setUser(null);
@@ -297,7 +297,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(mapAuthError(err));
       const factory = HealthProviderFactory.getInstance();
       if (user?.id) {
-        await factory.cleanupProvider(user.id);
+        await factory.cleanup(user.id);
       }
       setSession(null);
       setUser(null);
@@ -354,7 +354,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         try {
           const factory = HealthProviderFactory.getInstance();
-      await factory.cleanupProvider(user.id);
+      await factory.cleanup(user.id);
         } catch (healthError) {
           console.error('Error cleaning up health provider:', healthError);
         }
@@ -401,12 +401,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const factory = HealthProviderFactory.getInstance();
-      const provider = await factory.initializeProvider(user.id, platform);
+      const provider = await factory.getProvider(platform, user.id);
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       
       if (status === 'granted') {
-        await initializeProviderWithRetry(provider, {
+        await initializeProviderWithRetry(async (signal) => {
+          await provider.initialize();
+        }, {
           operationId: `auth-init-${user.id}-${Date.now()}`,
           maxRetries: 2
         });

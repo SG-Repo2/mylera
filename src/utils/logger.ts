@@ -9,7 +9,12 @@ export enum LogCategory {
   Metrics = 'metrics',
   Performance = 'performance',
   Timeout = 'timeout',
-  Error = 'error'
+  Error = 'error',
+  Provider = 'provider',
+  Rendering = 'rendering',
+  Lifecycle = "Lifecycle",
+  User = "User",
+  Database = "Database"
 }
 
 interface LogMetadata {
