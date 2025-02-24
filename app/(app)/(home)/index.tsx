@@ -57,8 +57,10 @@ export default function HomeScreen() {
           return true;
         });
 
-        // Cleanup existing provider
-        await HealthProviderFactory.cleanup();
+        const factory = HealthProviderFactory.getInstance();
+
+        // Cleanup existing provider if any
+        await factory.cleanupProvider(user.id);
 
         // Check if cancelled
         if (signal.aborted) {
@@ -72,11 +74,12 @@ export default function HomeScreen() {
           throw new Error('Could not determine health platform for user');
         }
 
-        const newProvider = await HealthProviderFactory.getProvider(platform, user.id);
+        // Initialize new provider
+        const newProvider = await factory.initializeProvider(user.id, platform);
 
         // Check if cancelled again
         if (signal.aborted) {
-          await HealthProviderFactory.cleanup();
+          await factory.cleanupProvider(user.id);
           return;
         }
 
@@ -122,9 +125,10 @@ export default function HomeScreen() {
       console.log('[HomeScreen] useEffect - cleanup - Triggered');
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
-      if (provider) {
+      if (provider && user) {
         console.log('[HomeScreen] Cleaning up provider on effect cleanup');
-        HealthProviderFactory.cleanup().catch(error => {
+        const factory = HealthProviderFactory.getInstance();
+        factory.cleanupProvider(user.id).catch(error => {
           console.error('[HomeScreen] Error during provider cleanup:', error);
         });
       }
@@ -137,9 +141,12 @@ export default function HomeScreen() {
     return () => {
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
-      HealthProviderFactory.cleanup().catch(error => {
-        console.error('[HomeScreen] Error during unmount cleanup:', error);
-      });
+      if (user) {
+        const factory = HealthProviderFactory.getInstance();
+        factory.cleanupProvider(user.id).catch(error => {
+          console.error('[HomeScreen] Error during unmount cleanup:', error);
+        });
+      }
     };
   }, []);
 
