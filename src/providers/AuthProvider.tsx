@@ -15,6 +15,7 @@ import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { determineHealthPlatform } from '../utils/healthUtils';
+import { initializeProviderWithRetry } from '../utils/providerInitializationManager';
 
 interface AuthContextType {
   session: Session | null;
@@ -405,17 +406,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setHealthPermissionStatus(status);
       
       if (status === 'granted') {
-        const platform = determineHealthPlatform(user);
-        if (!platform) {
-          throw new Error('Could not determine health platform for user');
-        }
-
-        await initializeHealthProviderForUser(
-          user.id,
-          platform,
-          setHealthPermissionStatus,
-          (state) => setHealthInitState(state)
-        );
+        await initializeProviderWithRetry(provider, {
+          operationId: `auth-init-${user.id}-${Date.now()}`,
+          maxRetries: 2
+        });
       }
       
       return status;

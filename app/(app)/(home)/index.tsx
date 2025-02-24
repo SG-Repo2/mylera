@@ -37,92 +37,90 @@ export default function HomeScreen() {
   const [providerError, setProviderError] = useState<Error | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Add health initialization state check
+  // Determine overall loading state.
   const isLoading = authLoading || isInitializing || healthInitState.isInitializing;
   
-  // Refs for cleanup and cancellation
+  // Refs for cancellation and tracking initialization
   const abortControllerRef = useRef<AbortController | null>(null);
   const initializationIdRef = useRef<number>(0);
 
-  // Create debounced initialization function
+  // Debounced initialization function.
+  // This function now uses factory.initializeProvider which internally
+  // creates the provider instance, initializes permissions, and applies retry logic.
   const debouncedInit = useCallback(
-    debounce(async (signal: AbortSignal) => {
+    debounce(async () => {
       if (!user) return;
 
       const currentInitId = ++initializationIdRef.current;
+      const operationId = `home-init-${currentInitId}`;
 
       try {
         setIsInitializing(prev => {
-          if (!prev) console.log('[HomeScreen] Starting initialization:', currentInitId);
+          if (!prev) console.log('[HomeScreen] Starting initialization:', operationId);
           return true;
         });
 
         const factory = HealthProviderFactory.getInstance();
 
-        // Cleanup existing provider if any
+        // Cleanup any existing provider for this user.
         await factory.cleanupProvider(user.id);
 
-        // Check if cancelled
-        if (signal.aborted) {
-          console.log('[HomeScreen] Initialization cancelled:', currentInitId);
+        // Check for cancellation before proceeding.
+        if (abortControllerRef.current?.signal.aborted) {
+          console.log('[HomeScreen] Initialization cancelled:', operationId);
           return;
         }
 
-        // Determine the correct platform based on user's device type
         const platform = determineHealthPlatform(user);
         if (!platform) {
           throw new Error('Could not determine health platform for user');
         }
 
-        // Initialize new provider
-        const newProvider = await factory.initializeProvider(user.id, platform);
+        // Use the factory's public initializeProvider method which returns
+        // an initialized provider instance.
+        const providerInstance = await factory.initializeProvider(user.id, platform);
 
-        // Check if cancelled again
-        if (signal.aborted) {
+        // Check again if cancellation occurred.
+        if (abortControllerRef.current?.signal.aborted) {
           await factory.cleanupProvider(user.id);
           return;
         }
 
-        setProvider(prev => {
-          if (prev) {
-            console.log('[HomeScreen] Replacing existing provider:', currentInitId);
-          }
-          return newProvider;
-        });
+        setProvider(providerInstance);
         setProviderError(null);
-
       } catch (error) {
-        if (!signal.aborted) {
-          console.error('[HomeScreen] Provider initialization failed:', currentInitId, error);
+        if (!abortControllerRef.current?.signal.aborted) {
+          console.error('[HomeScreen] Provider initialization failed:', operationId, error);
           setProvider(null);
-          setProviderError(error instanceof Error ? error : new Error('Failed to initialize health provider'));
+          setProviderError(
+            error instanceof Error ? error : new Error('Failed to initialize health provider')
+          );
         }
       } finally {
-        if (!signal.aborted) {
+        if (!abortControllerRef.current?.signal.aborted) {
           setIsInitializing(false);
-          console.log('[HomeScreen] Initialization complete:', currentInitId);
+          console.log('[HomeScreen] Initialization complete:', operationId);
         }
       }
     }, 300),
     [user]
   );
 
-  // Initialize provider when user or device type changes
+  // Trigger initialization when user or device type changes.
   useEffect(() => {
-    console.log('[HomeScreen] useEffect - user, deviceType, debouncedInit - Triggered', { user, deviceType: user?.user_metadata?.deviceType, isInitializing });
+    console.log('[HomeScreen] useEffect triggered', { user, deviceType: user?.user_metadata?.deviceType, isInitializing });
     if (!user?.user_metadata?.deviceType) return;
 
-    // Create new abort controller
+    // Cancel any previous initialization.
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
-    const { signal } = abortControllerRef.current;
 
-    // Start initialization
-    debouncedInit(signal);
+    // Start initialization.
+    debouncedInit();
 
-    // Cleanup function
+    // Cleanup function.
     return () => {
-      console.log('[HomeScreen] useEffect - cleanup - Triggered');
+      console.log('[HomeScreen] useEffect cleanup triggered');
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
       if (provider && user) {
@@ -135,9 +133,8 @@ export default function HomeScreen() {
     };
   }, [user, user?.user_metadata?.deviceType, debouncedInit]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount.
   useEffect(() => {
-    console.log('[HomeScreen] useEffect - unmount - Triggered');
     return () => {
       debouncedInit.cancel();
       abortControllerRef.current?.abort();
@@ -151,7 +148,7 @@ export default function HomeScreen() {
   }, []);
 
   if (authLoading || isInitializing) {
-    console.log('[HomeScreen] Rendering LoadingScreen - authLoading:', authLoading, 'isInitializing:', isInitializing);
+    console.log('[HomeScreen] Rendering LoadingScreen', { authLoading, isInitializing });
     return <LoadingScreen />;
   }
 
@@ -166,11 +163,10 @@ export default function HomeScreen() {
         onRetry={async () => {
           setProviderError(null);
           setProvider(null);
-          
-          // Create new abort controller for retry
+          // Retry initialization with a fresh abort controller.
           abortControllerRef.current?.abort();
           abortControllerRef.current = new AbortController();
-          await debouncedInit(abortControllerRef.current.signal);
+          await debouncedInit();
         }}
       />
     );

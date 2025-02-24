@@ -7,6 +7,7 @@ import { Mutex } from 'async-mutex';
 import { HealthProviderError } from '../types/errors';
 import { logger, LogCategory } from '../../../utils/logger';
 import type { ProviderManagerInterface, ProviderState } from '../types/state';
+import { initializeProviderWithRetry } from '../../../utils/providerInitializationManager';
 
 export type HealthPlatform = 'apple' | 'google' | 'fitbit';
 
@@ -62,9 +63,14 @@ export class HealthProviderFactory implements ProviderManagerInterface {
       this.states.set(userId, { status: 'initializing', userId });
 
       try {
-        // Initialize the provider
+        // Initialize permissions first
         await provider.initializePermissions(userId);
-        await provider.initialize();
+        
+        // Use the new initialization manager
+        await initializeProviderWithRetry(provider, {
+          operationId: `init-${userId}-${Date.now()}`,
+          maxRetries: 2
+        });
 
         if (!provider.isInitialized()) {
           throw new HealthProviderError('Provider initialization verification failed');
@@ -83,19 +89,6 @@ export class HealthProviderFactory implements ProviderManagerInterface {
         );
         return provider;
       } catch (error) {
-        // Ensure cleanup on failure
-        try {
-          await provider.cleanup();
-        } catch (cleanupError) {
-          logger.error(
-            LogCategory.Health,
-            'Provider cleanup after initialization failure failed',
-            userId,
-            undefined,
-            { error: cleanupError }
-          );
-        }
-        
         // Remove provider and set error state
         this.providers.delete(userId);
         this.states.set(userId, { 

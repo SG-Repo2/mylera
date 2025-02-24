@@ -41,73 +41,104 @@ export async function initializeProviderWithRetry(
   const { maxRetries, baseDelay, maxDelay, timeout, operationId } = finalConfig;
 
   let lastError: Error | null = null;
+  const controller = new AbortController();
+  const { signal } = controller;
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      logger.debug(
-        LogCategory.Health,
-        `Attempting provider initialization`,
-        operationId,
-        undefined,
-        { attempt, maxRetries }
-      );
+  // Set timeout
+  const timeoutId = setTimeout(() => {
+    controller.abort('timeout');
+  }, timeout);
 
-      // Verify userId is set before initialization
-      if (!provider.getUserId()) {
-        throw new Error('Provider userId must be set before initialization');
-      }
-
-      // Wrap initialization with timeout
-      await callWithTimeout(
-        provider.initialize(),
-        timeout,
-        'Provider initialization timed out',
-        operationId
-      );
-
-      logger.info(
-        LogCategory.Health,
-        'Provider initialized successfully',
-        operationId,
-        undefined,
-        { attempt }
-      );
-
-      return;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // If userId is not set, don't retry
-      if (lastError.message.includes('userId must be set')) {
-        break;
-      }
-      
-      const errorType = error instanceof TimeoutError ? 'timeout' : 'unknown';
-      
-      logger.warn(
-        LogCategory.Health,
-        'Provider initialization failed',
-        operationId,
-        undefined,
-        { attempt, error: lastError, errorType }
-      );
-
-      if (attempt === maxRetries) {
-        break;
-      }
-
-      // Skip retry delay if it was a timeout error
-      if (!(error instanceof TimeoutError)) {
-        const delay = Math.min(
-          baseDelay * Math.pow(2, attempt),
-          maxDelay
+  try {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        logger.debug(
+          LogCategory.Health,
+          `Attempting provider initialization`,
+          operationId,
+          undefined,
+          { attempt, maxRetries }
         );
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        // Verify userId is set before initialization
+        if (!provider.getUserId()) {
+          throw new Error('Provider userId must be set before initialization');
+        }
+
+        // Initialize with abort signal
+        await Promise.race([
+          provider.initialize(),
+          new Promise((_, reject) => {
+            signal.addEventListener('abort', () => {
+              reject(new TimeoutError('Provider initialization timed out'));
+            });
+          })
+        ]);
+
+        logger.info(
+          LogCategory.Health,
+          'Provider initialized successfully',
+          operationId,
+          undefined,
+          { attempt }
+        );
+
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // If userId is not set or initialization was aborted, don't retry
+        if (lastError.message.includes('userId must be set') || 
+            signal.aborted) {
+          break;
+        }
+        
+        const errorType = error instanceof TimeoutError ? 'timeout' : 'unknown';
+        
+        logger.warn(
+          LogCategory.Health,
+          'Provider initialization failed',
+          operationId,
+          undefined,
+          { attempt, error: lastError, errorType }
+        );
+
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Skip retry delay if it was a timeout error
+        if (!(error instanceof TimeoutError)) {
+          const delay = Math.min(
+            baseDelay * Math.pow(2, attempt),
+            maxDelay
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
     }
-  }
 
-  // Clean up on final failure
+    // Clean up on final failure
+    await cleanupProvider(provider, operationId);
+
+    const errorType = lastError instanceof TimeoutError ? 'timeout' : 'unknown';
+    throw new HealthProviderInitializationError(
+      errorType,
+      `Failed after ${maxRetries + 1} attempts: ${lastError?.message}`
+    );
+  } finally {
+    clearTimeout(timeoutId);
+    controller.abort(); // Ensure any pending operations are cancelled
+  }
+}
+
+/**
+ * Helper function to cleanup provider with timeout
+ */
+async function cleanupProvider(
+  provider: HealthProvider, 
+  operationId: string
+): Promise<void> {
   try {
     await callWithTimeout(
       provider.cleanup(),
@@ -124,10 +155,4 @@ export async function initializeProviderWithRetry(
       { cleanupError }
     );
   }
-
-  const errorType = lastError instanceof TimeoutError ? 'timeout' : 'unknown';
-  throw new HealthProviderInitializationError(
-    errorType,
-    `Failed after ${maxRetries + 1} attempts: ${lastError?.message}`
-  );
 }

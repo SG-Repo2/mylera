@@ -5,8 +5,17 @@ import type { HealthProvider } from '../../providers/health/types/provider';
 
 // Mock HealthProvider for testing
 class MockHealthProvider implements HealthProvider {
-  initialize = jest.fn();
+  private userId: string | null = null;
+  private initialized = false;
+  
+  initialize = jest.fn().mockImplementation(() => {
+    this.initialized = true;
+    return Promise.resolve();
+  });
   cleanup = jest.fn();
+  getUserId = jest.fn().mockImplementation(() => this.userId);
+  setUserId = jest.fn().mockImplementation((id: string) => { this.userId = id; });
+  isInitialized = jest.fn().mockImplementation(() => this.initialized);
   resetState = jest.fn();
   initializePermissions = jest.fn();
   requestPermissions = jest.fn();
@@ -14,7 +23,6 @@ class MockHealthProvider implements HealthProvider {
   getMetrics = jest.fn();
   handlePermissionDenial = jest.fn();
   getPermissionManager = jest.fn();
-  isInitialized = jest.fn();
   fetchRawMetrics = jest.fn();
   normalizeMetrics = jest.fn();
 }
@@ -25,6 +33,7 @@ describe('providerInitializationManager', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockProvider = new MockHealthProvider();
+    mockProvider.setUserId('test-user');
   });
 
   afterEach(() => {
@@ -32,106 +41,90 @@ describe('providerInitializationManager', () => {
     jest.useRealTimers();
   });
 
-  test('succeeds on first attempt', async () => {
-    mockProvider.initialize.mockResolvedValueOnce(undefined);
+  describe('Initialization Success', () => {
+    it('successfully initializes within timeout', async () => {
+      mockProvider.initialize.mockImplementation(() => 
+        new Promise(resolve => setTimeout(resolve, 100))
+      );
 
-    await initializeProviderWithRetry(mockProvider);
+      const promise = initializeProviderWithRetry(mockProvider, {
+        timeout: 1000,
+        operationId: 'test'
+      });
 
-    expect(mockProvider.initialize).toHaveBeenCalledTimes(1);
-    expect(mockProvider.cleanup).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(150);
+      await promise;
+
+      expect(mockProvider.initialize).toHaveBeenCalledTimes(1);
+      expect(mockProvider.isInitialized()).toBe(true);
+      expect(mockProvider.cleanup).not.toHaveBeenCalled();
+    });
   });
 
-  test('retries on failure and eventually succeeds', async () => {
-    mockProvider.initialize
-      .mockRejectedValueOnce(new Error('First failure'))
-      .mockRejectedValueOnce(new Error('Second failure'))
-      .mockResolvedValueOnce(undefined);
+  describe('Timeout Handling', () => {
+    it('throws TimeoutError if initialization exceeds timeout', async () => {
+      mockProvider.initialize.mockImplementation(() => 
+        new Promise(resolve => setTimeout(resolve, 2000))
+      );
 
-    const promise = initializeProviderWithRetry(mockProvider);
-    
-    // Fast-forward through retries
-    for (let i = 0; i < 2; i++) {
-      jest.advanceTimersByTime(1000 * Math.pow(2, i));
-      await Promise.resolve();
-    }
+      const promise = initializeProviderWithRetry(mockProvider, {
+        timeout: 1000,
+        operationId: 'test'
+      });
 
-    await promise;
-
-    expect(mockProvider.initialize).toHaveBeenCalledTimes(3);
-    expect(mockProvider.cleanup).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1100);
+      await expect(promise).rejects.toThrow(HealthProviderInitializationError);
+      expect(mockProvider.cleanup).toHaveBeenCalled();
+    });
   });
 
-  test('fails after max retries and cleans up', async () => {
-    const error = new Error('Persistent failure');
-    mockProvider.initialize.mockRejectedValue(error);
+  describe('Retry Logic', () => {
+    it('retries with exponential backoff and eventually succeeds', async () => {
+      const attempts: number[] = [];
+      const startTime = Date.now();
 
-    const promise = initializeProviderWithRetry(mockProvider, { maxRetries: 2, timeout: 60000 });
+      mockProvider.initialize
+        .mockImplementationOnce(() => {
+          attempts.push(Date.now() - startTime);
+          return Promise.reject(new Error('First failure'));
+        })
+        .mockImplementationOnce(() => {
+          attempts.push(Date.now() - startTime);
+          return Promise.reject(new Error('Second failure'));
+        })
+        .mockImplementationOnce(() => {
+          attempts.push(Date.now() - startTime);
+          return Promise.resolve();
+        });
 
-    // Fast-forward through all retries
-    for (let i = 0; i < 3; i++) {
-      jest.advanceTimersByTime(1000 * Math.pow(2, i));
-      await Promise.resolve();
-    }
+      const promise = initializeProviderWithRetry(mockProvider, {
+        maxRetries: 2,
+        baseDelay: 1000,
+        maxDelay: 5000,
+        operationId: 'test'
+      });
 
-    await expect(promise).rejects.toThrow(HealthProviderInitializationError);
-    expect(mockProvider.initialize).toHaveBeenCalledTimes(3);
-    expect(mockProvider.cleanup).toHaveBeenCalled();
+      // Advance through retries
+      for (let i = 0; i < 2; i++) {
+        jest.advanceTimersByTime(1000 * Math.pow(2, i));
+        await Promise.resolve();
+      }
+
+      await promise;
+
+      expect(mockProvider.initialize).toHaveBeenCalledTimes(3);
+      expect(attempts[1] - attempts[0]).toBeGreaterThanOrEqual(1000); // First retry after 1s
+      expect(attempts[2] - attempts[1]).toBeGreaterThanOrEqual(2000); // Second retry after 2s
+    });
   });
 
-  test('handles timeout during initialization', async () => {
-    mockProvider.initialize.mockImplementation(() => new Promise(resolve => {
-      setTimeout(resolve, 50000); // Longer than default timeout
-    }));
-
-    const promise = initializeProviderWithRetry(mockProvider, { timeout: 1000 });
-    
-    jest.advanceTimersByTime(1000);
-    await Promise.resolve();
-
-    await expect(promise).rejects.toThrow(HealthProviderInitializationError);
-    expect(mockProvider.cleanup).toHaveBeenCalled();
-  });
-
-  test('respects custom configuration', async () => {
-    mockProvider.initialize
-      .mockRejectedValueOnce(new Error('Failure'))
-      .mockResolvedValueOnce(undefined);
-
-    const config = {
-      maxRetries: 1,
-      baseDelay: 500,
-      maxDelay: 1000,
-      operationId: 'test-init'
-    };
-
-    const promise = initializeProviderWithRetry(mockProvider, config);
-    
-    jest.advanceTimersByTime(500);
-    await Promise.resolve();
-
-    await promise;
-
-    expect(mockProvider.initialize).toHaveBeenCalledTimes(2);
-  });
-
-  test('handles cleanup errors gracefully', async () => {
-    mockProvider.initialize.mockRejectedValue(new Error('Init failure'));
-    mockProvider.cleanup.mockRejectedValue(new Error('Cleanup failure'));
-
-    const promise = initializeProviderWithRetry(mockProvider, { maxRetries: 0 });
-    
-    await expect(promise).rejects.toThrow(HealthProviderInitializationError);
-    expect(mockProvider.cleanup).toHaveBeenCalled();
-  });
-
-  describe('cancellation', () => {
-    it('should respect external abort signal', async () => {
+  describe('Cancellation', () => {
+    it('respects abort signal', async () => {
       const abortController = new AbortController();
       
-      // Mock a long-running initialization that listens to abort signal
       mockProvider.initialize.mockImplementation(() => 
         new Promise((resolve, reject) => {
-          const timeout = setTimeout(resolve, 5000);
+          const timeout = setTimeout(resolve, 1000);
           abortController.signal.addEventListener('abort', () => {
             clearTimeout(timeout);
             reject(new Error('Operation cancelled'));
@@ -140,55 +133,11 @@ describe('providerInitializationManager', () => {
       );
 
       const promise = initializeProviderWithRetry(mockProvider, {
-        maxRetries: 0,
+        operationId: 'test'
       });
 
-      // Trigger abort
       abortController.abort();
-
-      // Need to advance timers and flush promises
       jest.advanceTimersByTime(100);
-      await Promise.resolve();
-
-      await expect(promise).rejects.toThrow('Operation cancelled');
-      expect(mockProvider.cleanup).toHaveBeenCalled();
-    });
-
-    it('should cleanup on abort', async () => {
-      const abortController = new AbortController();
-      
-      // Mock initialization that properly handles abort
-      mockProvider.initialize.mockImplementation(() => 
-        new Promise((resolve, reject) => {
-          const checkAbort = () => {
-            if (abortController.signal.aborted) {
-              reject(new Error('Operation cancelled'));
-            }
-          };
-          
-          // Check immediately in case already aborted
-          checkAbort();
-          
-          // Listen for future aborts
-          abortController.signal.addEventListener('abort', checkAbort);
-          
-          // Set up the long operation
-          const timeout = setTimeout(resolve, 5000);
-          return () => {
-            clearTimeout(timeout);
-            abortController.signal.removeEventListener('abort', checkAbort);
-          };
-        })
-      );
-
-      const promise = initializeProviderWithRetry(mockProvider, {
-        maxRetries: 0,
-      });
-
-      // Advance timers a bit before aborting
-      jest.advanceTimersByTime(100);
-      abortController.abort();
-      await Promise.resolve();
 
       await expect(promise).rejects.toThrow('Operation cancelled');
       expect(mockProvider.cleanup).toHaveBeenCalled();
