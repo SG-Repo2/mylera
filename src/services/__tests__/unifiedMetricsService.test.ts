@@ -1,3 +1,4 @@
+// [unifiedMetricsService.test.ts]
 import { unifiedMetricsService } from '../unifiedMetricsService';
 import { metricsService } from '../metricsService';
 import { supabase } from '../supabaseClient';
@@ -51,37 +52,27 @@ jest.mock('../supabaseClient', () => ({
 
 describe('unifiedMetricsService', () => {
   const mockUserId = 'test-user-id';
-  const mockDate = '2025-02-20';
+  const mockDate = new Date('2025-02-20').toISOString();
   
   const mockMetrics: DailyMetricScore[] = [
     {
       id: '123e4567-e89b-12d3-a456-426614174000',
       user_id: mockUserId,
-      date: mockDate,
+      date: mockDate.split('T')[0],
       metric_type: 'steps',
       value: 1000,
       points: 10,
       goal: 10000,
       goal_reached: false,
-      updated_at: new Date().toISOString(),
-      created_at: new Date().toISOString()
+      updated_at: mockDate,
+      created_at: mockDate
     }
   ];
 
-  const mockMetricBase: Omit<DailyMetricScore, 'metric_type' | 'value' | 'goal'> = {
-    id: '123e4567-e89b-12d3-a456-426614174000',
-    user_id: mockUserId,
-    date: mockDate,
-    points: 10,
-    goal_reached: false,
-    updated_at: new Date().toISOString(),
-    created_at: new Date().toISOString()
-  };
-
   const mockHealthMetrics: HealthMetrics = {
-    id: `${mockUserId}-${mockDate}`,
+    id: `${mockUserId}-${mockDate.split('T')[0]}`,
     user_id: mockUserId,
-    date: mockDate,
+    date: mockDate.split('T')[0],
     steps: 1000,
     distance: null,
     calories: null,
@@ -92,19 +83,17 @@ describe('unifiedMetricsService', () => {
     daily_score: 10,
     weekly_score: null,
     streak_days: null,
-    last_updated: expect.any(String),
-    created_at: expect.any(String),
-    updated_at: expect.any(String),
+    last_updated: mockDate,
+    created_at: mockDate,
+    updated_at: mockDate
   };
 
-  // Mock scoreCalculatorService responses
   const mockScoreResult = {
     points: 10,
     goalReached: false,
     validationErrors: []
   };
 
-  // Create a mock implementation of HealthProvider
   class MockHealthProvider implements HealthProvider {
     private initialized = false;
     private permissionManager: PermissionManager | null = null;
@@ -112,55 +101,38 @@ describe('unifiedMetricsService', () => {
     async initialize(): Promise<void> {
       this.initialized = true;
     }
-
     resetState(): void {}
-
     async cleanup(): Promise<void> {
       this.initialized = false;
     }
-
     async initializePermissions(): Promise<void> {}
-
     async requestPermissions(): Promise<'granted'> {
       return 'granted';
     }
-
     async checkPermissionsStatus(): Promise<PermissionState> {
       return { status: 'granted', lastChecked: Date.now() };
     }
-
     async handlePermissionDenial(): Promise<void> {}
-
     getPermissionManager(): PermissionManager | null {
       return this.permissionManager;
     }
-
     isInitialized(): boolean {
       return this.initialized;
     }
-
     async fetchRawMetrics(): Promise<any> {
       return {};
     }
-
     normalizeMetrics(): any[] {
       return [];
     }
-
     getMetrics = jest.fn().mockResolvedValue(mockHealthMetrics);
-
     async isAvailable(): Promise<boolean> {
       return true;
     }
-
     async getLastSyncTime(): Promise<Date | null> {
       return null;
     }
-
-    async setLastSyncTime(): Promise<void> {
-      // No-op for mock
-    }
-
+    async setLastSyncTime(): Promise<void> {}
     getUserId(): string {
       return mockUserId;
     }
@@ -171,12 +143,8 @@ describe('unifiedMetricsService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     unifiedMetricsService.resetState();
-    
-    // Mock metricsService methods
     (metricsService.getDailyMetrics as jest.Mock).mockResolvedValue(mockMetrics);
     (metricsService.updateMetric as jest.Mock).mockResolvedValue(undefined);
-
-    // Mock scoreCalculatorService methods
     (scoreCalculatorService.calculateMetricScore as jest.Mock).mockReturnValue(mockScoreResult);
     (scoreCalculatorService.calculateTotalScore as jest.Mock).mockReturnValue(10);
   });
@@ -193,7 +161,6 @@ describe('unifiedMetricsService', () => {
         dataSourceName: "Device Health API",
         requiresValidation: true
       });
-
       const basalCaloriesSource = unifiedMetricsService.getMetricSource('basal_calories');
       expect(basalCaloriesSource).toEqual({
         source: 'calculated',
@@ -211,18 +178,20 @@ describe('unifiedMetricsService', () => {
         ...mockHealthMetrics,
         heart_rate: 75
       };
-
       const derivedMetrics = unifiedMetricsService['calculateDerivedMetrics'](mockMetricsWithHeartRate);
       expect(derivedMetrics.basal_calories).toBeDefined();
       expect(typeof derivedMetrics.basal_calories).toBe('number');
     });
 
     it('should handle metric validation during synchronization', async () => {
+      // Create an invalid metrics object (steps is invalid, distance is valid)
       const invalidMetrics: HealthMetrics = {
         ...mockHealthMetrics,
-        steps: -1000 // Invalid value
+        steps: { value: -1000, source: 'health_provider' } as any,
+        distance: { value: 100, source: 'health_provider' } as any
       };
 
+      // Simulate validation failure for steps.
       (scoreCalculatorService.calculateMetricScore as jest.Mock).mockReturnValueOnce({
         points: 0,
         goalReached: false,
@@ -231,19 +200,24 @@ describe('unifiedMetricsService', () => {
 
       await unifiedMetricsService.synchronizeMetrics(invalidMetrics, mockUserId);
 
-      const updates = JSON.parse((supabase.rpc as jest.Mock).mock.calls
-        .find(call => call[0] === 'update_metrics_transaction')?.[1]?.updates || '[]');
-      
+      const rpcCall = (supabase.rpc as jest.Mock).mock.calls.find(
+        call => call[0] === 'update_metrics_transaction'
+      );
+      const updates = JSON.parse(rpcCall?.[1]?.updates || '[]');
+
       expect(updates).not.toContainEqual(expect.objectContaining({
         metric_type: 'steps',
         value: -1000
+      }));
+      expect(updates).toContainEqual(expect.objectContaining({
+        metric_type: 'distance',
+        value: 100
       }));
     });
 
     it('should retry failed synchronizations', async () => {
       const mockError = new Error('Sync failed');
       let attempts = 0;
-
       (supabase.rpc as jest.Mock).mockImplementation(() => {
         attempts++;
         if (attempts <= 2) {
@@ -251,7 +225,6 @@ describe('unifiedMetricsService', () => {
         }
         return Promise.resolve({ error: null });
       });
-
       await unifiedMetricsService.synchronizeMetrics(mockHealthMetrics, mockUserId);
       expect(attempts).toBeGreaterThan(1);
     });
@@ -259,13 +232,11 @@ describe('unifiedMetricsService', () => {
 
   describe('metric caching', () => {
     beforeEach(() => {
-      // Reset AsyncStorage mock state
       (AsyncStorage.setItem as jest.Mock).mockClear();
       (AsyncStorage.getItem as jest.Mock).mockClear();
     });
 
     it('should cache metrics after successful synchronization', async () => {
-      // Mock successful transaction
       (supabase.rpc as jest.Mock).mockImplementation(() => ({
         error: null,
         data: []
@@ -282,11 +253,9 @@ describe('unifiedMetricsService', () => {
     it('should retrieve cached metrics', async () => {
       const cachedData = {
         metrics: mockHealthMetrics,
-        timestamp: Date.now()
+        timestamp: 1740351173143
       };
-
       (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(cachedData));
-
       const result = await unifiedMetricsService.getCachedMetrics(mockUserId);
       expect(result).toEqual(cachedData);
     });

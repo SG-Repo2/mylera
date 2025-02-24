@@ -12,7 +12,7 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { unifiedMetricsService } from '@/src/services/unifiedMetricsService';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
@@ -121,15 +121,16 @@ export const Dashboard = React.memo(function Dashboard({
 }: DashboardProps) {
   const { healthInitState, healthPermissionStatus } = useAuth();
   
-  // Add comprehensive initialization check
+  // Simplified initialization check focusing on essential conditions
   const isFullyInitialized = useCallback(() => {
-    return (
-      healthInitState.isInitialized &&
-      !healthInitState.isInitializing &&
-      healthPermissionStatus === 'granted' && 
-      provider?.isInitialized()
-    );
-  }, [healthInitState, healthPermissionStatus, provider]);
+    const ready = healthPermissionStatus === 'granted' && provider?.isInitialized();
+    console.log('[Dashboard] Initialization check:', {
+      healthPermissionStatus,
+      providerInitialized: provider?.isInitialized(),
+      ready
+    });
+    return ready;
+  }, [healthPermissionStatus, provider]);
 
   const styles = useDashboardStyles();
   const theme = useTheme();
@@ -139,7 +140,9 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [isTransactionPending, setIsTransactionPending] = useState(false);
   const refreshInProgress = useRef(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout>();
   const {
     loading,
     error,
@@ -169,12 +172,19 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
 
+  // Enhanced fetch data with transaction handling and retry logic
   const fetchData = useCallback(async () => {
     if (!isFullyInitialized()) {
       console.log('[Dashboard] Not fully initialized, skipping fetch');
       return;
     }
+
+    // Clear any existing retry timeout
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+    }
     
+    setIsTransactionPending(true);
     try {
       console.log('[Dashboard] Fetching data for:', { userId, date });
       
@@ -201,7 +211,23 @@ export const Dashboard = React.memo(function Dashboard({
       
     } catch (error) {
       console.error('[Dashboard] Fetch error:', error);
+      
+      // Handle transaction-related errors with retry
+      if (error instanceof Error && 
+          (error.message.includes('transaction') || 
+           error.message.includes('deadlock') || 
+           error.message.includes('conflict'))) {
+        console.log('[Dashboard] Transaction error detected, scheduling retry');
+        retryTimeoutRef.current = setTimeout(() => {
+          console.log('[Dashboard] Retrying fetch after transaction error');
+          fetchData();
+        }, 1000);
+        return;
+      }
+      
       setFetchError(error instanceof Error ? error : new Error('Fetch failed'));
+    } finally {
+      setIsTransactionPending(false);
     }
   }, [isFullyInitialized, userId, date, provider]);
 
@@ -229,7 +255,8 @@ export const Dashboard = React.memo(function Dashboard({
 
       // Clean up existing provider
       console.log('[Dashboard] Cleaning up existing provider...');
-      await HealthProviderFactory.cleanup();
+      const factory = HealthProviderFactory.getInstance();
+      await factory.cleanupProvider(user.id);
       console.log('[Dashboard] Provider cleanup complete');
       
       // Get platform and initialize new provider
@@ -239,8 +266,7 @@ export const Dashboard = React.memo(function Dashboard({
       }
 
       console.log('[Dashboard] Initializing new provider...');
-      const newProvider = await HealthProviderFactory.getProvider(platform, user.id);
-      await newProvider.initialize();
+      const provider = await factory.initializeProvider(user.id, platform);
       console.log('[Dashboard] New provider initialized');
       
       syncHealthData();
@@ -291,12 +317,30 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [provider, userId, date]);
 
-  if (loading) {
+  // Cleanup retry timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  if (loading || isTransactionPending) {
     return <LoadingView />;
   }
 
   if (error || authHealthPermissionStatus === 'denied' || fetchError) {
-    return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
+    const finalError = error || fetchError || new Error('Unknown error');
+    const isPermissionError = finalError instanceof HealthProviderPermissionError;
+    
+    return (
+      <ErrorView 
+        error={finalError} 
+        onRetry={handleRetry}
+        showPermissionButton={isPermissionError}
+      />
+    );
   }
 
   return (

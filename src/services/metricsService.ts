@@ -13,15 +13,26 @@ class MetricsAuthError extends Error {
 export const metricsService = {
   // Get user's daily metrics
   async getDailyMetrics(userId: string, date: string) {
-    const { data, error } = await supabase
-      .from('daily_metric_scores')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('date', date)
-      .eq('is_test_data', false);
+    try {
+      const { data, error } = await supabase
+        .from('daily_metric_scores')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .eq('is_test_data', false);
 
-    if (error) throw error;
-    return data || [];
+      if (error) {
+        if (error.code === '42501') {
+          throw new MetricsAuthError('Permission denied: Cannot access metrics for this user');
+        }
+        throw error;
+      }
+      
+      return data || [];
+    } catch (error) {
+      console.error('[MetricsService] Error fetching daily metrics:', error);
+      throw error;
+    }
   },
 
   // Get user's historical metrics for the last 7 days
@@ -119,74 +130,95 @@ export const metricsService = {
 
     console.log('[MetricsService] Upserting metric data:', metricData);
 
-    // Update metric score
-    const { data: upsertResult, error: metricError } = await supabase
-      .from('daily_metric_scores')
-      .upsert(metricData, {
-        onConflict: 'user_id,date,metric_type'
-      })
-      .select();
-  
-    if (metricError) {
-      console.error('[MetricsService] Error upserting metric:', metricError);
-      if (metricError.code === '42501') {
-        throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+    try {
+      // Start a transaction if supported
+      const { error: txError } = await supabase.rpc('begin_transaction');
+      const useTransaction = !txError;
+
+      try {
+        // Update metric score
+        const { data: upsertResult, error: metricError } = await supabase
+          .from('daily_metric_scores')
+          .upsert(metricData, {
+            onConflict: 'user_id,date,metric_type'
+          })
+          .select();
+      
+        if (metricError) {
+          console.error('[MetricsService] Error upserting metric:', metricError);
+          if (metricError.code === '42501') {
+            throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+          }
+          throw metricError;
+        }
+
+        console.log('[MetricsService] Upsert result:', upsertResult);
+
+        // Get updated metrics for daily total
+        const { data: metrics, error: fetchError } = await supabase
+          .from('daily_metric_scores')
+          .select('points, goal_reached, metric_type, value')
+          .eq('user_id', userId)
+          .eq('date', today);
+
+        if (fetchError) {
+          console.error('[MetricsService] Error fetching metrics:', fetchError);
+          throw fetchError;
+        }
+
+        console.log('[MetricsService] Current metrics state:', metrics);
+
+        // Calculate totals using scoreCalculatorService
+        const totalPoints = metrics?.reduce((sum, m) => {
+          const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
+          return sum + score.points;
+        }, 0) ?? 0;
+        const metricsCompleted = metrics?.filter(m => {
+          const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
+          return score.goalReached;
+        }).length ?? 0;
+
+        // Update daily total
+        const { data: totalResult, error: totalError } = await supabase
+          .from('daily_totals')
+          .upsert({
+            user_id: userId,
+            date: today,
+            total_points: totalPoints,
+            metrics_completed: metricsCompleted,
+            updated_at: new Date().toISOString(),
+            is_test_data: false
+          }, {
+            onConflict: 'user_id,date'
+          })
+          .select();
+
+        console.log('[MetricsService] Daily total update result:', {
+          totalPoints,
+          metricsCompleted,
+          result: totalResult
+        });
+
+        if (totalError) {
+          if (totalError.code === '42501') {
+            throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
+          }
+          throw totalError;
+        }
+
+        if (useTransaction) {
+          await supabase.rpc('commit_transaction');
+        }
+        return totalResult;
+      } catch (error) {
+        if (useTransaction) {
+          await supabase.rpc('rollback_transaction');
+        }
+        throw error;
       }
-      throw metricError;
-    }
-
-    console.log('[MetricsService] Upsert result:', upsertResult);
-
-    // Get updated metrics for daily total
-    const { data: metrics, error: fetchError } = await supabase
-      .from('daily_metric_scores')
-      .select('points, goal_reached, metric_type, value')
-      .eq('user_id', userId)
-      .eq('date', today);
-
-    if (fetchError) {
-      console.error('[MetricsService] Error fetching metrics:', fetchError);
-      throw fetchError;
-    }
-
-    console.log('[MetricsService] Current metrics state:', metrics);
-
-    // Calculate totals using scoreCalculatorService
-    const totalPoints = metrics?.reduce((sum, m) => {
-      const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
-      return sum + score.points;
-    }, 0) ?? 0;
-    const metricsCompleted = metrics?.filter(m => {
-      const score = scoreCalculatorService.calculateMetricScore(m.metric_type, m.value);
-      return score.goalReached;
-    }).length ?? 0;
-
-    // Update daily total
-    const { data: totalResult, error: totalError } = await supabase
-      .from('daily_totals')
-      .upsert({
-        user_id: userId,
-        date: today,
-        total_points: totalPoints,
-        metrics_completed: metricsCompleted,
-        updated_at: new Date().toISOString(),
-        is_test_data: false
-      }, {
-        onConflict: 'user_id,date'
-      })
-      .select();
-
-    console.log('[MetricsService] Daily total update result:', {
-      totalPoints,
-      metricsCompleted,
-      result: totalResult
-    });
-
-    if (totalError) {
-      if (totalError.code === '42501') {
-        throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
-      }
-      throw totalError;
+    } catch (error) {
+      console.error('[MetricsService] Error in updateMetric:', error);
+      throw error;
     }
   }
 };

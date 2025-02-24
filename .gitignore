@@ -66,3 +66,5 @@ myleraDB.sql
 .gitignore
 cv.sql
 schema_diff.txt
+mylera-agent-guide.md
+mylera-implementation-guide.md

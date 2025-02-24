@@ -71,20 +71,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               throw new Error('No user available for provider refresh');
             }
 
+            const platform = determineHealthPlatform(user);
+            if (!platform) {
+              throw new Error('Could not determine health platform for user');
+            }
+
             await initializeHealthProviderForUser(
               user.id,
+              platform,
               setHealthPermissionStatus,
               (state) => setHealthInitState(state)
             );
             
             // If initialization successful, refresh metrics
             if (healthInitState.isInitialized) {
-              const platform = determineHealthPlatform(user);
-              if (!platform) {
-                throw new Error('Could not determine health platform for user');
-              }
-              
-              const provider = await HealthProviderFactory.getProvider(platform, user.id);
+              const factory = HealthProviderFactory.getInstance();
+              const provider = await factory.initializeProvider(user.id, platform);
               await provider.getMetrics();
             }
             
@@ -135,8 +137,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               
               await initializeHealthProviderForUser(
                 session.user.id,
+                platform,
                 setHealthPermissionStatus,
-                setHealthInitState
+                (state) => setHealthInitState(state)
               );
             } finally {
               initializationLock.current = null;
@@ -190,14 +193,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             error: null
           });
           
-          await HealthProviderFactory.cleanup();
+          if (user?.id) {
+        const factory = HealthProviderFactory.getInstance();
+        if (user?.id) {
+        await factory.cleanupProvider(user.id);
+      }
+      }
           console.log(`[AuthProvider] [${operationId}] Provider cleanup completed`);
         } else {
           console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
           
           try {
+            const platform = determineHealthPlatform(session.user);
+            if (!platform) {
+              throw new Error('Could not determine health platform for user');
+            }
+
             await initializeHealthProviderForUser(
               session.user.id,
+              platform,
               setHealthPermissionStatus,
               (state) => setHealthInitState(state)
             );
@@ -253,15 +267,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         try {
-          await initializeHealthProviderForUser(
-            data.user.id,
-            setHealthPermissionStatus,
-            (state) => setHealthInitState(state)
-          );
+      const platform = determineHealthPlatform(data.user);
+      if (!platform) {
+        throw new Error('Could not determine health platform for user');
+      }
+
+      await initializeHealthProviderForUser(
+        data.user.id,
+        platform,
+        setHealthPermissionStatus,
+        (state) => setHealthInitState(state)
+      );
         } catch (healthInitError) {
           console.error('[AuthProvider] register - Health provider initialization error:', healthInitError);
           setError(mapAuthError(healthInitError));
-          await HealthProviderFactory.cleanup();
+          const factory = HealthProviderFactory.getInstance();
+      if (user?.id) {
+        await factory.cleanupProvider(user.id);
+      }
           setSession(null);
           setUser(null);
           setHealthPermissionStatus(null);
@@ -271,7 +294,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('[AuthProvider] register - Error:', err);
       setError(mapAuthError(err));
-      await HealthProviderFactory.cleanup();
+      const factory = HealthProviderFactory.getInstance();
+      if (user?.id) {
+        await factory.cleanupProvider(user.id);
+      }
       setSession(null);
       setUser(null);
       setHealthPermissionStatus(null);
@@ -294,11 +320,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await initializeHealthProviderForUser(
-          user.id,
-          setHealthPermissionStatus,
-          (state) => setHealthInitState(state)
-        );
+      const platform = determineHealthPlatform(user);
+      if (!platform) {
+        throw new Error('Could not determine health platform for user');
+      }
+
+      await initializeHealthProviderForUser(
+        user.id,
+        platform,
+        setHealthPermissionStatus,
+        (state) => setHealthInitState(state)
+      );
       }
     } catch (err) {
       console.error('[AuthProvider] Login error:', err);
@@ -320,7 +352,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (user) {
         try {
-          await HealthProviderFactory.cleanup();
+          const factory = HealthProviderFactory.getInstance();
+      await factory.cleanupProvider(user.id);
         } catch (healthError) {
           console.error('Error cleaning up health provider:', healthError);
         }
@@ -366,13 +399,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Could not determine health platform for user');
       }
 
-      const provider = await HealthProviderFactory.getProvider(platform, user.id);
+      const factory = HealthProviderFactory.getInstance();
+      const provider = await factory.initializeProvider(user.id, platform);
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       
       if (status === 'granted') {
+        const platform = determineHealthPlatform(user);
+        if (!platform) {
+          throw new Error('Could not determine health platform for user');
+        }
+
         await initializeHealthProviderForUser(
           user.id,
+          platform,
           setHealthPermissionStatus,
           (state) => setHealthInitState(state)
         );

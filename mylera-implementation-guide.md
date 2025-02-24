@@ -1,260 +1,192 @@
-# MyLera Health Tracking - Implementation Guide
+# MyLera Health Tracking Implementation Guide
 
-## Context & Overview
+## Overview
 
-MyLera is a cross-platform health tracking application built with React Native (Expo) that integrates with multiple health data providers (Apple HealthKit, Google Health Connect, Fitbit) and uses Supabase for data persistence and real-time updates. The application faces challenges in maintaining data consistency across these providers while ensuring reliable scoring calculations and leaderboard updates.
+This guide outlines modular, context-aware implementation steps to improve provider setup, error handling, and data transaction management in the MyLera Health Tracking application.
 
-### Current Architecture
+### Key Issues Identified
 
-The application uses a three-layer architecture:
-1. Native Health Providers (AppleHealthProvider, GoogleHealthProvider, FitbitHealthProvider)
-2. Data Synchronization (unifiedMetricsService, metricsService)
-3. Presentation (Dashboard, MetricCards, Leaderboard)
+1. **Provider Cleanup Flow**
+   - Cleanup operations work but may run concurrently with initialization
+   - Potential race conditions need addressing
 
-### Primary Challenges
+2. **Provider Initialization Errors**
+   - "Cannot initialize provider without userId" error indicates improper userId setup
+   - Need for better initialization sequence
 
-1. Race conditions during health provider initialization
-2. Inconsistent data synchronization between native providers and Supabase
-3. Unreliable pull-to-refresh behavior
-4. Potential scoring discrepancies between direct calculations and leaderboard data
+3. **Permission Management Flow**
+   - Inconsistencies in permission state transitions
+   - Impact on provider reliability
 
-## Implementation Modules
+4. **Data Transaction Integrity**
+   - Need for atomic updates via Supabase RPC
+   - Transaction consistency requirements
 
-### Module 1: Health Provider Optimization
+## Expected System Behavior
 
-**Objective:** Ensure reliable initialization and permission management across all health providers.
+### 1. Robust Provider Initialization
+- Validate userId presence before initialization
+- Synchronize provider cleanup and initialization states
+- Implement retry logic with exponential backoff
 
-#### Action Items:
+### 2. Atomic Data Synchronization
+- Centralize metric configurations (METRIC_SOURCES)
+- Use Supabase RPC for atomic updates
+- Implement transaction rollback on failure
 
-1. Enhance Provider Initialization:
+### 3. Reliable Pull-to-Refresh
+- Synchronize native data before UI updates
+- Update leaderboard and daily totals atomically
+- Provide smooth UI transitions
+
+### 4. UI Components and Testing
+- Integrate MetricCard, MetricCardList, and MetricCardModal
+- Ensure smooth animations and interactions
+- Implement comprehensive test coverage
+
+## Implementation Steps
+
+### 1. Enhanced Provider Initialization and State Management
+
+#### A. Validate UserID and Synchronized Cleanup
+
 ```typescript
-// In BaseHealthProvider.ts
-protected abstract class BaseHealthProvider {
-  private initializationPromise: Promise<void> | null = null;
+interface ProviderInitOptions {
+  userId: string;
+  platform: 'apple' | 'google' | 'fitbit';
+  timeout?: number;
+}
+
+class ProviderInitializationManager {
+  private initLock: AsyncLock = new AsyncLock();
+  private currentInit: Promise<void> | null = null;
+
+  async initializeProvider(options: ProviderInitOptions): Promise<HealthProvider> {
+    return this.initLock.acquire('init', async () => {
+      if (!options.userId) {
+        throw new Error('userId is required for provider initialization');
+      }
+      await this.cleanupExisting();
+      const provider = await HealthProviderFactory.createProvider(options.platform);
+      await provider.setUserId(options.userId);
+      await this.initializeWithRetry(provider, {
+        maxRetries: 3,
+        timeout: options.timeout
+      });
+      return provider;
+    });
+  }
+}
+```
+
+### 2. Enhanced Data Transaction and Synchronization
+
+#### A. Metric Source Configuration
+
+```typescript
+const METRIC_SOURCES: Record<MetricType, MetricSource> = {
+  steps: { source: 'native', lastSynced: null, metricTypes: ['steps'] },
+  distance: { source: 'native', lastSynced: null, metricTypes: ['distance'] },
+  calories: { source: 'native', lastSynced: null, metricTypes: ['calories'] },
+  // ... additional metrics
+};
+```
+
+#### B. Synchronization Implementation
+
+```typescript
+async function synchronizeMetrics(
+  nativeMetrics: HealthMetrics,
+  userId: string
+): Promise<void> {
+  try {
+    const { data: existingMetrics, error } = await supabase
+      .from('daily_metric_scores')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', nativeMetrics.date);
+
+    // ... transaction logic
+  } catch (syncError) {
+    console.error("[synchronizeMetrics] Synchronization failed:", syncError);
+    throw syncError;
+  }
+}
+```
+
+### 3. Dashboard Pull-to-Refresh Implementation
+
+```typescript
+const handleRefresh = useCallback(async () => {
+  if (refreshInProgress.current) return;
+  refreshInProgress.current = true;
+  setRefreshing(true);
   
-  async initialize(): Promise<void> {
-    if (this.initialized) {
-      return;
-    }
-
-    if (this.initializationPromise) {
-      return this.initializationPromise;
-    }
-
-    this.initializationPromise = (async () => {
-      try {
-        await withTimeout(
-          this.performInitialization(),
-          DEFAULT_TIMEOUTS.INITIALIZATION,
-          'Provider initialization timed out'
-        );
-        this.initialized = true;
-      } catch (error) {
-        this.initialized = false;
-        throw error;
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
-
-    return this.initializationPromise;
-  }
-
-  protected abstract performInitialization(): Promise<void>;
-}
-```
-
-2. Implement Permission Verification:
-```typescript
-// In HealthProviderFactory.ts
-class HealthProviderFactory {
-  private static async verifyProviderAccess(
-    provider: HealthProvider, 
-    userId: string
-  ): Promise<boolean> {
-    const permissionState = await provider.checkPermissionsStatus();
+  try {
+    await syncHealthData();
+    const [totals, rank] = await Promise.all([
+      metricsService.getDailyTotals(date),
+      leaderboardService.getUserRank(userId, date)
+    ]);
     
-    if (permissionState.status !== 'granted') {
-      const newStatus = await provider.requestPermissions();
-      return newStatus === 'granted';
-    }
-    
-    return true;
+    setDailyTotal(totals);
+    setUserRank(rank);
+  } catch (error) {
+    console.error("[Dashboard] Refresh error:", error);
+    setErrorDialogVisible(true);
+  } finally {
+    refreshInProgress.current = false;
+    setRefreshing(false);
   }
-}
+}, [syncHealthData, date, userId]);
 ```
 
-### Module 2: Data Synchronization ✅
+## Testing and Integration
 
-**Objective:** Create a reliable data flow between native providers and Supabase.
+### Component Testing
+- MetricCard: Value calculation, animations, memoization
+- MetricCardList: Rendering order, animations
+- MetricCardModal: Data fetching, error handling
 
-#### Implementation Details:
+### Unit Tests
+- Metric calculations
+- Provider initialization
+- Transaction handling
 
-1. Atomic Updates:
-- Implemented transaction-based updates in unifiedMetricsService
-- Added proper error handling and rollback
-- Verified atomic updates through comprehensive tests
-- Added verification of updated metrics
+### Integration Tests
+- Pull-to-refresh flow
+- Provider lifecycle
+- Error propagation
 
-2. Staleness Check:
-- Implemented shouldFetchNative function to check data freshness
-- Set 5-minute threshold for stale data
-- Added tests to verify staleness detection
-- Integrated with getMetrics flow
+## Next Steps
 
-#### Key Features:
-- Transaction-based updates prevent partial data states
-- Automatic rollback on errors
-- Verification of metric updates
-- Smart fetching based on data freshness
-- Comprehensive error handling
+1. **Implement Metric Source Consolidation**
+   - Create MetricSource interface
+   - Implement METRIC_SOURCES
 
-#### Testing:
-- Unit tests for all new functionality
-- Coverage for error cases and edge conditions
-- Verification of transaction behavior
-- Staleness check validation
+2. **Enhance Data Synchronization**
+   - Add synchronizeMetrics function
+   - Update unifiedMetricsService
 
-### Module 3: UI Optimization
+3. **Refine Pull-to-Refresh**
+   - Update handleRefresh implementation
+   - Add error handling
 
-**Objective:** Improve UI performance and prevent unnecessary re-renders.
+4. **Validate Provider Logic**
+   - Implement ProviderInitializationManager
+   - Test userId validation
 
-#### Action Items:
+5. **Run Tests**
+   - Unit tests
+   - Integration tests
+   - Manual testing on iOS/Android
 
-1. Implement Debounced Refresh:
-```typescript
-// In Dashboard.tsx
-function Dashboard({ provider, userId }: DashboardProps) {
-  const debouncedRefresh = useCallback(
-    debounce(async () => {
-      if (refreshInProgress.current) return;
-      
-      refreshInProgress.current = true;
-      try {
-        await syncHealthData();
-      } finally {
-        refreshInProgress.current = false;
-      }
-    }, 500),
-    [syncHealthData]
-  );
+## Conclusion
 
-  // ... rest of component
-}
-```
+This implementation plan provides a robust foundation for:
+- Reliable provider initialization
+- Atomic database updates
+- Smooth UI interactions
+- Comprehensive test coverage
 
-2. Optimize MetricCard Rendering:
-```typescript
-// In MetricCard.tsx
-const MetricCard = React.memo<MetricCardProps>(
-  function MetricCard({ metric, onPress }) {
-    // ... component implementation
-  },
-  (prev, next) => {
-    return (
-      prev.metric.value === next.metric.value &&
-      prev.metric.points === next.metric.points &&
-      prev.metric.goalReached === next.metric.goalReached
-    );
-  }
-);
-```
-
-### Module 4: Leaderboard Integration
-
-**Objective:** Ensure consistent scoring and real-time leaderboard updates.
-
-#### Action Items:
-
-1. Implement Realtime Subscriptions:
-```typescript
-// In ToggleableLeaderboard.tsx
-function ToggleableLeaderboard() {
-  useEffect(() => {
-    const subscription = leaderboardService
-      .subscribeToLeaderboard(date, timeframe, handleUpdate);
-      
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [date, timeframe]);
-}
-```
-
-2. Standardize Scoring:
-```typescript
-// In scoringUtils.ts
-export function calculateMetricPoints(
-  type: MetricType,
-  value: number,
-  config: MetricConfig
-): MetricScore {
-  if (type === 'heart_rate') {
-    return calculateHeartRateScore(value, config);
-  }
-
-  const percentageOfGoal = value / config.defaultGoal;
-  const basePoints = Math.min(
-    Math.floor(percentageOfGoal * config.pointIncrement.maxPoints),
-    config.pointIncrement.maxPoints
-  );
-
-  return {
-    points: basePoints,
-    goalReached: value >= config.defaultGoal,
-    value,
-    goal: config.defaultGoal
-  };
-}
-```
-
-## Testing Requirements
-
-1. Permission Management:
-   - Test initialization with permissions granted/denied
-   - Verify permission state persistence
-   - Check token refresh for Fitbit
-
-2. Data Synchronization:
-   - Verify atomic updates
-   - Test concurrent update scenarios
-   - Validate staleness checks
-
-3. UI Behavior:
-   - Test rapid pull-to-refresh actions
-   - Verify metric card updates
-   - Check leaderboard real-time updates
-
-## Implementation Timeline
-
-1. Provider Optimization
-   - Implement timeout-based initialization
-   - Enhance permission management
-   - Add token refresh monitoring
-
-2. Data Synchronization
-   - Implement atomic updates
-   - Add staleness checks
-   - Enhance error handling
-
-3. UI Optimization
-   - Implement debounced refresh
-   - Optimize rendering
-   - Add loading states
-
-4. Testing & Integration
-   - Write integration tests
-   - Perform load testing
-   - Document edge cases
-
-## Success Metrics
-
-1. Technical Metrics:
-   - Zero unhandled promise rejections
-   - < 1s average sync time
-   - 100% atomic update success rate
-
-2. User Experience Metrics:
-   - < 500ms perceived refresh time
-   - Zero UI freezes during sync
-   - Real-time leaderboard updates
+Future updates should maintain these patterns while extending functionality.

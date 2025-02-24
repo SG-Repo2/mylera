@@ -5,7 +5,7 @@ import type { HealthMetrics } from '../providers/health/types/metrics';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../utils/timeoutUtils';
 import { unifiedMetricsService } from '../services/unifiedMetricsService';
 import { useAuth } from '../providers/AuthProvider';
-
+import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 /**
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
@@ -71,19 +71,32 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       setError(null);
 
       try {
-        // Only proceed if provider is properly initialized
-        if (!healthInitState.isInitialized) {
-          console.log('[useHealthData] Provider not initialized, skipping sync');
+        // Check provider and initialization state
+        if (!provider?.isInitialized() || !healthInitState.isInitialized) {
+          console.log('[useHealthData] Provider or health state not initialized, skipping sync', {
+            providerInitialized: provider?.isInitialized(),
+            healthStateInitialized: healthInitState.isInitialized
+          });
           return;
         }
 
-        console.log('[useHealthData] Permissions granted, fetching health data...');
+        // Log sync attempt
+        console.log('[useHealthData] Starting health data sync:', {
+          userId,
+          healthInitState
+        });
+
         // Get health data with timeout using unifiedMetricsService
-        await withTimeout(
+        const metrics = await withTimeout(
           unifiedMetricsService.getMetrics(userId, undefined, provider),
           DEFAULT_TIMEOUTS.METRICS_FETCH,
           'Health metrics fetch timed out'
         );
+
+        // Verify metrics were received
+        if (!metrics) {
+          throw new Error('No metrics data received');
+        }
 
       } catch (err) {
         handleSyncError(err);
@@ -102,8 +115,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     return () => {
       isMounted.current = false;
       debouncedSync.cancel();
-      if (provider) {
-        provider.cleanup().catch(error => {
+      if (provider && userId) {
+        const factory = HealthProviderFactory.getInstance();
+        factory.cleanupProvider(userId).catch(error => {
           console.error('[useHealthData] Error during cleanup:', error);
         });
       }
@@ -126,5 +140,12 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     syncHealthData();
   }, [syncHealthData, userId]);
 
-  return { loading, error, syncHealthData, isInitialized: healthInitState.isInitialized };
+  const isInitialized = provider?.isInitialized() ?? false;
+  
+  return { 
+    loading, 
+    error, 
+    syncHealthData, 
+    isInitialized 
+  };
 };

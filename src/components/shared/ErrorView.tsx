@@ -1,14 +1,15 @@
 import React from 'react';
-import { Animated, StyleSheet } from 'react-native';
+import { Animated, StyleSheet, Linking, Platform } from 'react-native';
 import { Button, Text, useTheme } from 'react-native-paper';
 import LottieView from 'lottie-react-native';
 
 interface ErrorViewProps {
   error: Error;
   onRetry?: () => void;
+  showPermissionButton?: boolean;
 }
 
-export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
+export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry, showPermissionButton }) => {
   const theme = useTheme();
   const lottieRef = React.useRef<LottieView>(null);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -23,6 +24,15 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
       duration: 500,
       useNativeDriver: true
     }).start();
+  }, []);
+
+  const handleOpenSettings = React.useCallback(() => {
+    if (Platform.OS === 'ios') {
+      Linking.openSettings();
+    } else {
+      // For Android, open Health Connect settings
+      Linking.openSettings();
+    }
   }, []);
 
   return (
@@ -41,7 +51,7 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
         variant="headlineSmall" 
         style={[styles.title, { color: theme.colors.error }]}
       >
-        Oops! Something went wrong
+        {showPermissionButton ? 'Permission Required' : 'Oops! Something went wrong'}
       </Text>
       
       <Text 
@@ -51,7 +61,18 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
         {error.message}
       </Text>
 
-      {onRetry && (
+      {showPermissionButton && (
+        <Button 
+          mode="contained"
+          onPress={handleOpenSettings}
+          style={styles.button}
+          buttonColor={theme.colors.primary}
+        >
+          Open Settings
+        </Button>
+      )}
+
+      {onRetry && !showPermissionButton && (
         <Button 
           mode="contained" 
           onPress={onRetry}

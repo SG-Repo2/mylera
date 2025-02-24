@@ -27,6 +27,20 @@ export interface TotalScore {
   }>;
 }
 
+export interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+}
+
+export interface MetricUpdate {
+  user_id: string;
+  date: string;
+  metric_type: MetricType;
+  value: number;
+  source: string;
+  updated_at: string;
+}
+
 /**
  * Calculate points for a single metric using production logic.
  */
@@ -150,4 +164,31 @@ export function validateMetricValue(
       }
       return validNumber;
   }
+}
+
+export function validateMetricUpdate(update: MetricUpdate): ValidationResult {
+  const errors: string[] = [];
+
+  if (!update.user_id) {
+    errors.push('Missing user_id');
+  }
+
+  if (!update.date) {
+    errors.push('Missing date');
+  }
+
+  if (!update.metric_type || !healthMetrics[update.metric_type]) {
+    errors.push('Invalid metric_type');
+  }
+
+  if (typeof update.value !== 'number' || isNaN(update.value)) {
+    errors.push('Invalid value');
+  } else if (update.metric_type && !validateMetricValue(update.metric_type, update.value)) {
+    errors.push(`Value out of range for ${update.metric_type}`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
 }
