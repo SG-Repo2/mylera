@@ -126,94 +126,97 @@ export const useHealthData = (
   /**
    * Debounced sync function to prevent rapid consecutive syncs
    */
-  const debouncedSync = useCallback(
-    debounce(async (requestId: number) => {
-      // Skip if unmounted, sync in progress, or provider not initialized
-      if (!isMounted.current || syncInProgress.current || !healthInitState.isInitialized) {
-        logger.debug(
-          LogCategory.Health,
-          `Skipping sync: ${!isMounted.current ? 'unmounted' : 
-                          syncInProgress.current ? 'in progress' : 
-                          'provider not initialized'}`,
-          `sync-${requestId}`,
-          userId
-        );
-        return;
-      }
-      
-      syncInProgress.current = true;
-      setLoading(true);
-      
-      // Clear previous error
-      if (error) setError(null);
-      
-      logger.info(
+  const syncImmediately = useCallback(async (requestId: number) => {
+    // Skip if unmounted, sync in progress, or provider not initialized
+    if (!isMounted.current || syncInProgress.current || !healthInitState.isInitialized) {
+      logger.debug(
+        LogCategory.Health,
+        `Skipping sync: ${!isMounted.current ? 'unmounted' : 
+                        syncInProgress.current ? 'in progress' : 
+                        'provider not initialized'}`,
+        `sync-${requestId}`,
+        userId
+      );
+      return;
+    }
+    
+    syncInProgress.current = true;
+    setLoading(true);
+    
+    // Clear previous error
+    if (error) setError(null);
+    
+    logger.info(
         LogCategory.Health,
         `Starting health data sync`,
         `sync-${requestId}`,
         userId
-      );
-      
-      try {
-        // Create new AbortController for this sync
+    );
+    
+    try {
+        // Abort any existing request before starting a new one
         if (abortControllerRef.current) {
-          logger.debug(
-            LogCategory.Health,
-            `Aborting previous sync`,
-            `sync-${requestId}`,
-            userId
-          );
-          abortControllerRef.current.abort();
+            abortControllerRef.current.abort();
+            logger.debug(
+                LogCategory.Health,
+                `Aborted previous sync request`,
+                `sync-${requestId}`,
+                userId
+            );
         }
         
+        // Always create a new AbortController for this sync
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
         
         // Fetch data with timeout
         const metrics = await callWithTimeout(
-          unifiedMetricsService.getMetrics(userId, undefined, provider),
-          DEFAULT_TIMEOUTS.API_CALL,
-          `Health metrics fetch timed out after ${DEFAULT_TIMEOUTS.API_CALL}ms`
+            unifiedMetricsService.getMetrics(userId, undefined, provider),
+            DEFAULT_TIMEOUTS.API_CALL,
+            `Health metrics fetch timed out after ${DEFAULT_TIMEOUTS.API_CALL}ms`
         );
         
         // Check if request was aborted or component unmounted
         if (signal.aborted || !isMounted.current || requestId !== syncRequestId.current) {
-          logger.debug(
-            LogCategory.Health,
-            `Request ${signal.aborted ? 'aborted' : 'stale'}, ignoring result`,
-            `sync-${requestId}`,
-            userId
-          );
-          return;
+            logger.debug(
+                LogCategory.Health,
+                `Request ${signal.aborted ? 'aborted' : 'stale'}, ignoring result`,
+                `sync-${requestId}`,
+                userId
+            );
+            return;
         }
         
         logger.debug(
-          LogCategory.Health,
-          `Health data sync completed successfully`,
-          `sync-${requestId}`,
-          userId,
-          { 
-            metricsReceived: !!metrics,
-            hasSteps: !!metrics?.steps,
-            hasDistance: !!metrics?.distance,
-            hasCalories: !!metrics?.calories,
-          }
+            LogCategory.Health,
+            `Health data sync completed successfully`,
+            `sync-${requestId}`,
+            userId,
+            { 
+                metricsReceived: !!metrics,
+                hasSteps: !!metrics?.steps,
+                hasDistance: !!metrics?.distance,
+                hasCalories: !!metrics?.calories,
+            }
         );
         
         // Update state with fetched data
         setData(metrics);
         setError(null);
-      } catch (err) {
+    } catch (err) {
         handleSyncError(err, requestId);
-      } finally {
+    } finally {
         // Only update state if still mounted and request is current
         if (isMounted.current && requestId === syncRequestId.current) {
-          setLoading(false);
-          syncInProgress.current = false;
+            setLoading(false);
         }
-      }
-    }, 800),
-    [provider, userId, healthInitState.isInitialized, error, handleSyncError]
+        syncInProgress.current = false;
+    }
+  }, [provider, userId, healthInitState.isInitialized, error, handleSyncError]);
+
+  const debouncedSync = useCallback(
+    debounce(syncImmediately, 800),
+    [syncImmediately]
   );
   
   /**

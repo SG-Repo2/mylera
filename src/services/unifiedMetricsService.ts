@@ -1,4 +1,3 @@
-// [unifiedMetricsService.ts]
 import { metricsService } from './metricsService';
 import { DateUtils } from '../utils/DateUtils';
 import type { HealthProvider } from '../providers/health/types/provider';
@@ -6,6 +5,11 @@ import type { HealthMetrics } from '../providers/health/types/metrics';
 import type { MetricType, DailyMetricScore } from '../types/schemas';
 import { supabase } from './supabaseClient';
 import { validateMetricUpdate } from '../utils/scoringUtils';
+import { healthMetrics } from '../config/healthMetrics';
+import { logger, LogCategory } from '../utils/logger';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
+import { scoreCalculatorService } from './scoreCalculatorService';
 
 interface MetricSource {
   source: 'native' | 'calculated' | 'composite';
@@ -87,20 +91,15 @@ const INITIAL_METRIC_SOURCES: Record<MetricType, MetricSource> = {
   }
 };
 
-import { scoreCalculatorService } from './scoreCalculatorService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { debounce } from 'lodash';
-
 let METRIC_SOURCES: Record<MetricType, MetricSource> = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
 const METRIC_CACHE_KEY = '@MyLera:metrics:';
-const SYNC_STATUS_KEY = '@MyLera:sync_status';
 
 interface CachedMetricsData {
   metrics: HealthMetrics;
   timestamp: number;
 }
 
-export const unifiedMetricsService = {
+const unifiedMetricsService = {
   resetState() {
     METRIC_SOURCES = JSON.parse(JSON.stringify(INITIAL_METRIC_SOURCES));
   },
@@ -111,8 +110,9 @@ export const unifiedMetricsService = {
         `${METRIC_CACHE_KEY}${userId}`,
         JSON.stringify({ metrics, timestamp: Date.now() })
       );
+      logger.debug(LogCategory.Metrics, 'Metrics cached', undefined, userId);
     } catch (error) {
-      console.warn('[unifiedMetricsService] Failed to cache metrics:', error);
+      logger.warn(LogCategory.Error, 'Failed to cache metrics', undefined, userId, error);
     }
   },
 
@@ -127,9 +127,10 @@ export const unifiedMetricsService = {
         updated_at: new Date(parsed.metrics.updated_at).toISOString(),
         last_updated: new Date(parsed.metrics.last_updated).toISOString(),
       };
+      logger.debug(LogCategory.Metrics, 'Cached metrics retrieved', undefined, userId);
       return { metrics, timestamp: parsed.timestamp };
     } catch (error) {
-      console.warn('[unifiedMetricsService] Failed to get cached metrics:', error);
+      logger.warn(LogCategory.Error, 'Failed to get cached metrics', undefined, userId, error);
       return null;
     }
   },
@@ -139,23 +140,24 @@ export const unifiedMetricsService = {
     date: string = DateUtils.getLocalDateString(),
     provider?: HealthProvider
   ): Promise<HealthMetrics> {
-    console.log('[unifiedMetricsService] Getting metrics:', { userId, date, hasProvider: !!provider });
+    logger.info(LogCategory.Metrics, 'Getting metrics', undefined, userId, { date, hasProvider: !!provider });
     
     let useTransaction = false;
     try {
       const { error: txError } = await supabase.rpc('begin_transaction');
       useTransaction = !txError;
+      logger.debug(LogCategory.Database, 'Transaction started', undefined, userId);
     } catch (error) {
-      console.warn('[unifiedMetricsService] Transactions not supported:', error);
+      logger.warn(LogCategory.Database, 'Transactions not supported', undefined, userId, error);
       useTransaction = false;
     }
 
     try {
       const syncStatus = this.getSyncStatus();
-      console.log('[unifiedMetricsService] Current sync status:', syncStatus);
+      logger.debug(LogCategory.Metrics, 'Current sync status', undefined, userId, syncStatus);
 
       const dbMetrics = await metricsService.getDailyMetrics(userId, date);
-      console.log('[unifiedMetricsService] Database metrics:', {
+      logger.debug(LogCategory.Metrics, 'Database metrics retrieved', undefined, userId, {
         count: dbMetrics.length,
         types: dbMetrics.map(m => m.metric_type)
       });
@@ -164,26 +166,26 @@ export const unifiedMetricsService = {
         this.isMetricStale(metric.metric_type, metric.updated_at)
       );
       
-      console.log('[unifiedMetricsService] Stale metrics:', {
+      logger.debug(LogCategory.Metrics, 'Stale metrics found', undefined, userId, {
         count: staleMetrics.length,
         types: staleMetrics.map(m => m.metric_type)
       });
 
       if (this.hasCompleteMetrics(dbMetrics) && staleMetrics.length === 0) {
-        console.log('[unifiedMetricsService] Using database metrics (complete and fresh)');
+        logger.info(LogCategory.Metrics, 'Using complete and fresh database metrics', undefined, userId);
         const metrics = this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
         dbMetrics.forEach(metric => this.updateSyncStatus(metric.metric_type));
         if (useTransaction) {
           const { error: commitError } = await supabase.rpc('commit_transaction');
           if (commitError) {
-            console.warn('[unifiedMetricsService] Failed to commit transaction:', commitError);
+            logger.warn(LogCategory.Database, 'Failed to commit transaction', undefined, userId, commitError);
           }
         }
         return metrics;
       }
 
       if (provider && (staleMetrics.length > 0 || !this.hasCompleteMetrics(dbMetrics))) {
-        console.log('[unifiedMetricsService] Fetching from native provider');
+        logger.info(LogCategory.Metrics, 'Fetching metrics from native provider', undefined, userId);
         try {
           const nativeMetrics = await provider.getMetrics();
           Object.entries(METRIC_SOURCES).forEach(([type]) => {
@@ -198,31 +200,31 @@ export const unifiedMetricsService = {
           if (useTransaction) {
             const { error: commitError } = await supabase.rpc('commit_transaction');
             if (commitError) {
-              console.warn('[unifiedMetricsService] Failed to commit transaction:', commitError);
+              logger.warn(LogCategory.Database, 'Failed to commit transaction', undefined, userId, commitError);
             }
           }
 
-          console.log('[unifiedMetricsService] Successfully synchronized native metrics');
+          logger.info(LogCategory.Metrics, 'Native metrics synchronized successfully', undefined, userId);
           return nativeMetrics;
         } catch (providerError) {
-          console.error('[unifiedMetricsService] Provider error:', providerError);
+          logger.error(LogCategory.Metrics, 'Provider error during metrics fetch', undefined, userId, providerError);
           if (useTransaction) {
             const { error: rollbackError } = await supabase.rpc('rollback_transaction');
             if (rollbackError) {
-              console.warn('[unifiedMetricsService] Failed to rollback transaction:', rollbackError);
+              logger.warn(LogCategory.Database, 'Failed to rollback transaction', undefined, userId, rollbackError);
             }
           }
           throw providerError;
         }
       }
 
-      console.log('[unifiedMetricsService] Using database metrics (no provider or fetch not needed)');
+      logger.info(LogCategory.Metrics, 'Using database metrics (fallback)', undefined, userId);
       const metrics = this.transformDatabaseMetricsToHealthMetrics(dbMetrics, userId, date);
       dbMetrics.forEach(metric => this.updateSyncStatus(metric.metric_type));
       if (useTransaction) {
         const { error: commitError } = await supabase.rpc('commit_transaction');
         if (commitError) {
-          console.warn('[unifiedMetricsService] Failed to commit transaction:', commitError);
+          logger.warn(LogCategory.Database, 'Failed to commit transaction', undefined, userId, commitError);
         }
       }
       return metrics;
@@ -230,10 +232,10 @@ export const unifiedMetricsService = {
       if (useTransaction) {
         const { error: rollbackError } = await supabase.rpc('rollback_transaction');
         if (rollbackError) {
-          console.warn('[unifiedMetricsService] Failed to rollback transaction:', rollbackError);
+          logger.warn(LogCategory.Database, 'Failed to rollback transaction', undefined, userId, rollbackError);
         }
       }
-      console.error('[unifiedMetricsService] Error in getMetrics:', error);
+      logger.error(LogCategory.Metrics, 'Error in getMetrics', undefined, userId, error);
       throw error;
     }
   },
@@ -246,9 +248,7 @@ export const unifiedMetricsService = {
     const availableMetricTypes = new Set(dbMetrics.map(metric => metric.metric_type));
     const hasAllMetrics = requiredMetrics.every(type => availableMetricTypes.has(type));
     const hasValidValues = dbMetrics.every(metric => 
-      metric.value !== null && 
-      !isNaN(metric.value) && 
-      metric.value >= 0
+      metric.value !== null && !isNaN(metric.value) && metric.value >= 0
     );
     return hasAllMetrics && hasValidValues;
   },
@@ -285,7 +285,7 @@ export const unifiedMetricsService = {
         if (!validation.validationErrors?.length) {
           result[key] = metric.value;
         } else {
-          console.warn(`[transformDatabaseMetricsToHealthMetrics] Invalid metric value:`, {
+          logger.warn(LogCategory.Metrics, 'Invalid metric value', undefined, userId, {
             type: key,
             value: metric.value,
             errors: validation.validationErrors
@@ -297,7 +297,7 @@ export const unifiedMetricsService = {
     result.daily_score = scoreCalculatorService.calculateTotalScore(result);
     const scoreVerified = scoreCalculatorService.verifyTotalScore(dbMetrics, result.daily_score);
     if (!scoreVerified) {
-      console.warn('[transformDatabaseMetricsToHealthMetrics] Score verification failed:', {
+      logger.warn(LogCategory.Metrics, 'Score verification failed', undefined, userId, {
         calculated: result.daily_score,
         metrics: dbMetrics
       });
@@ -320,6 +320,7 @@ export const unifiedMetricsService = {
     return derived;
   },
 
+  // Debounce sync calls (using a 1-second leading edge)
   debouncedSync: debounce(async (metrics: HealthMetrics, userId: string) => {
     await unifiedMetricsService.synchronizeMetrics(metrics, userId);
   }, 1000, { leading: true, trailing: false }),
@@ -369,28 +370,35 @@ export const unifiedMetricsService = {
     matched: boolean;
     timestamp: string;
   }>> {
+    console.log('Verifying metrics:', {
+      nativeMetrics,
+      userId
+    });
+
     const { data: verifiedMetrics, error: verificationError } = await supabase
       .from('daily_metric_scores')
       .select('*')
       .eq('user_id', userId)
       .eq('date', nativeMetrics.date);
 
-    if (verificationError) {
-      console.warn("[synchronizeMetrics] Warning: Error verifying updates:", verificationError);
-      return [];
-    }
+    console.log('Supabase response:', {
+      verifiedMetrics,
+      verificationError
+    });
 
     return Object.entries(METRIC_SOURCES)
       .filter(([, source]) => source.source === 'native')
       .map(([type]) => {
         const metricType = type as MetricType;
-        const expectedValue = nativeMetrics[metricType];
-        const actualValue = verifiedMetrics?.find(m => m.metric_type === metricType)?.value ?? null;
+        const actualMetric = verifiedMetrics?.find(m => m.metric_type === metricType);
+        const actualValue = actualMetric ? actualMetric.value : 0;
+        const expectedValue = nativeMetrics[metricType] !== undefined ? nativeMetrics[metricType] : null;
+        const matched = expectedValue === actualValue;
         return {
           metricType,
           expected: expectedValue,
           actual: actualValue,
-          matched: expectedValue === actualValue,
+          matched,
           timestamp: new Date().toISOString()
         };
       });
@@ -402,30 +410,38 @@ export const unifiedMetricsService = {
     retryCount: number = 0
   ): Promise<void> {
     const date = DateUtils.getLocalDateString();
-    console.log('[synchronizeMetrics] Starting synchronization:', {
-      userId,
+    logger.info(LogCategory.Metrics, 'Starting metrics synchronization', undefined, userId, {
       date,
       metrics: Object.keys(nativeMetrics),
       retryCount
     });
 
     try {
-      // Map nativeMetrics to updates.
-      const updates = Object.entries(nativeMetrics).map(([type, data]) => ({
-        user_id: userId,
-        date,
-        metric_type: type as MetricType,
-        value: (data && typeof data === 'object' && 'value' in data) ? data.value : data,
-        source: (data && typeof data === 'object' && 'source' in data) ? data.source : 'health_provider',
-        updated_at: new Date().toISOString()
-      }));
+      // Get list of valid metric types from healthMetrics config
+      const validMetricTypes = Object.keys(healthMetrics) as MetricType[];
 
-      // Validate each update.
+      // Map nativeMetrics to update objects, filtering for valid metric types only
+      const updates = Object.entries(nativeMetrics)
+        .filter(([type]) => validMetricTypes.includes(type as MetricType))
+        .map(([type, data]) => ({
+          user_id: userId,
+          date,
+          metric_type: type as MetricType,
+          value: (data && typeof data === 'object' && 'value' in data) ? data.value : data,
+          source: (data && typeof data === 'object' && 'source' in data) ? data.source : 'health_provider',
+          updated_at: new Date().toISOString()
+        }));
+
+      // Validate each update
       const validUpdates = updates.filter(update => {
+        // Skip validation for non-metric fields
+        if (!validMetricTypes.includes(update.metric_type)) {
+          return true;
+        }
+        
         const validationResult = validateMetricUpdate(update);
         if (!validationResult.isValid) {
-          console.warn(`[synchronizeMetrics] Validation failed for ${update.metric_type}:`, 
-            validationResult.errors);
+          logger.warn(LogCategory.Metrics, `Validation failed for ${update.metric_type}`, undefined, userId, validationResult.errors);
           return false;
         }
         return true;
@@ -433,24 +449,29 @@ export const unifiedMetricsService = {
 
       if (validUpdates.length > 0) {
         const jsonUpdates = JSON.stringify(validUpdates);
-        // Note: We now call the RPC method 'update_metrics_transaction'
+        // Call the RPC method 'update_metrics_transaction'
         const { error } = await supabase.rpc('update_metrics_transaction', {
           updates: jsonUpdates
         });
-        if (error) throw error;
+        if (error) {
+          logger.error(LogCategory.Metrics, 'RPC call failed', undefined, userId, error);
+          throw error;
+        }
       }
 
-      // Cache the metrics after successful synchronization.
+      // Cache the synchronized metrics.
       await unifiedMetricsService.cacheMetrics(userId, nativeMetrics);
 
     } catch (error) {
-      console.error('[synchronizeMetrics] Synchronization failed:', error);
+      logger.error(LogCategory.Metrics, 'Synchronization failed', undefined, userId, error);
       if (retryCount < 3) {
-        console.log(`[synchronizeMetrics] Retrying after error (attempt ${retryCount + 1})`);
+        logger.info(LogCategory.Retry, `Retrying synchronization (attempt ${retryCount + 1})`, undefined, userId);
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-        return this.synchronizeMetrics(nativeMetrics, userId, retryCount + 1);
+        return unifiedMetricsService.synchronizeMetrics(nativeMetrics, userId, retryCount + 1);
       }
       throw error;
     }
   }
 };
+
+export { unifiedMetricsService };

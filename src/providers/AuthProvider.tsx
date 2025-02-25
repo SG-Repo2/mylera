@@ -1,9 +1,9 @@
 /**
  * Key points:
-	•	We store both session and user to manage app logic that might require more than a session token.
-	•	The loading state helps display UI feedback (e.g., spinners) while auth actions are in progress.
-	•	The error state is updated when any registration, login, or logout operation fails.
-	•	We expose register, login, and logout for the rest of the app to consume.
+  •	We store both session and user to manage app logic that might require more than a session token.
+  •	The loading state helps display UI feedback (e.g., spinners) while auth actions are in progress.
+  •	The error state is updated when any registration, login, or logout operation fails.
+  •	We expose register, login, and logout for the rest of the app to consume.
  */
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { AppState } from 'react-native';
@@ -16,7 +16,7 @@ import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { determineHealthPlatform } from '../utils/healthUtils';
 import { initializeProviderWithRetry } from '../utils/providerInitializationManager';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const refreshProviders = async () => {
           try {
             console.log('[AuthProvider] App became active, refreshing health provider...');
-            
+
             if (!user) {
               throw new Error('No user available for provider refresh');
             }
@@ -83,14 +83,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setHealthPermissionStatus,
               (state) => setHealthInitState(state)
             );
-            
+
             // If initialization successful, refresh metrics
             if (healthInitState.isInitialized) {
               const factory = HealthProviderFactory.getInstance();
               const provider = await factory.getProvider(platform, user.id);
               await provider.getMetrics();
             }
-            
+
             console.log('[AuthProvider] Health provider refresh completed successfully');
           } catch (error) {
             console.error('[AuthProvider] Error refreshing health provider:', error);
@@ -116,13 +116,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         console.log('[AuthProvider] Initial session check:', { hasSession: !!session });
-        
+
         setSession(session);
         setUser(session?.user ?? null);
-        
-        if (session?.user) {
+
+        if (session?.user?.id) {
+          const userId = session.user.id; // Explicitly capture userId
+          console.log(`[AuthProvider] User session found with ID: ${userId}`);
+
           // Ensure only one initialization is running
           if (initializationLock.current) {
+            console.log('[AuthProvider] Waiting for existing initialization to complete');
             await initializationLock.current;
             return;
           }
@@ -134,20 +138,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 throw new Error('Could not determine health platform for user');
               }
 
-              console.log('[AuthProvider] Initializing health provider with platform:', platform);
-              
+              console.log(`[AuthProvider] Initializing health provider for user ${userId} with platform: ${platform}`);
+
+              // Store userId in localStorage as fallback
+              await AsyncStorage.setItem('lastUserId', userId);
+
               await initializeHealthProviderForUser(
-                session.user.id,
+                userId,
                 platform,
                 setHealthPermissionStatus,
-                (state) => setHealthInitState(state)
+                (state) => {
+                  console.log(`[AuthProvider] Health provider state updated for user ${userId}:`, state);
+                  setHealthInitState(state);
+                }
               );
+            } catch (error) {
+              console.error(`[AuthProvider] Failed to initialize health provider for user ${userId}:`, error);
+              throw error;
             } finally {
               initializationLock.current = null;
+              console.log(`[AuthProvider] Initialization lock released for user ${userId}`);
             }
           })();
-          
-          await initializationLock.current;
+
+          try {
+            await initializationLock.current;
+            console.log(`[AuthProvider] Health provider initialization completed for user ${userId}`);
+          } catch (error) {
+            console.error(`[AuthProvider] Health provider initialization failed for user ${userId}:`, error);
+            throw error;
+          }
+        } else {
+          console.log('[AuthProvider] No valid user session found');
         }
       } catch (error) {
         console.error('[AuthProvider] Initialization error:', error);
@@ -173,7 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const operationId = Date.now();
       setCurrentOperationId(operationId);
-      
+
       console.log(`[AuthProvider] [${operationId}] Auth state change detected:`, {
         event: _event,
         hasUser: !!session?.user
@@ -182,7 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       console.log(`[AuthProvider] [${operationId}] Session state updated`);
-      
+
       try {
         if (!session?.user) {
           console.log(`[AuthProvider] [${operationId}] No user session, cleaning up...`);
@@ -193,17 +215,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             permissionStatus: 'not_determined',
             error: null
           });
-          
+
           if (user?.id) {
-        const factory = HealthProviderFactory.getInstance();
-        if (user?.id) {
-        await factory.cleanup(user.id);
-      }
-      }
+            const factory = HealthProviderFactory.getInstance();
+            if (user?.id) {
+              await factory.cleanup(user.id);
+            }
+          }
           console.log(`[AuthProvider] [${operationId}] Provider cleanup completed`);
         } else {
           console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
-          
+
           try {
             const platform = determineHealthPlatform(session.user);
             if (!platform) {
@@ -237,8 +259,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = async (
-    email: string, 
-    password: string, 
+    email: string,
+    password: string,
     profile: {
       displayName: string;
       deviceType: 'os' | 'fitbit';
@@ -268,24 +290,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.user) {
         try {
-      const platform = determineHealthPlatform(data.user);
-      if (!platform) {
-        throw new Error('Could not determine health platform for user');
-      }
+          const platform = determineHealthPlatform(data.user);
+          if (!platform) {
+            throw new Error('Could not determine health platform for user');
+          }
 
-      await initializeHealthProviderForUser(
-        data.user.id,
-        platform,
-        setHealthPermissionStatus,
-        (state) => setHealthInitState(state)
-      );
+          await initializeHealthProviderForUser(
+            data.user.id,
+            platform,
+            setHealthPermissionStatus,
+            (state) => setHealthInitState(state)
+          );
         } catch (healthInitError) {
           console.error('[AuthProvider] register - Health provider initialization error:', healthInitError);
           setError(mapAuthError(healthInitError));
           const factory = HealthProviderFactory.getInstance();
-      if (user?.id) {
-        await factory.cleanup(user.id);
-      }
+          if (user?.id) {
+            await factory.cleanup(user.id);
+          }
           setSession(null);
           setUser(null);
           setHealthPermissionStatus(null);
@@ -321,17 +343,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-      const platform = determineHealthPlatform(user);
-      if (!platform) {
-        throw new Error('Could not determine health platform for user');
-      }
+        const platform = determineHealthPlatform(user);
+        if (!platform) {
+          throw new Error('Could not determine health platform for user');
+        }
 
-      await initializeHealthProviderForUser(
-        user.id,
-        platform,
-        setHealthPermissionStatus,
-        (state) => setHealthInitState(state)
-      );
+        await initializeHealthProviderForUser(
+          user.id,
+          platform,
+          setHealthPermissionStatus,
+          (state) => setHealthInitState(state)
+        );
       }
     } catch (err) {
       console.error('[AuthProvider] Login error:', err);
@@ -354,7 +376,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (user) {
         try {
           const factory = HealthProviderFactory.getInstance();
-      await factory.cleanup(user.id);
+          await factory.cleanup(user.id);
         } catch (healthError) {
           console.error('Error cleaning up health provider:', healthError);
         }
@@ -372,7 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         permissionStatus: 'not_determined',
         error: null
       });
-      
+
     } catch (err) {
       console.error('Logout error:', err);
       if (err instanceof Error && err.message.includes('42501')) {
@@ -404,7 +426,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const provider = await factory.getProvider(platform, user.id);
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
-      
+
       if (status === 'granted') {
         await initializeProviderWithRetry(async (signal) => {
           await provider.initialize();
@@ -413,12 +435,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           maxRetries: 2
         });
       }
-      
+
       return status;
     } catch (err) {
       console.error('[AuthProvider] Health permissions error:', err);
       let message = 'Failed to request health permissions';
-      
+
       if (err instanceof Error) {
         if (err.message.includes('not available')) {
           message = 'Health Connect is not available';
@@ -428,7 +450,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           message = err.message;
         }
       }
-      
+
       setError(message);
       setHealthPermissionStatus('denied');
       return 'denied';

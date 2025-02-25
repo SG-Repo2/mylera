@@ -154,7 +154,11 @@ export async function withTransaction<T>(
             { error: lastError }
           );
           
-          const { error: rollbackError } = await supabase.rpc('rollback_transaction');
+          const { error: rollbackError } = await callWithTimeout(
+            Promise.resolve(supabase.rpc('rollback_transaction')),
+            TRANSACTION_CONFIG.TIMEOUT_MS,
+            'Transaction rollback timed out'
+          );
           
           if (rollbackError) {
             logger.error(

@@ -63,9 +63,11 @@ export async function callWithTimeout<T>(
   promise: Promise<T>,
   ms: number,
   errorMessage: string,
-  operationId?: string
+  operationId?: string,
+  signal?: AbortSignal
 ): Promise<T> {
   // Log operation start
+  const startTime = Date.now();
   logger.debug(
     LogCategory.Performance,
     'Starting timed operation',
@@ -84,8 +86,19 @@ export async function callWithTimeout<T>(
     }, ms);
   });
 
+  if (signal) {
+    return new Promise<T>((resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        reject(new CancellationError('Operation was cancelled', operationId));
+      });
+      promise.then(resolve).catch(reject);
+    });
+  }
+
   try {
-    const startTime = Date.now();
     const result = await Promise.race([promise, timeoutPromise]);
     
     // Log successful completion
@@ -116,6 +129,7 @@ export async function callWithTimeout<T>(
   }
 }
 
+
 /**
  * Wraps a fetch call with timeout and cancellation support
  * 
@@ -136,27 +150,24 @@ export async function fetchWithCancellation(
   signal?: AbortSignal,
   operationId?: string
 ): Promise<Response> {
-  const controller = new AbortController();
-  const fetchSignal = controller.signal;
-
   // Create cleanup function for abort listener
   let removeAbortListener: (() => void) | undefined;
 
   // Combine with external signal if provided
   if (signal) {
     const abortHandler = () => {
-      controller.abort();
       throw new CancellationError('Operation was cancelled', operationId);
     };
+
     signal.addEventListener('abort', abortHandler);
     removeAbortListener = () => signal.removeEventListener('abort', abortHandler);
   }
-
-  try {
+try {
+    // Call fetch with timeout
     return await callWithTimeout(
       fetch(input, {
         ...init,
-        signal: fetchSignal
+        signal,
       }),
       timeoutMs,
       `Fetch request timed out after ${timeoutMs}ms`,
@@ -164,25 +175,20 @@ export async function fetchWithCancellation(
     );
   } catch (error) {
     if (error instanceof TimeoutError) {
-      controller.abort();
       throw error;
     }
     
     if (error instanceof Error && (error.name === 'AbortError' || signal?.aborted)) {
       throw new CancellationError('Operation was cancelled', operationId);
     }
-
-    throw error;
   } finally {
-    // Clean up abort listener if it was added
     if (removeAbortListener) {
       removeAbortListener();
     }
   }
+  throw new Error('Unexpected code path in fetchWithCancellation');
 }
-
-/**
- * Retries an async operation with exponential backoff
+/*
  * 
  * @param operation - Async function to retry
  * @param maxRetries - Maximum number of retry attempts

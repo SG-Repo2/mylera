@@ -3,7 +3,7 @@ import { HealthProviderError } from '../providers/health/types/errors';
 import { HealthProviderFactory } from '../providers/health/factory/HealthProviderFactory';
 import { PermissionStatus } from '../providers/health/types/permissions';
 import { LogCategory, logger } from './logger';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 export interface ProviderInitializationState {
   isInitialized: boolean;
   isInitializing: boolean;
@@ -115,8 +115,16 @@ export async function initializeHealthProviderForUser(
   setPermissionStatus: (status: PermissionStatus) => void,
   updateState: InitializationStateCallback
 ): Promise<void> {
-  if (!userId) {
-    const error = new Error('Cannot initialize provider without userId');
+  // Enhanced userId validation
+  if (!userId || typeof userId !== 'string' || userId.trim() === '') {
+    const error = new Error('Cannot initialize provider without valid userId');
+    logger.error(
+      LogCategory.Health,
+      'Invalid userId provided for initialization',
+      'init-validation',
+      userId,
+      { platform }
+    );
     updateState({
       isInitialized: false,
       isInitializing: false,
@@ -126,11 +134,33 @@ export async function initializeHealthProviderForUser(
     throw error;
   }
 
-  const operationId = Date.now();
+  // Try to get cached userId from AsyncStorage as fallback
+  try {
+    const cachedUserId = await AsyncStorage.getItem('lastUserId');
+    if (cachedUserId && cachedUserId !== userId) {
+      logger.warn(
+        LogCategory.Health,
+        'UserId mismatch with cached value',
+        'init-validation',
+        userId,
+        { cachedUserId }
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      LogCategory.Health,
+      'Failed to check cached userId',
+      'init-validation',
+      userId,
+      { error }
+    );
+  }
+
+  const operationId = `init-${platform}-${Date.now()}`;
   logger.info(
     LogCategory.Health,
     'Starting provider initialization',
-    operationId.toString(),
+    operationId,
     userId,
     { platform }
   );
@@ -141,6 +171,24 @@ export async function initializeHealthProviderForUser(
     permissionStatus: 'not_determined',
     error: null
   });
+
+  // Set initialization timeout
+  const timeoutId = setTimeout(() => {
+    const timeoutError = new Error(`Provider initialization timed out after ${DEFAULT_CONFIG.maxDelay}ms`);
+    logger.error(
+      LogCategory.Health,
+      'Initialization timeout',
+      operationId,
+      userId,
+      { platform, timeout: DEFAULT_CONFIG.maxDelay }
+    );
+    updateState({
+      isInitialized: false,
+      isInitializing: false,
+      permissionStatus: 'not_determined',
+      error: timeoutError
+    });
+  }, DEFAULT_CONFIG.maxDelay);
 
   try {
     // Get provider instance using factory

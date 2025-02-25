@@ -113,13 +113,15 @@ const LoadingView = React.memo(() => {
   );
 });
 
-export const Dashboard = React.memo(function Dashboard({
+export function Dashboard({
   provider,
   userId,
   date = new Date().toISOString().split('T')[0],
   showAlerts = true
 }: DashboardProps) {
   const { healthInitState, healthPermissionStatus } = useAuth();
+  const [loading, setLoading] = useState(true);
+  console.log('[Dashboard] Initial render: loading state is', loading);
   
   // Simplified initialization check focusing on essential conditions
   const isFullyInitialized = useCallback(() => {
@@ -144,12 +146,22 @@ export const Dashboard = React.memo(function Dashboard({
   const refreshInProgress = useRef(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout>();
   const {
-    loading,
+    loading: healthDataLoading,
     error,
     syncHealthData,
     isInitialized
   } = useHealthData(provider, userId);
 
+
+
+
+
+  useEffect(() => {
+    console.log('[Dashboard] useEffect triggered: healthDataLoading is', healthDataLoading);
+    if (!healthDataLoading) {
+      setLoading(false);
+    }
+  });
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
@@ -285,9 +297,12 @@ export const Dashboard = React.memo(function Dashboard({
     refreshInProgress.current = true;
     setRefreshing(true);
     
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
     try {
       // Get metrics through unified service (handles sync and DB updates)
-      const metrics = await unifiedMetricsService.getMetrics(userId, date, provider);
+      const metrics = await unifiedMetricsService.getMetrics(userId, date, provider, signal);
       setHealthMetrics(metrics);
       
       // Get updated rank after metrics are synced
@@ -307,13 +322,21 @@ export const Dashboard = React.memo(function Dashboard({
       setDailyTotal(userTotal);
       
     } catch (error) {
-      console.error("[Dashboard] Refresh error:", error);
-      setErrorDialogVisible(true);
-      setFetchError(error instanceof Error ? error : new Error('Refresh failed'));
+      if (signal.aborted) {
+        console.log("[Dashboard] Refresh aborted");
+      } else {
+        console.error("[Dashboard] Refresh error:", error);
+        setErrorDialogVisible(true);
+        setFetchError(error instanceof Error ? error : new Error('Refresh failed'));
+      }
     } finally {
       refreshInProgress.current = false;
       setRefreshing(false);
     }
+
+    return () => {
+      abortController.abort();
+    };
   }, [provider, userId, date]);
 
   // Cleanup retry timeout on unmount
@@ -325,6 +348,7 @@ export const Dashboard = React.memo(function Dashboard({
     };
   }, []);
 
+  console.log('[Dashboard] Render check: loading is', loading, 'isTransactionPending is', isTransactionPending);
   if (loading || isTransactionPending) {
     return <LoadingView />;
   }

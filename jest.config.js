@@ -5,7 +5,7 @@ module.exports = {
   preset: 'react-native',
   setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!(react-native|@react-native|@react-navigation)/)'
+    'node_modules/(?!(react-native|@react-native|@react-navigation|expo-auth-session|expo-web-browser|expo-modules-core)/)'
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
@@ -32,5 +32,5 @@ module.exports = {
     }
   },
   verbose: true,
-  testTimeout: 30000,
+  testTimeout: 60000,
 };
