@@ -267,7 +267,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
     return transformMetricsToDisplayFormat(healthMetrics);
   }, [healthMetrics, transformMetricsToDisplayFormat]);
   
-  // Fetch health data from provider and API
+  // Enhanced fetch data implementation with better error handling and cancellation
   const fetchData = useCallback(async () => {
     if (!provider || !userId) {
       logger.warn(
@@ -278,8 +278,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
       );
       return;
     }
-    
+
     try {
+      // Create new abort controller with timeout
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      abortControllerRef.current = controller;
+
       logger.info(
         LogCategory.Provider,
         `Fetching health data`,
@@ -287,58 +292,34 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
         userId,
         { date }
       );
-      
-      // Cancel any previous fetch
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      
-      // Create new abort controller for this fetch
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      
-      // Simulate fetching metrics from provider
-      const metrics = await provider.getMetrics();
-      
-      // Check if request was aborted before updating state
-      if (controller.signal.aborted || !isMounted.current) {
+
+      // Fetch metrics without signal parameter
+      const [metrics, total] = await Promise.all([
+        provider.getMetrics(),
+        fetchDailyTotal(userId, date, controller.signal)
+      ]);
+
+      clearTimeout(timeout);
+
+      // Check mounted state before updates
+      if (!isMounted.current) {
         logger.debug(
           LogCategory.Provider,
-          `Fetch was aborted, skipping state update`,
-          operationId,
-          userId
+          `Component unmounted during fetch, skipping updates`,
+          operationId
         );
         return;
       }
-      
-      // Simulate fetching daily total from API
-      const total: DailyTotal = {
-        id: `${userId}-${date}`,
-        user_id: userId,
-        date,
-        total_points: 450,
-        metrics_completed: 3,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      
-      logger.debug(
-        LogCategory.Provider,
-        `Health data fetched successfully`,
-        operationId,
-        userId,
-        { 
-          metricsReceived: !!metrics,
-          totalReceived: !!total
-        }
-      );
-      
-      // Update state with fetched data
+
       setHealthMetrics(metrics);
       setDailyTotal(total);
       setError(null);
+
     } catch (err) {
-      handleError(err);
+      // Only handle error if it's not an abort error
+      if (err instanceof Error && err.name !== 'AbortError') {
+        handleError(err);
+      }
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -346,6 +327,61 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
       }
     }
   }, [provider, userId, date, handleError, operationId]);
+
+  // Enhanced cleanup effect
+  useEffect(() => {
+    logger.debug(
+      LogCategory.Lifecycle,
+      `Dashboard mounting`,
+      operationId,
+      userId
+    );
+
+    // Reset state on mount
+    setLoading(true);
+    setError(null);
+    
+    // Initial data fetch
+    fetchData();
+
+    return () => {
+      logger.debug(
+        LogCategory.Lifecycle,
+        `Dashboard unmounting`,
+        operationId,
+        userId
+      );
+
+      isMounted.current = false;
+
+      // Cleanup animations
+      headerOpacity.stopAnimation();
+      slideAnim.stopAnimation();
+
+      // Abort any pending requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [fetchData, operationId, userId, headerOpacity, slideAnim]);
+
+  // Add error boundary effect
+  useEffect(() => {
+    const errorHandler = (event: ErrorEvent) => {
+      logger.error(
+        LogCategory.Error,
+        `Unhandled error in Dashboard`,
+        operationId,
+        userId,
+        { error: event.error }
+      );
+      setError(event.error);
+    };
+
+    window.addEventListener('error', errorHandler);
+    return () => window.removeEventListener('error', errorHandler);
+  }, [operationId, userId]);
   
   // Handle refresh action
   const handleRefresh = useCallback(() => {
@@ -426,36 +462,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
   
-  // Fetch data on mount and when dependencies change
-  useEffect(() => {
-    logger.debug(
-      LogCategory.Lifecycle,
-      `Dashboard useEffect - fetchData`,
-      operationId,
-      userId
-    );
-    
-    setLoading(true);
-    fetchData();
-    
-    // Cleanup on unmount
-    return () => {
-      logger.debug(
-        LogCategory.Lifecycle,
-        `Dashboard unmounting, cleaning up`,
-        operationId,
-        userId
-      );
-      
-      isMounted.current = false;
-      
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-    };
-  }, [fetchData, operationId, userId]);
-  
   // Render based on component state
   if (loading && !refreshing) {
     return <LoadingView />;
@@ -504,6 +510,35 @@ export const Dashboard: React.FC<DashboardProps> = React.memo(({
     prevProps.showAlerts === nextProps.showAlerts
   );
 });
+
+// Helper function for fetching daily total
+async function fetchDailyTotal(
+  userId: string, 
+  date: string, 
+  signal: AbortSignal
+): Promise<DailyTotal> {
+  // Simulate API call with abort signal
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (!signal.aborted) {
+        resolve({
+          id: `${userId}-${date}`,
+          user_id: userId,
+          date,
+          total_points: 450,
+          metrics_completed: 3,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+    }, 1000);
+
+    signal.addEventListener('abort', () => {
+      clearTimeout(timeout);
+      reject(new Error('Request aborted'));
+    });
+  });
+}
 
 // Styles
 const styles = StyleSheet.create({
