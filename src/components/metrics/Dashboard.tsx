@@ -12,7 +12,7 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
@@ -195,6 +195,10 @@ export const Dashboard = React.memo(function Dashboard({
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isProviderReady, setIsProviderReady] = useState(false);
   
+  // Refs for tracking component lifecycle and cleanup
+  const isMountedRef = useRef(true);
+  const cleanupInProgressRef = useRef(false);
+  
   const {
     loading,
     error,
@@ -207,21 +211,21 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Initialize provider
   useEffect(() => {
-    let mounted = true;
+    if (!provider || cleanupInProgressRef.current) return;
     
     const initializeProvider = async () => {
-      if (!provider) return;
+      if (!isMountedRef.current) return;
       
       try {
         console.log('[Dashboard] Initializing provider...');
         await provider.initialize();
-        if (mounted) {
+        if (isMountedRef.current) {
           setIsProviderReady(true);
           console.log('[Dashboard] Provider initialized successfully');
         }
       } catch (error) {
         console.error('[Dashboard] Provider initialization failed:', error);
-        if (mounted) {
+        if (isMountedRef.current) {
           setFetchError(error instanceof Error ? error : new Error('Failed to initialize provider'));
           setIsProviderReady(false);
         }
@@ -231,7 +235,34 @@ export const Dashboard = React.memo(function Dashboard({
     initializeProvider();
     
     return () => {
-      mounted = false;
+      console.log('[Dashboard] Cleaning up provider initialization effect');
+    };
+  }, [provider]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      console.log('[Dashboard] Component unmounting, cleaning up resources');
+      isMountedRef.current = false;
+      
+      if (!cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        
+        // Attempt to clean up provider
+        if (provider) {
+          console.log('[Dashboard] Cleaning up provider on unmount');
+          provider.cleanup()
+            .then(() => {
+              console.log('[Dashboard] Provider cleanup successful');
+            })
+            .catch(error => {
+              console.error('[Dashboard] Error during provider cleanup:', error);
+            })
+            .finally(() => {
+              cleanupInProgressRef.current = false;
+            });
+        }
+      }
     };
   }, [provider]);
 
@@ -255,7 +286,7 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async () => {
-    if (!isInitialized || !isProviderReady) return;
+    if (!isInitialized || !isProviderReady || !isMountedRef.current) return;
     
     try {
       console.log('Dashboard fetching data for:', { userId, date });
@@ -279,23 +310,28 @@ export const Dashboard = React.memo(function Dashboard({
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      setDailyTotal(userTotal);
       
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
-        userTotal,
-        userId,
-        date
-      );
-      console.log('Transformed metrics:', transformedMetrics);
-      
-      setHealthMetrics(transformedMetrics);
-      setUserRank(rank);
-      setFetchError(null);
+      if (isMountedRef.current) {
+        setDailyTotal(userTotal);
+        
+        const transformedMetrics = transformMetricsToHealthMetrics(
+          metricScores,
+          userTotal,
+          userId,
+          date
+        );
+        console.log('Transformed metrics:', transformedMetrics);
+        
+        setHealthMetrics(transformedMetrics);
+        setUserRank(rank);
+        setFetchError(null);
+      }
     } catch (err) {
       console.error('Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
+      if (isMountedRef.current) {
+        setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+        setErrorDialogVisible(true);
+      }
     }
   }, [userId, date, isInitialized, isProviderReady]);
 
@@ -304,6 +340,8 @@ export const Dashboard = React.memo(function Dashboard({
   }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
 
   const handleRetry = React.useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       setErrorDialogVisible(false);
       
@@ -332,8 +370,10 @@ export const Dashboard = React.memo(function Dashboard({
       console.log('[Dashboard] Health data sync triggered');
     } catch (error) {
       console.error('[Dashboard] Retry failed:', error);
-      setErrorDialogVisible(true);
-      setFetchError(error instanceof Error ? error : new Error('Failed to retry health data sync'));
+      if (isMountedRef.current) {
+        setErrorDialogVisible(true);
+        setFetchError(error instanceof Error ? error : new Error('Failed to retry health data sync'));
+      }
     }
   }, [error, requestHealthPermissions, syncHealthData]);
 

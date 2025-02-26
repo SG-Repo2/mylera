@@ -18,11 +18,17 @@ export function ToggleableLeaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Refs for tracking component lifecycle and subscriptions
   const appStateRef = useRef(AppState.currentState);
   const subscriptionRef = useRef<ReturnType<typeof leaderboardService.subscribeToLeaderboard> | null>(null);
   const todayRef = useRef(DateUtils.getLocalDateString());
+  const isMountedRef = useRef(true);
+  const cleanupInProgressRef = useRef(false);
 
   const handleLeaderboardUpdate = useCallback((entries: LeaderboardEntryType[]) => {
+    if (!isMountedRef.current) return;
+    
     console.log('[ToggleableLeaderboard] Received leaderboard update:', entries.length);
     
     const sortedEntries = entries.sort((a, b) => {
@@ -53,7 +59,7 @@ export function ToggleableLeaderboard() {
   }, [loading]);
 
   const loadData = useCallback(async (showLoading = true) => {
-    if (!user) return;
+    if (!user || !isMountedRef.current || cleanupInProgressRef.current) return;
     
     if (showLoading && !leaderboardData.length) {
       setLoading(true);
@@ -64,64 +70,121 @@ export function ToggleableLeaderboard() {
     try {
       const today = todayRef.current;
       
+      // Clean up existing subscription if any
       if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
+        try {
+          subscriptionRef.current.unsubscribe();
+          subscriptionRef.current = null;
+          console.log('[ToggleableLeaderboard] Cleaned up previous subscription');
+        } catch (subError) {
+          console.warn('[ToggleableLeaderboard] Error cleaning up previous subscription:', subError);
+        }
       }
       
+      // Create new subscription
       subscriptionRef.current = leaderboardService.subscribeToLeaderboard(
         today,
         timeframe,
         handleLeaderboardUpdate
       );
+      console.log('[ToggleableLeaderboard] Created new subscription for timeframe:', timeframe);
       
+      // Initial data load
       const data = timeframe === 'daily' 
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
-      handleLeaderboardUpdate(data);
+      if (isMountedRef.current) {
+        handleLeaderboardUpdate(data);
+      }
     } catch (err) {
       console.error('[ToggleableLeaderboard] Error fetching leaderboard:', err);
-      setError(err instanceof Error ? err : new Error('Failed to load leaderboard'));
-      if (showLoading) setLoading(false);
+      if (isMountedRef.current) {
+        setError(err instanceof Error ? err : new Error('Failed to load leaderboard'));
+        if (showLoading) setLoading(false);
+      }
     }
-  }, [user, timeframe, handleLeaderboardUpdate]);
+  }, [user, timeframe, handleLeaderboardUpdate, leaderboardData.length]);
 
+  // Effect for timeframe changes and initial load
   useEffect(() => {
     if (user) {
       loadData();
     }
     
     return () => {
-      if (subscriptionRef.current) {
-        console.log('[ToggleableLeaderboard] Cleaning up subscription on unmount');
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
+      if (subscriptionRef.current && !cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        console.log('[ToggleableLeaderboard] Cleaning up subscription on timeframe change');
+        try {
+          subscriptionRef.current.unsubscribe();
+          subscriptionRef.current = null;
+          console.log('[ToggleableLeaderboard] Subscription successfully unsubscribed');
+        } catch (error) {
+          console.error('[ToggleableLeaderboard] Error unsubscribing from leaderboard:', error);
+        } finally {
+          cleanupInProgressRef.current = false;
+        }
       }
     };
-  }, [user, timeframe]);
+  }, [user, timeframe, loadData]);
 
+  // Effect for AppState changes
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
       if (
         appStateRef.current.match(/inactive|background/) &&
-        nextAppState === 'active'
+        nextAppState === 'active' &&
+        isMountedRef.current &&
+        !cleanupInProgressRef.current
       ) {
-        console.log('App has come to foreground, refreshing leaderboard');
+        console.log('[ToggleableLeaderboard] App has come to foreground, refreshing leaderboard');
         loadData(false);
       }
       appStateRef.current = nextAppState;
     });
 
     return () => {
-      subscription.remove();
+      console.log('[ToggleableLeaderboard] Removing AppState subscription');
+      try {
+        subscription.remove();
+        console.log('[ToggleableLeaderboard] AppState subscription successfully removed');
+      } catch (error) {
+        console.error('[ToggleableLeaderboard] Error removing AppState subscription:', error);
+      }
     };
   }, [loadData]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      console.log('[ToggleableLeaderboard] Component unmounting, cleaning up resources');
+      isMountedRef.current = false;
+      
+      if (subscriptionRef.current && !cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        console.log('[ToggleableLeaderboard] Cleaning up subscription on unmount');
+        try {
+          subscriptionRef.current.unsubscribe();
+          subscriptionRef.current = null;
+          console.log('[ToggleableLeaderboard] Subscription successfully unsubscribed');
+        } catch (error) {
+          console.error('[ToggleableLeaderboard] Error unsubscribing from leaderboard:', error);
+        } finally {
+          cleanupInProgressRef.current = false;
+        }
+      }
+    };
+  }, []);
+
   const onRefresh = useCallback(async () => {
+    if (!isMountedRef.current || cleanupInProgressRef.current) return;
+    
     setRefreshing(true);
     await loadData(false);
-    setRefreshing(false);
+    if (isMountedRef.current) {
+      setRefreshing(false);
+    }
   }, [loadData]);
 
   if (loading && !leaderboardData.length && !error) {

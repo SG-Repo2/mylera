@@ -108,6 +108,11 @@ export interface HealthProvider {
    * @param date - The timestamp to set
    */
   setLastSyncTime?(date: Date): Promise<void>;
+
+  /**
+   * Cancels all pending operations
+   */
+  cancelPendingOperations?(): void;
 }
 
 /**
@@ -132,24 +137,44 @@ export abstract class BaseHealthProvider implements HealthProvider {
   protected userId: string | null = null;
 
   /**
+   * Creates a new AbortController, cancelling any existing requests first.
+   * @returns The newly created AbortController
+   */
+  protected createNewAbortController(): AbortController {
+    // Cancel any existing requests
+    if (this.abortController) {
+      this.abortController.abort();
+    }
+    
+    // Create new controller
+    this.abortController = new AbortController();
+    return this.abortController;
+  }
+
+  /**
+   * Cancels all pending operations
+   */
+  public cancelPendingOperations(): void {
+    if (this.abortController) {
+      console.log('[BaseHealthProvider] Cancelling pending operations');
+      this.abortController.abort();
+      this.abortController = null;
+    }
+  }
+
+  /**
    * Protected method to fetch with cancellation support
    * @param url The URL to fetch from
    * @param options Fetch options
    * @returns Promise resolving to the fetch Response
    */
   protected async fetchWithCancellation(url: string, options?: RequestInit): Promise<Response> {
-    // Cancel any existing requests
-    if (this.abortController) {
-      this.abortController.abort();
-    }
-
-    // Create new AbortController for this request
-    this.abortController = new AbortController();
+    const controller = this.createNewAbortController();
     
     try {
       const response = await fetch(url, {
         ...options,
-        signal: this.abortController.signal
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -159,6 +184,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
       return response;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[BaseHealthProvider] Request was cancelled');
         throw new Error('Request was cancelled');
       }
       throw error;
@@ -241,12 +267,29 @@ export abstract class BaseHealthProvider implements HealthProvider {
    */
   resetState(): void {
     console.log('[BaseHealthProvider] Resetting provider state');
+    
+    // Cancel any in-flight requests
+    if (this.abortController) {
+      try {
+        this.abortController.abort();
+        this.abortController = null;
+      } catch (error) {
+        console.warn('[BaseHealthProvider] Error cancelling requests during reset:', error);
+      }
+    }
+    
+    // Clear timeout references if any exist
     this.lastSyncTime = null;
+    
+    // Clear cache but don't await (fire and forget)
     if (this.permissionManager) {
       this.permissionManager.clearCache().catch(error => {
         console.warn('[BaseHealthProvider] Error clearing permission cache during reset:', error);
       });
     }
+    
+    // Log completion
+    console.log('[BaseHealthProvider] Provider state reset completed');
   }
 
   /**
@@ -255,37 +298,58 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async cleanup(): Promise<void> {
     console.log('[BaseHealthProvider] Starting provider cleanup');
     
-    await withTimeout(
-      (async () => {
+    // Track cleanup success for logging
+    const cleanupResults = {
+      abortController: false,
+      permissionCache: false,
+      state: false
+    };
+    
+    try {
+      // Cancel any pending requests
+      if (this.abortController) {
         try {
-          if (this.abortController) {
-            this.abortController.abort();
-            this.abortController = null;
-          }
-
-          if (this.permissionManager) {
-            try {
-              await this.permissionManager.clearCache();
-              console.log('[BaseHealthProvider] Permission cache cleared');
-            } catch (error) {
-              console.warn('[BaseHealthProvider] Error clearing permission cache:', error);
-            }
-          }
-
-          this.setInitialized(false);
-          this.lastSyncTime = null;
-          this.userId = null;
-          this.resetState();
-          
-          console.log('[BaseHealthProvider] Provider cleanup completed successfully');
+          this.abortController.abort();
+          this.abortController = null;
+          cleanupResults.abortController = true;
+          console.log('[BaseHealthProvider] Successfully aborted pending requests');
         } catch (error) {
-          console.error('[BaseHealthProvider] Error during cleanup:', error);
-          throw error;
+          console.error('[BaseHealthProvider] Error aborting requests:', error);
         }
-      })(),
-      DEFAULT_TIMEOUTS.CLEANUP,
-      'Provider cleanup timed out'
-    );
+      }
+
+      // Clear permission cache
+      if (this.permissionManager) {
+        try {
+          await withTimeout(
+            this.permissionManager.clearCache(),
+            DEFAULT_TIMEOUTS.CLEANUP,
+            'Permission cache cleanup timed out'
+          );
+          cleanupResults.permissionCache = true;
+          console.log('[BaseHealthProvider] Permission cache cleared');
+        } catch (error) {
+          console.warn('[BaseHealthProvider] Error clearing permission cache:', error);
+        } finally {
+          // Always null out the reference even if clearCache fails
+          this.permissionManager = null;
+        }
+      }
+
+      // Reset state properties
+      this.setInitialized(false);
+      this.lastSyncTime = null;
+      this.userId = null;
+      
+      // Call resetState as a final step (which might have additional platform-specific logic)
+      this.resetState();
+      cleanupResults.state = true;
+      
+      console.log('[BaseHealthProvider] Provider cleanup completed successfully', cleanupResults);
+    } catch (error) {
+      console.error('[BaseHealthProvider] Error during cleanup:', error, cleanupResults);
+      throw error;
+    }
   }
 
   /**

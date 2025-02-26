@@ -217,58 +217,108 @@ export class HealthProviderFactory {
 
   static async cleanup(specificKey?: string): Promise<void> {
     return this.initializationMutex.runExclusive(async () => {
+      console.log('[HealthProviderFactory] Starting cleanup' + (specificKey ? ` for key: ${specificKey}` : ' for all providers'));
+      
       const cleanupPromises: Promise<void>[] = [];
+      const results = {
+        success: 0,
+        failed: 0,
+        skipped: 0
+      };
 
-      if (specificKey) {
-        // Cleanup specific provider instance
-        const provider = this.instances.get(specificKey);
-        if (provider) {
-          console.log(`[HealthProviderFactory] Cleaning up specific provider: ${specificKey}`);
-          try {
-            await provider.cleanup();
-            this.instances.delete(specificKey);
-            this.platforms.delete(specificKey);
-            this.initializationQueue.delete(specificKey);
-            this.initializationMetrics.delete(specificKey);
-          } catch (error) {
-            console.error(`[HealthProviderFactory] Error during cleanup for ${specificKey}:`, error);
-            throw new HealthProviderError(`Cleanup failed for ${specificKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      try {
+        if (specificKey) {
+          // Cleanup specific provider instance
+          const provider = this.instances.get(specificKey);
+          if (provider) {
+            console.log(`[HealthProviderFactory] Cleaning up specific provider: ${specificKey}`);
+            try {
+              await provider.cleanup();
+              this.instances.delete(specificKey);
+              this.platforms.delete(specificKey);
+              this.initializationQueue.delete(specificKey);
+              this.initializationMetrics.delete(specificKey);
+              results.success++;
+              console.log(`[HealthProviderFactory] Successfully cleaned up provider: ${specificKey}`);
+            } catch (error) {
+              results.failed++;
+              console.error(`[HealthProviderFactory] Error during cleanup for ${specificKey}:`, error);
+              
+              // Even if cleanup fails, remove from maps to prevent zombie instances
+              this.instances.delete(specificKey);
+              this.platforms.delete(specificKey);
+              this.initializationQueue.delete(specificKey);
+              this.initializationMetrics.delete(specificKey);
+              
+              throw new HealthProviderError(`Cleanup failed for ${specificKey}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+          } else {
+            results.skipped++;
+            console.log(`[HealthProviderFactory] No provider found for key: ${specificKey}, skipping`);
           }
-          return;
-        }
-      } else {
-        // Full cleanup of all providers
-        console.log('[HealthProviderFactory] Starting full cleanup');
-        
-        for (const [key, provider] of this.instances) {
-          try {
-            console.log(`[HealthProviderFactory] Cleaning up provider: ${key}`, {
-              platform: this.platforms.get(key),
-              hasInitQueue: this.initializationQueue.has(key),
-              metrics: this.initializationMetrics.get(key)
-            });
-            
-            cleanupPromises.push(
-              provider.cleanup().catch(error => {
-                console.error(`[HealthProviderFactory] Error during cleanup for ${key}:`, error);
-                // Continue cleanup process despite errors
-                return Promise.resolve();
-              })
-            );
-          } catch (error) {
-            console.error(`[HealthProviderFactory] Error queueing cleanup for ${key}:`, error);
+        } else {
+          // Full cleanup of all providers with detailed reporting
+          console.log('[HealthProviderFactory] Starting full cleanup of all providers');
+          console.log(`[HealthProviderFactory] Total providers to clean: ${this.instances.size}`);
+          
+          // Create a tracking array to log results
+          const instanceResults: Array<{key: string, success: boolean, error?: string}> = [];
+          
+          for (const [key, provider] of this.instances) {
+            try {
+              console.log(`[HealthProviderFactory] Cleaning up provider: ${key}`, {
+                platform: this.platforms.get(key),
+                hasInitQueue: this.initializationQueue.has(key),
+              });
+              
+              // Push promise to array with catch handler
+              cleanupPromises.push(
+                provider.cleanup()
+                  .then(() => {
+                    instanceResults.push({key, success: true});
+                    results.success++;
+                  })
+                  .catch(error => {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    instanceResults.push({key, success: false, error: errorMsg});
+                    results.failed++;
+                    console.error(`[HealthProviderFactory] Error during cleanup for ${key}:`, error);
+                    // Continue cleanup process despite errors
+                    return Promise.resolve();
+                  })
+              );
+            } catch (error) {
+              const errorMsg = error instanceof Error ? error.message : String(error);
+              instanceResults.push({key, success: false, error: errorMsg});
+              results.failed++;
+              console.error(`[HealthProviderFactory] Error queueing cleanup for ${key}:`, error);
+            }
           }
-        }
 
-        await Promise.all(cleanupPromises);
-        
-        // Clear all maps only after successful cleanup
-        this.instances.clear();
-        this.platforms.clear();
-        this.initializationQueue.clear();
-        this.initializationMetrics.clear();
-        
-        console.log('[HealthProviderFactory] Full cleanup completed');
+          // Wait for all cleanup operations to complete
+          await Promise.all(cleanupPromises);
+          
+          // Log detailed results
+          console.log('[HealthProviderFactory] Cleanup results:', {
+            total: instanceResults.length,
+            success: results.success,
+            failed: results.failed,
+            details: instanceResults
+          });
+          
+          // Clear all maps even if some cleanup operations failed
+          this.instances.clear();
+          this.platforms.clear();
+          this.initializationQueue.clear();
+          this.initializationMetrics.clear();
+          
+          console.log('[HealthProviderFactory] Maps cleared, full cleanup completed');
+        }
+      } catch (error) {
+        console.error('[HealthProviderFactory] Unexpected error during cleanup:', error);
+        throw error;
+      } finally {
+        console.log('[HealthProviderFactory] Cleanup process completed with results:', results);
       }
     });
   }

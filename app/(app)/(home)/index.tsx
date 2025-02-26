@@ -36,14 +36,16 @@ export default function HomeScreen() {
   const [providerError, setProviderError] = useState<Error | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Refs for cleanup and cancellation
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // Refs for tracking initialization and cleanup
   const initializationIdRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const cleanupInProgressRef = useRef<boolean>(false);
+  const componentMountedRef = useRef<boolean>(true);
 
   // Create debounced initialization function
   const debouncedInit = useCallback(
-    debounce(async (signal: AbortSignal) => {
-      if (!user) return;
+    debounce(async (signal?: AbortSignal) => {
+      if (!user || !componentMountedRef.current || signal?.aborted) return;
 
       const currentInitId = ++initializationIdRef.current;
 
@@ -57,37 +59,48 @@ export default function HomeScreen() {
         // Cleanup existing provider
         await HealthProviderFactory.cleanup();
 
-        // Check if cancelled
-        if (signal.aborted) {
-          console.log('[HomeScreen] Initialization cancelled:', currentInitId);
+        // Check if operation was aborted during cleanup
+        if (signal?.aborted) {
+          console.log('[HomeScreen] Initialization aborted after cleanup:', currentInitId);
           return;
         }
 
         const deviceType = user.user_metadata?.deviceType as 'os' | 'fitbit' | undefined;
         const newProvider = await HealthProviderFactory.getProvider(deviceType, user.id);
 
-        // Check if cancelled again
-        if (signal.aborted) {
-          await HealthProviderFactory.cleanup();
+        // Check if operation was aborted during provider creation
+        if (signal?.aborted) {
+          console.log('[HomeScreen] Initialization aborted after provider creation:', currentInitId);
+          await newProvider.cleanup().catch(error => {
+            console.error('[HomeScreen] Error cleaning up aborted provider:', error);
+          });
           return;
         }
 
-        setProvider(prev => {
-          if (prev) {
-            console.log('[HomeScreen] Replacing existing provider:', currentInitId);
-          }
-          return newProvider;
-        });
-        setProviderError(null);
+        if (componentMountedRef.current) {
+          setProvider(prev => {
+            if (prev) {
+              console.log('[HomeScreen] Replacing existing provider:', currentInitId);
+            }
+            return newProvider;
+          });
+          setProviderError(null);
+        } else {
+          // Component unmounted during initialization, clean up the provider
+          console.log('[HomeScreen] Component unmounted during initialization, cleaning up:', currentInitId);
+          await newProvider.cleanup().catch(error => {
+            console.error('[HomeScreen] Error cleaning up provider after unmount:', error);
+          });
+        }
 
       } catch (error) {
-        if (!signal.aborted) {
-          console.error('[HomeScreen] Provider initialization failed:', currentInitId, error);
+        console.error('[HomeScreen] Provider initialization failed:', currentInitId, error);
+        if (componentMountedRef.current && !signal?.aborted) {
           setProvider(null);
-          setProviderError(prev => error instanceof Error ? error : new Error('Failed to initialize health provider'));
+          setProviderError(error instanceof Error ? error : new Error('Failed to initialize health provider'));
         }
       } finally {
-        if (!signal.aborted) {
+        if (componentMountedRef.current && !signal?.aborted) {
           setIsInitializing(false);
           console.log('[HomeScreen] Initialization complete:', currentInitId);
         }
@@ -99,38 +112,78 @@ export default function HomeScreen() {
   // Initialize provider when user or device type changes
   useEffect(() => {
     if (!user?.user_metadata?.deviceType) return;
-
+    
+    console.log('[HomeScreen] Setting up provider for user:', user.id, 'with device type:', user.user_metadata.deviceType);
+    
     // Create new abort controller
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
-
+    
     // Start initialization
     debouncedInit(signal);
-
+    
     // Cleanup function
     return () => {
+      console.log('[HomeScreen] Effect cleanup triggered, aborting initialization');
       debouncedInit.cancel();
-      abortControllerRef.current?.abort();
-      if (provider) {
-        console.log('[HomeScreen] Cleaning up provider on effect cleanup');
-        HealthProviderFactory.cleanup().catch(error => {
-          console.error('[HomeScreen] Error during provider cleanup:', error);
-        });
+      
+      if (abortControllerRef.current) {
+        console.log('[HomeScreen] Aborting pending initialization');
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
+      
+      // Track provider cleanup
+      let providerCleanupCompleted = false;
+      
+      if (provider && !cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        console.log('[HomeScreen] Cleaning up provider on effect cleanup');
+        HealthProviderFactory.cleanup()
+          .then(() => {
+            if (!componentMountedRef.current) return; // Component already unmounted, don't update state
+            providerCleanupCompleted = true;
+            console.log('[HomeScreen] Provider cleanup completed successfully');
+          })
+          .catch(error => {
+            console.error('[HomeScreen] Error during provider cleanup:', error);
+          })
+          .finally(() => {
+            cleanupInProgressRef.current = false;
+          });
+      }
+      
+      console.log('[HomeScreen] Effect cleanup complete');
     };
-  }, [user, user?.user_metadata?.deviceType, debouncedInit]);
-
-  // Cleanup on unmount
+  }, [user, user?.user_metadata?.deviceType, debouncedInit, provider]);
+  
+  // Comprehensive cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log('[HomeScreen] Component unmounting, cleaning up all resources');
+      componentMountedRef.current = false;
+      
+      // Cancel all pending operations
       debouncedInit.cancel();
-      abortControllerRef.current?.abort();
-      HealthProviderFactory.cleanup().catch(error => {
-        console.error('[HomeScreen] Error during unmount cleanup:', error);
-      });
+      
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
+      // Final cleanup attempt for the provider factory
+      if (!cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        HealthProviderFactory.cleanup()
+          .then(() => console.log('[HomeScreen] Final provider cleanup successful'))
+          .catch(error => console.error('[HomeScreen] Error during final provider cleanup:', error))
+          .finally(() => {
+            cleanupInProgressRef.current = false;
+          });
+      }
     };
-  }, []);
+  }, [debouncedInit]);
 
   if (authLoading || isInitializing) {
     return <LoadingScreen />;
@@ -151,6 +204,7 @@ export default function HomeScreen() {
           // Create new abort controller for retry
           abortControllerRef.current?.abort();
           abortControllerRef.current = new AbortController();
+          
           await debouncedInit(abortControllerRef.current.signal);
         }}
       />

@@ -5,8 +5,8 @@
 	•	The error state is updated when any registration, login, or logout operation fails.
 	•	We expose register, login, and logout for the rest of the app to consume.
  */
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from './health/types/permissions';
@@ -14,6 +14,7 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
+
 interface HealthInitState {
   isInitialized: boolean;
   isInitializing: boolean;
@@ -55,62 +56,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     error: null
   });
 
-  // Add operation tracking
-  const [currentOperationId, setCurrentOperationId] = useState<number>(0);
+  // Refs for tracking component lifecycle and cleanup
+  const currentOperationId = useRef<number>(0);
+  const isMountedRef = useRef<boolean>(true);
+  const cleanupInProgressRef = useRef<boolean>(false);
+  const appStateSubscriptionRef = useRef<ReturnType<typeof AppState.addEventListener> | null>(null);
 
   // Handle app lifecycle for health provider state management
   useEffect(() => {
+    console.log('[AuthProvider] Setting up AppState lifecycle listener');
+    
     const subscription = AppState.addEventListener('change', nextAppState => {
+      if (!isMountedRef.current || cleanupInProgressRef.current) return;
+      
+      console.log('[AuthProvider] AppState changed to:', nextAppState);
+      
       if (nextAppState === 'active' && user && healthPermissionStatus === 'granted') {
-        // App returning to foreground - refresh state
-        const refreshProviders = async () => {
-          try {
-            console.log('[AuthProvider] App became active, refreshing health provider...');
-            
-            // Get provider instance, which handles initialization internally
-            const provider = await HealthProviderFactory.getProvider(undefined, user.id);
-            
-            // Update initialization state
-            if (!healthInitState.isInitialized) {
-              console.log('[AuthProvider] Provider initialized successfully');
-              setHealthInitState(prev => ({
-                ...prev,
-                isInitialized: true,
-                error: null
-              }));
-            }
-            
-            // Reset provider state and refresh metrics
-            console.log('[AuthProvider] Resetting provider state...');
-            await provider.resetState();
-            
-            console.log('[AuthProvider] Refreshing metrics...');
-            await provider.getMetrics();
-            
-            console.log('[AuthProvider] Health provider refresh completed successfully');
-          } catch (error) {
-            console.error('[AuthProvider] Error refreshing health provider:', error);
-            setHealthInitState(prev => ({
-              ...prev,
-              error: error instanceof Error ? error : new Error('Failed to refresh health provider')
-            }));
-            
-            // Attempt recovery by marking as uninitialized
-            if (error instanceof Error && error.message.includes('not initialized')) {
-              console.log('[AuthProvider] Marking provider as uninitialized for next refresh attempt');
-              setHealthInitState(prev => ({
-                ...prev,
-                isInitialized: false
-              }));
-            }
-          }
-        };
+        console.log('[AuthProvider] App became active with authenticated user, refreshing health provider...');
         refreshProviders();
       }
     });
+    
+    appStateSubscriptionRef.current = subscription;
+
+    async function refreshProviders() {
+      if (!isMountedRef.current || cleanupInProgressRef.current) return;
+      
+      let refreshCompleted = false;
+      
+      try {
+        // Get provider instance, which handles initialization internally
+        const provider = await HealthProviderFactory.getProvider(undefined, user?.id);
+        
+        // Update initialization state
+        if (!healthInitState.isInitialized) {
+          console.log('[AuthProvider] Provider initialized successfully');
+          setHealthInitState(prev => ({
+            ...prev,
+            isInitialized: true,
+            error: null
+          }));
+        }
+        
+        // Reset provider state and refresh metrics
+        console.log('[AuthProvider] Resetting provider state...');
+        await provider.resetState();
+        
+        console.log('[AuthProvider] Refreshing metrics...');
+        await provider.getMetrics();
+        
+        refreshCompleted = true;
+        console.log('[AuthProvider] Health provider refresh completed successfully');
+      } catch (error) {
+        console.error('[AuthProvider] Error refreshing health provider:', error);
+        if (isMountedRef.current) {
+          setHealthInitState(prev => ({
+            ...prev,
+            error: error instanceof Error ? error : new Error('Failed to refresh health provider')
+          }));
+          
+          // Attempt recovery by marking as uninitialized
+          if (error instanceof Error && error.message.includes('not initialized')) {
+            console.log('[AuthProvider] Marking provider as uninitialized for next refresh attempt');
+            setHealthInitState(prev => ({
+              ...prev,
+              isInitialized: false
+            }));
+          }
+        }
+      } finally {
+        console.log('[AuthProvider] Provider refresh cycle completed, success:', refreshCompleted);
+      }
+    }
 
     return () => {
-      subscription.remove();
+      console.log('[AuthProvider] Cleaning up AppState subscription');
+      if (appStateSubscriptionRef.current) {
+        appStateSubscriptionRef.current.remove();
+        appStateSubscriptionRef.current = null;
+      }
     };
   }, [user, healthPermissionStatus, healthInitState.isInitialized]);
 
@@ -118,24 +142,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Check initial session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       const operationId = Date.now();
+      currentOperationId.current = operationId;
       console.log(`[AuthProvider] Starting initial session check (Operation ${operationId})`);
       
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
+      if (isMountedRef.current) {
+        setSession(session ?? null);
+        setUser(session?.user ?? null);
+      }
       
-      if (session?.user) {
+      if (session?.user && isMountedRef.current) {
         try {
           console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
           await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
           console.log(`[AuthProvider] [${operationId}] Health provider initialized successfully`);
         } catch (error) {
           console.error(`[AuthProvider] [${operationId}] Failed to initialize health provider:`, error);
-          setHealthPermissionStatus('denied');
+          if (isMountedRef.current) {
+            setHealthPermissionStatus('denied');
+          }
         }
       }
       
       console.log(`[AuthProvider] [${operationId}] Initial session check complete`);
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     });
 
     // Listen for auth state changes
@@ -143,12 +174,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const operationId = Date.now();
-      setCurrentOperationId(operationId);
+      currentOperationId.current = operationId;
       
       console.log(`[AuthProvider] [${operationId}] Auth state change detected:`, {
         event: _event,
         hasUser: !!session?.user
       });
+
+      if (!isMountedRef.current) {
+        console.log(`[AuthProvider] [${operationId}] Component unmounted, skipping state updates`);
+        return;
+      }
 
       // Step 1: Update session and user state
       setSession(session);
@@ -170,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } catch (error) {
             console.warn(`[AuthProvider] [${operationId}] Error during provider cleanup:`, error);
           }
-        } else {
+        } else if (isMountedRef.current) {
           // Step 3: Initialize health provider for new session
           console.log(`[AuthProvider] [${operationId}] Initializing health provider for user:`, session.user.id);
           
@@ -185,20 +221,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             
           } catch (error) {
             console.error(`[AuthProvider] [${operationId}] Failed to initialize health provider:`, error);
-            setHealthPermissionStatus('denied');
+            if (isMountedRef.current) {
+              setHealthPermissionStatus('denied');
+            }
           }
         }
       } catch (error) {
         console.error(`[AuthProvider] [${operationId}] Error during auth state change handling:`, error);
       } finally {
         console.log(`[AuthProvider] [${operationId}] Auth state change handling completed`);
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     });
 
+    // Cleanup on unmount
     return () => {
-      console.log('[AuthProvider] Cleaning up auth state subscription');
+      console.log('[AuthProvider] Cleaning up auth state subscription and resources');
+      isMountedRef.current = false;
       subscription.unsubscribe();
+      
+      if (!cleanupInProgressRef.current) {
+        cleanupInProgressRef.current = true;
+        
+        // Clean up health provider
+        HealthProviderFactory.cleanup()
+          .then(() => console.log('[AuthProvider] Provider cleanup on unmount successful'))
+          .catch(error => console.error('[AuthProvider] Error during provider cleanup on unmount:', error))
+          .finally(() => {
+            cleanupInProgressRef.current = false;
+          });
+      }
     };
   }, []);
 
@@ -215,6 +269,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       avatarUri?: string | null;
     }
   ) => {
+    if (!isMountedRef.current || cleanupInProgressRef.current) return;
+    
     try {
       setError(null);
       setLoading(true);
@@ -222,6 +278,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Use transaction-like pattern
       const cleanup = async () => {
+        if (!isMountedRef.current) return;
+        
         try {
           await HealthProviderFactory.cleanup();
         } catch (error) {
@@ -249,7 +307,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (registrationError) throw registrationError;
 
         // Initialize health provider
-        if (data.user) {
+        if (data.user && isMountedRef.current) {
           await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
         }
       } catch (error) {
@@ -258,10 +316,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw error;
       }
     } catch (err) {
-      setError(mapAuthError(err));
+      if (isMountedRef.current) {
+        setError(mapAuthError(err));
+      }
     } finally {
-      setLoading(false);
-      setHealthInitState(prev => ({ ...prev, isInitializing: false }));
+      if (isMountedRef.current) {
+        setLoading(false);
+        setHealthInitState(prev => ({ ...prev, isInitializing: false }));
+      }
     }
   };
 
@@ -269,6 +331,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Handle user login
    */
   const login = async (email: string, password: string) => {
+    if (!isMountedRef.current || cleanupInProgressRef.current) return;
+    
     try {
       setError(null);
       setLoading(true);
@@ -276,8 +340,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       console.log('[AuthProvider] Starting login process...');
 
-      // Wait for any ongoing provider initialization
-      console.log('[AuthProvider] Attempting login...');
       // Attempt login
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
@@ -291,9 +353,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       console.log('[AuthProvider] Checking permissions status...');
       const permissionState = await provider.checkPermissionsStatus();
-      setHealthPermissionStatus(permissionState.status);
+      if (isMountedRef.current) {
+        setHealthPermissionStatus(permissionState.status);
+      }
 
-      if (permissionState.status === 'granted') {
+      if (permissionState.status === 'granted' && isMountedRef.current) {
         console.log('[AuthProvider] Permissions granted, initializing provider...');
         await provider.initialize();
         setHealthInitState({
@@ -301,7 +365,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isInitializing: false,
           error: null
         });
-      } else {
+      } else if (isMountedRef.current) {
         console.log('[AuthProvider] Permissions not granted:', permissionState.status);
         setHealthInitState({
           isInitialized: false,
@@ -312,15 +376,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     } catch (err) {
       console.error('[AuthProvider] Login error:', err);
-      setError(mapAuthError(err));
-      setHealthInitState(prev => ({
-        ...prev,
-        isInitializing: false,
-        error: err instanceof Error ? err : new Error('Unknown error during health initialization')
-      }));
+      if (isMountedRef.current) {
+        setError(mapAuthError(err));
+        setHealthInitState(prev => ({
+          ...prev,
+          isInitializing: false,
+          error: err instanceof Error ? err : new Error('Unknown error during health initialization')
+        }));
+      }
     } finally {
-      setLoading(false);
-      console.log('[AuthProvider] Login process completed');
+      if (isMountedRef.current) {
+        setLoading(false);
+        console.log('[AuthProvider] Login process completed');
+      }
     }
   };
 
@@ -335,17 +403,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Handle user logout
    */
   const logout = async () => {
+    if (!isMountedRef.current) return;
+    
     try {
       setError(null);
       setLoading(true);
+      cleanupInProgressRef.current = true;
 
       // Clean up health provider state
       if (user) {
         try {
+          console.log('[AuthProvider] Cleaning up health provider before logout');
           const provider = await HealthProviderFactory.getProvider();
           await provider.cleanup();
+          console.log('[AuthProvider] Health provider cleanup successful');
         } catch (healthError) {
-          console.error('Error cleaning up health provider:', healthError);
+          console.error('[AuthProvider] Error cleaning up health provider:', healthError);
           // Don't block logout on health cleanup error
         }
       }
@@ -355,22 +428,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (signOutError) throw signOutError;
 
       // Clear all state
-      setSession(null);
-      setUser(null);
-      setHealthPermissionStatus(null);
-      
-    } catch (err) {
-      console.error('Logout error:', err);
-      if (err instanceof Error && err.message.includes('42501')) {
-        // Still clear local state even if there's a permission error
+      if (isMountedRef.current) {
         setSession(null);
         setUser(null);
         setHealthPermissionStatus(null);
       }
-      setError(mapAuthError(err));
+      
+    } catch (err) {
+      console.error('[AuthProvider] Logout error:', err);
+      if (isMountedRef.current) {
+        if (err instanceof Error && err.message.includes('42501')) {
+          // Still clear local state even if there's a permission error
+          setSession(null);
+          setUser(null);
+          setHealthPermissionStatus(null);
+        }
+        setError(mapAuthError(err));
+      }
     } finally {
-      setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in logout');
+      cleanupInProgressRef.current = false;
+      if (isMountedRef.current) {
+        setLoading(false);
+        console.log('[AuthProvider] Logout completed');
+      }
     }
   };
 
@@ -378,7 +458,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Request health permissions for the current user
    */
   const requestHealthPermissions = async (): Promise<PermissionStatus> => {
-    if (!user) {
+    if (!user || !isMountedRef.current || cleanupInProgressRef.current) {
       throw new Error('User must be logged in to request health permissions');
     }
 
@@ -388,7 +468,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const provider = await HealthProviderFactory.getProvider();
       const status = await provider.requestPermissions();
-      setHealthPermissionStatus(status);
+      if (isMountedRef.current) {
+        setHealthPermissionStatus(status);
+      }
       return status;
     } catch (err) {
       console.error('[AuthProvider] Health permissions error:', err);
@@ -405,11 +487,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       
-      setError(message);
-      setHealthPermissionStatus('denied');
+      if (isMountedRef.current) {
+        setError(message);
+        setHealthPermissionStatus('denied');
+      }
       return 'denied';
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 

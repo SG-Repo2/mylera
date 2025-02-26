@@ -80,6 +80,8 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
       } else if (err.message.includes('network') || err.message.includes('timeout')) {
         errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (err.message.includes('cancelled')) {
+        errorMessage = 'Health data sync was cancelled.';
       } else {
         errorMessage = err.message.includes('health') ? err.message :
           'Unable to sync health data. Please try again later.';
@@ -97,9 +99,10 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
   const syncInProgress = useRef(false);
+  const cleanupStarted = useRef(false);
 
   const retryInitialization = useCallback(async () => {
-    if (!isMounted.current) return false;
+    if (!isMounted.current || cleanupStarted.current) return false;
 
     try {
       console.log('[useHealthData] Attempting provider initialization retry...');
@@ -128,12 +131,12 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       console.error('[useHealthData] Provider initialization retry failed:', error);
       return false;
     }
-  }, [isMounted]);
+  }, []);
 
   // Create debounced version of sync function with error handling
   const debouncedSync = useCallback(
     debounce(async () => {
-      if (!isMounted.current || syncInProgress.current) return;
+      if (!isMounted.current || syncInProgress.current || cleanupStarted.current) return;
       
       syncInProgress.current = true;
       setLoading(true);
@@ -231,7 +234,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       } catch (err) {
         handleSyncError(err);
       } finally {
-        if (isMounted.current) {
+        if (isMounted.current && !cleanupStarted.current) {
           setLoading(false);
           syncInProgress.current = false;
         }
@@ -244,19 +247,48 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   useEffect(() => {
     return () => {
       isMounted.current = false;
-      debouncedSync.cancel();
-      if (provider) {
-        provider.cleanup().catch(error => {
-          console.error('[useHealthData] Error during cleanup:', error);
-        });
-      }
+      
+      const performCleanup = async () => {
+        if (cleanupStarted.current) return;
+        cleanupStarted.current = true;
+        
+        console.log('[useHealthData] Starting cleanup on unmount');
+        
+        // Cancel debounced operations
+        debouncedSync.cancel();
+        console.log('[useHealthData] Cancelled debounced sync operations');
+        
+        // Clean up provider
+        if (provider) {
+          try {
+            console.log('[useHealthData] Cleaning up provider');
+            await provider.cleanup();
+            console.log('[useHealthData] Provider cleanup successful');
+          } catch (error) {
+            console.error('[useHealthData] Error during provider cleanup:', error);
+          }
+        } else {
+          console.log('[useHealthData] No provider to clean up');
+        }
+        
+        console.log('[useHealthData] Cleanup complete');
+      };
+      
+      console.log('[useHealthData] Component unmounting, initiating cleanup');
+      performCleanup();
     };
   }, [debouncedSync, provider]);
 
   const syncHealthData = useCallback(() => {
-    if (!isMounted.current || syncInProgress.current) return;
+    if (!isMounted.current || syncInProgress.current || cleanupStarted.current) return;
+    
+    // Cancel any pending operations before starting a new sync
+    if (provider && provider.cancelPendingOperations) {
+      provider.cancelPendingOperations();
+    }
+    
     debouncedSync();
-  }, [debouncedSync]);
+  }, [debouncedSync, provider]);
 
   // Initial sync
   useEffect(() => {

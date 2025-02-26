@@ -22,74 +22,60 @@ function ProtectedRoutes() {
   const router = useRouter();
   const pathname = usePathname();
   const navigationInProgressRef = useRef(false);
+  const navigationTimeoutRef = useRef<NodeJS.Timeout>();
   const lastNavigationRef = useRef<string | null>(null);
 
-  // Memoize the navigation function
+  // Enhanced navigation queue management
   const navigateToRoute = useCallback((route: string) => {
-    // Prevent duplicate navigations
-    if (lastNavigationRef.current === route) {
-      console.log('[ProtectedRoutes] Skipping duplicate navigation to:', route);
+    if (navigationInProgressRef.current || lastNavigationRef.current === route) {
+      console.log('[ProtectedRoutes] Navigation skipped:', { 
+        inProgress: navigationInProgressRef.current, 
+        lastRoute: lastNavigationRef.current 
+      });
       return;
     }
 
-    // Prevent concurrent navigations
-    if (navigationInProgressRef.current) {
-      console.log('[ProtectedRoutes] Navigation already in progress, skipping');
-      return;
+    // Clear any pending navigation
+    if (navigationTimeoutRef.current) {
+      clearTimeout(navigationTimeoutRef.current);
     }
 
-    console.log('[ProtectedRoutes] Executing navigation to:', route);
     navigationInProgressRef.current = true;
     lastNavigationRef.current = route;
 
-    // Use setTimeout to ensure we're not blocking the main thread
-    setTimeout(() => {
-      router.replace(route);
-      // Reset navigation flag after a delay to prevent rapid re-triggers
-      setTimeout(() => {
-        navigationInProgressRef.current = false;
-      }, 100);
-    }, 0);
+    // Use RAF for smoother navigation scheduling
+    requestAnimationFrame(() => {
+      navigationTimeoutRef.current = setTimeout(() => {
+        router.replace(route);
+        
+        // Reset navigation state after completion
+        setTimeout(() => {
+          navigationInProgressRef.current = false;
+          lastNavigationRef.current = null;
+        }, 100);
+      }, 50);
+    });
   }, [router]);
 
-  // Handle route protection
+  // Improved route protection logic
   useEffect(() => {
-    // Skip if loading or no pathname
-    if (loading || !pathname) {
-      console.log('[ProtectedRoutes] Loading or no pathname, skipping navigation check');
-      return;
-    }
+    if (loading) return;
 
-    // Parse route type
     const routeType = {
-      isAuthRoute: pathname.startsWith('/(auth)'),
-      isOnboardingRoute: pathname.startsWith('/(onboarding)'),
-      isAppRoute: pathname.startsWith('/(app)'),
+      isAuthRoute: pathname?.startsWith('/(auth)') ?? false,
+      isOnboardingRoute: pathname?.startsWith('/(onboarding)') ?? false,
+      isAppRoute: pathname?.startsWith('/(app)') ?? false,
       isRootRoute: pathname === '/'
     };
 
-    console.log('[ProtectedRoutes] Checking route protection:', {
-      pathname,
-      hasSession: !!session,
-      ...routeType
-    });
-
-    // Handle unauthenticated users
-    if (!session) {
-      const requiresAuth = routeType.isAppRoute || routeType.isRootRoute;
-      if (requiresAuth && !routeType.isAuthRoute) {
-        console.log('[ProtectedRoutes] Unauthenticated user accessing protected route');
-        navigateToRoute('/(auth)/register');
+    // Cleanup function to handle navigation cancellation
+    return () => {
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
       }
-      return;
-    }
-
-    // Handle authenticated users
-    const isPublicRoute = routeType.isAuthRoute || routeType.isOnboardingRoute || routeType.isRootRoute;
-    if (isPublicRoute) {
-      console.log('[ProtectedRoutes] Authenticated user accessing public route');
-      navigateToRoute('/(app)/(home)');
-    }
+      navigationInProgressRef.current = false;
+      lastNavigationRef.current = null;
+    };
   }, [session, loading, pathname, navigateToRoute]);
 
   // Handle loading state

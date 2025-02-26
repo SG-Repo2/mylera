@@ -135,6 +135,9 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
     await this.ensureInitialized();
 
+    // Create new controller for this operation
+    this.createNewAbortController();
+
     const options = {
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
@@ -260,47 +263,58 @@ export class AppleHealthProvider extends BaseHealthProvider {
   }
 
   async getMetrics(): Promise<HealthMetrics> {
-    const now = new Date();
-    const startOfDay = DateUtils.getStartOfDay(now);
-    
-    console.log('[AppleHealthProvider] Fetching metrics for time window:', {
-      start: startOfDay.toISOString(),
-      end: now.toISOString()
-    });
-    
-    const rawData = await this.fetchRawMetrics(
-      startOfDay,
-      now,
-      ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-    );
+    try {
+      // Create new controller for this operation
+      const controller = this.createNewAbortController();
+      
+      const now = new Date();
+      const startOfDay = DateUtils.getStartOfDay(now);
+      
+      console.log('[AppleHealthProvider] Fetching metrics for time window:', {
+        start: startOfDay.toISOString(),
+        end: now.toISOString()
+      });
+      
+      const rawData = await this.fetchRawMetrics(
+        startOfDay,
+        now,
+        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
+      );
 
-    // Normalize and aggregate the data
-    const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
-    const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
-    const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
-    const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
-    const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
-    const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
-    const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
+      // Normalize and aggregate the data
+      const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
+      const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
+      const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
+      const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
+      const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
+      const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
+      const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
-    return {
-      id: '',
-      user_id: '',
-      date: now.toISOString().split('T')[0],
-      steps,
-      distance,
-      calories,
-      heart_rate,
-      basal_calories,
-      flights_climbed,
-      exercise,
-      daily_score: 0,
-      weekly_score: null,
-      streak_days: null,
-      last_updated: now.toISOString(),
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
+      return {
+        id: '',
+        user_id: '',
+        date: now.toISOString().split('T')[0],
+        steps,
+        distance,
+        calories,
+        heart_rate,
+        basal_calories,
+        flights_climbed,
+        exercise,
+        daily_score: 0,
+        weekly_score: null,
+        streak_days: null,
+        last_updated: now.toISOString(),
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] getMetrics request cancelled');
+        throw new Error('Health metrics request was cancelled');
+      }
+      throw error;
+    }
   }
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
@@ -314,6 +328,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Steps request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading steps:', error);
       return [];
     }
@@ -396,6 +414,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Distance request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading distance:', error);
       return [];
     }
@@ -428,6 +450,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }));
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Calories request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading active calories:', error);
       return [];
     }
@@ -447,6 +473,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Basal calories request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading basal calories:', error);
       return [];
     }
@@ -491,6 +521,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
       return validSamples;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Heart rate request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading heart rate:', error);
       return [];
     }
@@ -510,6 +544,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Flights climbed request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading flights climbed:', error);
       return [];
     }
@@ -529,6 +567,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[AppleHealthProvider] Exercise time request cancelled');
+        return [];
+      }
       console.error('[AppleHealthProvider] Error reading exercise time:', error);
       return [];
     }
@@ -536,5 +578,32 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private aggregateMetric(metrics: NormalizedMetric[]): number {
     return aggregateMetrics(metrics);
+  }
+
+  /**
+   * Enhanced platform-specific cleanup
+   * Overrides the base class cleanup to add Apple HealthKit specific cleanup
+   */
+  async cleanup(): Promise<void> {
+    console.log('[AppleHealthProvider] Starting platform-specific cleanup');
+    
+    try {
+      // Perform any Apple HealthKit specific cleanup (if applicable)
+      // For example, removing event listeners if any were added
+      
+      // Call the base class cleanup to handle common resources
+      await super.cleanup();
+      
+      console.log('[AppleHealthProvider] Platform-specific cleanup completed');
+    } catch (error) {
+      console.error('[AppleHealthProvider] Error during platform-specific cleanup:', error);
+      // Still try to run base cleanup
+      try {
+        await super.cleanup();
+      } catch (baseError) {
+        console.error('[AppleHealthProvider] Error in base cleanup after platform error:', baseError);
+      }
+      throw error;
+    }
   }
 }

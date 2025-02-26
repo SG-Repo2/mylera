@@ -187,14 +187,14 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     if (!this.accessToken) {
       throw new Error('No Fitbit access token available');
     }
-    const response = await fetch(url, {
+    
+    // Use the fetchWithCancellation method from BaseHealthProvider
+    const response = await this.fetchWithCancellation(url, {
       headers: {
         'Authorization': `Bearer ${this.accessToken}`,
       },
     });
-    if (!response.ok) {
-      throw new Error(`Fitbit API error: ${response.status}`);
-    }
+    
     return response.json();
   }
 
@@ -209,112 +209,171 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: string[]
   ): Promise<RawHealthData> {
-    const permissionState = await this.checkPermissionsStatus();
-    if (permissionState.status !== 'granted') {
-      throw new HealthProviderPermissionError('Fitbit', 'Permission not granted for Fitbit data access');
+    try {
+      const permissionState = await this.checkPermissionsStatus();
+      if (permissionState.status !== 'granted') {
+        throw new HealthProviderPermissionError('Fitbit', 'Permission not granted for Fitbit data access');
+      }
+      await this.ensureInitialized();
+
+      // Create new controller for this operation
+      const controller = this.createNewAbortController();
+
+      // Fitbit endpoints are typically date-based; we assume both dates are the same.
+      const dateStr = startDate.toISOString().split('T')[0];
+      const rawData: RawHealthData = {};
+
+      await Promise.all(
+        types.map(async (type) => {
+          // Check if operation was cancelled
+          if (controller.signal.aborted) {
+            console.log(`[FitbitHealthProvider] Skipping fetch for ${type} - operation cancelled`);
+            return;
+          }
+
+          switch (type) {
+            case 'steps':
+              rawData.steps = await this.fetchStepsRaw(dateStr);
+              break;
+            case 'distance':
+              rawData.distance = await this.fetchDistanceRaw(dateStr);
+              break;
+            case 'calories':
+              rawData.calories = await this.fetchCaloriesRaw(dateStr);
+              break;
+            case 'heart_rate':
+              rawData.heart_rate = await this.fetchHeartRateRaw(dateStr);
+              break;
+            case 'basal_calories':
+              rawData.basal_calories = await this.fetchBasalCaloriesRaw(dateStr);
+              break;
+            case 'flights_climbed':
+              rawData.flights_climbed = await this.fetchFlightsClimbedRaw(dateStr);
+              break;
+            case 'exercise':
+              rawData.exercise = await this.fetchExerciseRaw(dateStr);
+              break;
+          }
+        })
+      );
+
+      // Check if operation was cancelled after all fetches
+      if (controller.signal.aborted) {
+        console.log('[FitbitHealthProvider] Raw metrics fetch was cancelled');
+        throw new Error('Health metrics request was cancelled');
+      }
+
+      return rawData;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] Raw metrics fetch was cancelled');
+        throw new Error('Health metrics request was cancelled');
+      }
+      throw error;
     }
-    await this.ensureInitialized();
-
-    // Fitbit endpoints are typically date-based; we assume both dates are the same.
-    const dateStr = startDate.toISOString().split('T')[0];
-    const rawData: RawHealthData = {};
-
-    await Promise.all(
-      types.map(async (type) => {
-        switch (type) {
-          case 'steps':
-            rawData.steps = await this.fetchStepsRaw(dateStr);
-            break;
-          case 'distance':
-            rawData.distance = await this.fetchDistanceRaw(dateStr);
-            break;
-          case 'calories':
-            rawData.calories = await this.fetchCaloriesRaw(dateStr);
-            break;
-          case 'heart_rate':
-            rawData.heart_rate = await this.fetchHeartRateRaw(dateStr);
-            break;
-          case 'basal_calories':
-            rawData.basal_calories = await this.fetchBasalCaloriesRaw(dateStr);
-            break;
-          case 'flights_climbed':
-            rawData.flights_climbed = await this.fetchFlightsClimbedRaw(dateStr);
-            break;
-          case 'exercise':
-            rawData.exercise = await this.fetchExerciseRaw(dateStr);
-            break;
-        }
-      })
-    );
-
-    return rawData;
   }
 
   // ----- Below are helper methods to fetch each metric type via Fitbit API -----
 
   private async fetchStepsRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/steps/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/steps/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-steps'] && data['activities-steps'].length > 0) {
-      return data['activities-steps'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: 'count',
-        sourceBundle: 'com.fitbit.api'
-      }));
+    try {
+      // Endpoint: /activities/steps/date/{date}/1d.json
+      const url = `https://api.fitbit.com/1/user/-/activities/steps/date/${dateStr}/1d.json`;
+      const data = await this.fetchFromFitbit(url);
+      if (data && data['activities-steps'] && data['activities-steps'].length > 0) {
+        return data['activities-steps'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          value: Number(item.value),
+          unit: 'count',
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+      return [];
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] Steps request cancelled');
+        return [];
+      }
+      console.error('[FitbitHealthProvider] Error reading steps:', error);
+      return [];
     }
-    return [];
   }
 
   private async fetchDistanceRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/distance/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/distance/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-distance'] && data['activities-distance'].length > 0) {
-      return data['activities-distance'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: METRIC_UNITS.DISTANCE,
-        sourceBundle: 'com.fitbit.api'
-      }));
+    try {
+      // Endpoint: /activities/distance/date/{date}/1d.json
+      const url = `https://api.fitbit.com/1/user/-/activities/distance/date/${dateStr}/1d.json`;
+      const data = await this.fetchFromFitbit(url);
+      if (data && data['activities-distance'] && data['activities-distance'].length > 0) {
+        return data['activities-distance'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          value: Number(item.value),
+          unit: METRIC_UNITS.DISTANCE,
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+      return [];
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] Distance request cancelled');
+        return [];
+      }
+      console.error('[FitbitHealthProvider] Error reading distance:', error);
+      return [];
     }
-    return [];
   }
 
   private async fetchCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/calories/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/calories/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-calories'] && data['activities-calories'].length > 0) {
-      return data['activities-calories'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: METRIC_UNITS.CALORIES,
-        sourceBundle: 'com.fitbit.api'
-      }));
+    try {
+      // Endpoint: /activities/calories/date/{date}/1d.json
+      const url = `https://api.fitbit.com/1/user/-/activities/calories/date/${dateStr}/1d.json`;
+      const data = await this.fetchFromFitbit(url);
+      if (data && data['activities-calories'] && data['activities-calories'].length > 0) {
+        return data['activities-calories'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          value: Number(item.value),
+          unit: METRIC_UNITS.CALORIES,
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+      return [];
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] Calories request cancelled');
+        return [];
+      }
+      console.error('[FitbitHealthProvider] Error reading calories:', error);
+      return [];
     }
-    return [];
   }
 
   private async fetchHeartRateRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/heart/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/heart/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-heart'] && data['activities-heart'].length > 0) {
-      return data['activities-heart'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        // Here we use restingHeartRate if available; otherwise default to 0.
-        value: item.value.restingHeartRate ? Number(item.value.restingHeartRate) : 0,
-        unit: METRIC_UNITS.HEART_RATE,
-        sourceBundle: 'com.fitbit.api'
-      }));
+    try {
+      // Endpoint: /activities/heart/date/{date}/1d.json
+      const url = `https://api.fitbit.com/1/user/-/activities/heart/date/${dateStr}/1d.json`;
+      const data = await this.fetchFromFitbit(url);
+      if (data && data['activities-heart'] && data['activities-heart'].length > 0) {
+        return data['activities-heart'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          // Here we use restingHeartRate if available; otherwise default to 0.
+          value: item.value.restingHeartRate ? Number(item.value.restingHeartRate) : 0,
+          unit: METRIC_UNITS.HEART_RATE,
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+      return [];
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] Heart rate request cancelled');
+        return [];
+      }
+      console.error('[FitbitHealthProvider] Error reading heart rate:', error);
+      return [];
     }
-    return [];
   }
 
   private async fetchBasalCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
@@ -441,40 +500,58 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    * Aggregates the normalized metrics into a HealthMetrics object.
    */
   async getMetrics(): Promise<HealthMetrics> {
-    const now = new Date();
-    const startOfDay = DateUtils.getStartOfDay(now);
-    const rawData = await this.fetchRawMetrics(
-      startOfDay,
-      now,
-      ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-    );
+    try {
+      // Create new controller for this operation
+      const controller = this.createNewAbortController();
+      
+      const now = new Date();
+      const startOfDay = DateUtils.getStartOfDay(now);
+      
+      console.log('[FitbitHealthProvider] Fetching metrics for time window:', {
+        start: startOfDay.toISOString(),
+        end: now.toISOString()
+      });
+      
+      const rawData = await this.fetchRawMetrics(
+        startOfDay,
+        now,
+        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
+      );
 
-    const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
-    const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
-    const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
-    const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
-    const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
-    const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
-    const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
+      const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
+      const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
+      const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
+      const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
+      const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
+      const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
+      const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
-    return {
-      id: '',
-      user_id: '',
-      date: now.toISOString().split('T')[0],
-      steps,
-      distance,
-      calories,
-      heart_rate,
-      basal_calories,
-      flights_climbed,
-      exercise,
-      daily_score: 0,
-      weekly_score: null,
-      streak_days: null,
-      last_updated: now.toISOString(),
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
+      return {
+        id: '',
+        user_id: '',
+        date: now.toISOString().split('T')[0],
+        steps,
+        distance,
+        calories,
+        heart_rate,
+        basal_calories,
+        flights_climbed,
+        exercise,
+        daily_score: 0,
+        weekly_score: null,
+        streak_days: null,
+        last_updated: now.toISOString(),
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[FitbitHealthProvider] getMetrics request cancelled');
+        throw new Error('Health metrics request was cancelled');
+      }
+      console.error('[FitbitHealthProvider] Error fetching metrics:', error);
+      throw error;
+    }
   }
 
   /**
@@ -493,5 +570,32 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    */
   setAccessToken(token: string): void {
     this.accessToken = token;
+  }
+
+  /**
+   * Enhanced platform-specific cleanup
+   * Overrides the base class cleanup to add Fitbit specific cleanup
+   */
+  async cleanup(): Promise<void> {
+    console.log('[FitbitHealthProvider] Starting platform-specific cleanup');
+    
+    try {
+      // Clear Fitbit tokens from memory (but not from secure storage)
+      this.accessToken = null;
+      this.refreshToken = null;
+      this.tokenExpiresAt = null;
+      
+      // Call the base class cleanup to handle common resources
+      await super.cleanup();
+      
+      console.log('[FitbitHealthProvider] Platform-specific cleanup completed');
+    } catch (error) {
+      console.error('[FitbitHealthProvider] Error during platform-specific cleanup:', error);
+      // Still try to run base cleanup
+      await super.cleanup().catch(baseError => {
+        console.error('[FitbitHealthProvider] Error in base cleanup after platform error:', baseError);
+      });
+      throw error;
+    }
   }
 }
