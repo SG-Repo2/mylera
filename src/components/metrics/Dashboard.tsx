@@ -189,7 +189,6 @@ export const Dashboard = React.memo(function Dashboard({
   const theme = useTheme();
   const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
-  const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
@@ -199,7 +198,8 @@ export const Dashboard = React.memo(function Dashboard({
     loading,
     error,
     syncHealthData,
-    isInitialized
+    isInitialized,
+    healthMetricsData
   } = useHealthData(provider, userId);
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
@@ -259,37 +259,19 @@ export const Dashboard = React.memo(function Dashboard({
     
     try {
       console.log('Dashboard fetching data for:', { userId, date });
-      const [totals, metricScores, rank] = await Promise.all([
+      const [totals, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
-        metricsService.getDailyMetrics(userId, date),
         leaderboardService.getUserRank(userId, date)
       ]);
       
       console.log('Daily totals:', totals);
-      console.log('Metric scores:', metricScores);
       
-      const totalPoints = calculateTotalPoints(metricScores);
+      // Identify and store the user's total from the fetched totals
+      const userTotal = totals.find(total => total.user_id === userId);
+      if (userTotal) {
+        setDailyTotal(userTotal);
+      }
       
-      const userTotal = {
-        id: `${userId}-${date}`,
-        user_id: userId,
-        date: date,
-        total_points: totalPoints,
-        metrics_completed: metricScores.length,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      setDailyTotal(userTotal);
-      
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
-        userTotal,
-        userId,
-        date
-      );
-      console.log('Transformed metrics:', transformedMetrics);
-      
-      setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
     } catch (err) {
@@ -385,9 +367,9 @@ export const Dashboard = React.memo(function Dashboard({
           />
         }
       >
-        {healthMetrics && (
+        {healthMetricsData && (
           <MetricCardList 
-            metrics={healthMetrics} 
+            metrics={healthMetricsData} 
             showAlerts={showAlerts}
             provider={provider}
           />

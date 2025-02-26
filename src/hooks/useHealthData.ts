@@ -64,6 +64,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
     await Promise.all(updates);
 
+    // Store the fetched health data in local state
+    setHealthMetricsData(healthData);
+
     if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
       console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
     }
@@ -95,6 +98,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [healthMetricsData, setHealthMetricsData] = useState<HealthMetrics | null>(null);
   const isMounted = useRef(true);
   const syncInProgress = useRef(false);
 
@@ -269,5 +273,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     syncHealthData();
   }, [syncHealthData, userId]);
 
-  return { loading, error, syncHealthData, isInitialized };
+  return { 
+    loading, 
+    error, 
+    syncHealthData, 
+    isInitialized,
+    healthMetricsData 
+  };
 };
