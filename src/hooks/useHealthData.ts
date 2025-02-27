@@ -12,16 +12,18 @@ import { HealthProviderFactory } from '../providers/health/factory/HealthProvide
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
  * 
- * @param provider - Platform-specific health provider instance (Apple HealthKit or Google Health Connect)
  * @param userId - Unique identifier of the user for permission management
+ * @param deviceType - Optional device type ('os' or 'fitbit')
  * @returns Object containing:
  *  - loading: Boolean indicating if a sync operation is in progress
  *  - error: Error object if the last operation failed, null otherwise
  *  - syncHealthData: Function to manually trigger a health data sync
+ *  - isInitialized: Boolean indicating if the provider has been successfully initialized
+ *  - provider: The initialized health provider instance
  * 
  * @example
  * ```tsx
- * const { loading, error, syncHealthData } = useHealthData(healthProvider, userId);
+ * const { loading, error, syncHealthData, isInitialized, provider } = useHealthData(userId, deviceType);
  * 
  * // Handle loading state
  * if (loading) return <LoadingSpinner />;
@@ -33,7 +35,14 @@ import { HealthProviderFactory } from '../providers/health/factory/HealthProvide
  * const handleRefresh = () => syncHealthData();
  * ```
  */
-export const useHealthData = (provider: HealthProvider, userId: string) => {
+export const useHealthData = (userId: string, deviceType?: 'os' | 'fitbit') => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [provider, setProvider] = useState<HealthProvider | null>(null);
+  const isMounted = useRef(true);
+  const syncInProgress = useRef(false);
+
   // Helper function to update health metrics
   const updateHealthMetrics = async (healthData: HealthMetrics) => {
     const healthMetrics: MetricType[] = [
@@ -92,24 +101,19 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     console.error('[useHealthData] Health sync error:', err);
   };
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const isMounted = useRef(true);
-  const syncInProgress = useRef(false);
-
-  const retryInitialization = useCallback(async () => {
+  const initializeProvider = useCallback(async () => {
     if (!isMounted.current) return false;
 
     try {
-      console.log('[useHealthData] Attempting provider initialization retry...');
+      setLoading(true);
+      console.log('[useHealthData] Fetching health provider for user:', userId);
       
       // Clean up existing provider
       await HealthProviderFactory.cleanup();
       console.log('[useHealthData] Provider cleanup complete');
       
       // Get a fresh provider instance
-      const newProvider = await HealthProviderFactory.getProvider();
+      const newProvider = await HealthProviderFactory.getProvider(deviceType, userId);
       console.log('[useHealthData] New provider instance created');
       
       // Validate and initialize new provider
@@ -122,52 +126,34 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         'Health provider initialization timed out'
       );
       
-      console.log('[useHealthData] Provider initialization retry successful');
+      // Set provider and initialize state
+      setProvider(newProvider);
+      setIsInitialized(true);
+      setError(null);
+      console.log('[useHealthData] Provider initialization successful');
       return true;
     } catch (error) {
-      console.error('[useHealthData] Provider initialization retry failed:', error);
+      console.error('[useHealthData] Provider initialization failed:', error);
+      setError(error instanceof Error ? error : new Error('Failed to initialize health provider'));
+      setIsInitialized(false);
       return false;
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
-  }, [isMounted]);
+  }, [userId, deviceType]);
 
   // Create debounced version of sync function with error handling
   const debouncedSync = useCallback(
     debounce(async () => {
-      if (!isMounted.current || syncInProgress.current) return;
+      if (!isMounted.current || syncInProgress.current || !provider) return;
       
       syncInProgress.current = true;
       setLoading(true);
       setError(null);
 
       try {
-        // Initialize and validate provider
-        try {
-          console.log('[useHealthData] Starting provider initialization...');
-          
-          // First ensure we have a valid provider instance
-          validateProviderInitialization(provider);
-          console.log('[useHealthData] Provider validation successful');
-          
-          // Then initialize it with timeout and retries
-          await withTimeout(
-            initializeWithRetry(provider),
-            DEFAULT_TIMEOUTS.INITIALIZATION,
-            'Health provider initialization timed out'
-          );
-          
-          setIsInitialized(true);
-          console.log('[useHealthData] Provider initialized successfully');
-        } catch (err) {
-          // If initial initialization fails, try one retry
-          console.log('[useHealthData] Initial initialization failed, attempting retry...');
-          const retrySuccessful = await retryInitialization();
-          if (!retrySuccessful) {
-            throw err;
-          }
-          setIsInitialized(true);
-          console.log('[useHealthData] Initialization retry succeeded');
-        }
-
         // Initialize permissions with timeout
         try {
           console.log('[useHealthData] Initializing permissions for user:', userId);
@@ -237,7 +223,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         }
       }
     }, 800),
-    [provider, userId, retryInitialization]
+    [provider, userId, updateHealthMetrics, handleSyncError]
   );
 
   // Cleanup on unmount
@@ -245,29 +231,33 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     return () => {
       isMounted.current = false;
       debouncedSync.cancel();
-      if (provider) {
-        provider.cleanup().catch(error => {
-          console.error('[useHealthData] Error during cleanup:', error);
-        });
-      }
+      HealthProviderFactory.cleanup().catch(error => {
+        console.error('[useHealthData] Error during cleanup:', error);
+      });
     };
-  }, [debouncedSync, provider]);
-
-  const syncHealthData = useCallback(() => {
-    if (!isMounted.current || syncInProgress.current) return;
-    debouncedSync();
   }, [debouncedSync]);
 
-  // Initial sync
+  // Initialize provider effect
   useEffect(() => {
     if (!userId) {
-      console.warn('useHealthData: No userId available - skipping sync');
+      console.warn('[useHealthData] No userId available - skipping initialization');
       setLoading(false);
       return;
     }
     
-    syncHealthData();
-  }, [syncHealthData, userId]);
+    initializeProvider();
+  }, [userId, deviceType, initializeProvider]);
 
-  return { loading, error, syncHealthData, isInitialized };
+  const syncHealthData = useCallback(() => {
+    if (!isMounted.current || syncInProgress.current || !provider) return;
+    debouncedSync();
+  }, [debouncedSync, provider]);
+
+  return { 
+    loading, 
+    error, 
+    syncHealthData, 
+    isInitialized,
+    provider 
+  };
 };

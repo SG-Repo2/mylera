@@ -67,47 +67,21 @@ export class HealthProviderFactory {
   }
 
   private static getPlatformForDevice(deviceType?: 'os' | 'fitbit'): HealthPlatform {
-    if (deviceType === 'fitbit') {
-      return 'fitbit';
-    }
+    if (deviceType === 'fitbit') return 'fitbit';
     return Platform.OS === 'ios' ? 'apple' : 'google';
   }
 
   private static createProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
-    this.validatePlatform(deviceType);
-
-    let provider: HealthProvider;
-    try {
-      if (deviceType === 'fitbit') {
-        provider = new FitbitHealthProvider();
-      } else if (Platform.OS === 'ios') {
-        provider = new AppleHealthProvider();
-      } else {
-        provider = new GoogleHealthProvider();
-      }
-
-      // Validate provider before returning
-      if (!provider) {
-        throw new HealthProviderError('Provider instance creation failed');
-      }
-
-      if (typeof provider.initialize !== 'function') {
-        throw new HealthProviderError('Provider missing required initialize method');
-      }
-
-      if (typeof provider.cleanup !== 'function') {
-        throw new HealthProviderError('Provider missing required cleanup method');
-      }
-
-      if (typeof provider.getMetrics !== 'function') {
-        throw new HealthProviderError('Provider missing required getMetrics method');
-      }
-
-      return provider;
-    } catch (error) {
-      throw new HealthProviderError(
-        `Failed to create valid provider: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+    const platform = this.getPlatformForDevice(deviceType);
+    switch (platform) {
+      case 'apple':
+        return new AppleHealthProvider();
+      case 'google':
+        return new GoogleHealthProvider();
+      case 'fitbit':
+        return new FitbitHealthProvider();
+      default:
+        throw new HealthProviderError(`Unsupported platform: ${platform}`);
     }
   }
 
@@ -158,6 +132,36 @@ export class HealthProviderFactory {
         this.initializationQueue.delete(key);
       }
     }
+  }
+
+  private static retryWithBackoff = async <T>(
+    operation: () => Promise<T>,
+    maxRetries: number,
+    initialDelay: number,
+    key: string
+  ): Promise<T> => {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logInitializationMetric(key);
+        return await operation();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        this.logInitializationMetric(key, lastError);
+        
+        if (attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt - 1) * (0.5 + Math.random() * 0.5); // Add jitter
+          console.log(`[HealthProviderFactory] Retrying operation for ${key} in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw new HealthProviderInitializationError(
+      key,
+      `Failed after ${maxRetries} attempts: ${lastError?.message}`
+    );
   }
 
   static async getProvider(deviceType?: 'os' | 'fitbit', userId?: string): Promise<HealthProvider> {

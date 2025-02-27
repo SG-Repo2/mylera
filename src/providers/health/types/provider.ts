@@ -108,6 +108,21 @@ export interface HealthProvider {
    * @param date - The timestamp to set
    */
   setLastSyncTime?(date: Date): Promise<void>;
+
+  /**
+   * Add cache management for health metrics to reduce API calls
+   * @param cacheKey - Unique key to identify the cached data
+   * @param data - Data to cache
+   * @param ttl - Time to live in milliseconds
+   */
+  cacheMetrics?(cacheKey: string, data: HealthMetrics, ttl?: number): Promise<void>;
+
+  /**
+   * Retrieve cached health metrics if available and not expired
+   * @param cacheKey - Unique key to identify the cached data
+   * @returns Cached health metrics or null if not found/expired
+   */
+  getCachedMetrics?(cacheKey: string): Promise<HealthMetrics | null>;
 }
 
 /**
@@ -379,5 +394,25 @@ export abstract class BaseHealthProvider implements HealthProvider {
       DEFAULT_TIMEOUTS.PERMISSION_CHECK,
       'Availability check timed out'
     );
+  }
+
+  /**
+   * Add cache management for health metrics to reduce API calls
+   * @param cacheKey - Unique key to identify the cached data
+   * @param data - Data to cache
+   * @param ttl - Time to live in milliseconds
+   */
+  async cacheMetrics(cacheKey: string, data: HealthMetrics, ttl?: number): Promise<void> {
+    // Implementation of cacheMetrics method
+  }
+
+  /**
+   * Retrieve cached health metrics if available and not expired
+   * @param cacheKey - Unique key to identify the cached data
+   * @returns Cached health metrics or null if not found/expired
+   */
+  async getCachedMetrics(cacheKey: string): Promise<HealthMetrics | null> {
+    // Implementation of getCachedMetrics method
+    return null; // Placeholder return, actual implementation needed
   }
 }

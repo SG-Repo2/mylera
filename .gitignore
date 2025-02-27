@@ -62,3 +62,4 @@ my_dump.sql
 .env.prod
 .env.test
 coverage/
+fuck.sql
