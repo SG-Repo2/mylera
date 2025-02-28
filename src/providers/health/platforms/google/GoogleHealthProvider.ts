@@ -416,7 +416,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
             while (bmrRetries < MAX_BMR_RETRIES) {
               try {
-                // Use the new verifyHealthPermission helper passing "this" as provider
                 const hasBmrPermission = await verifyHealthPermission(this, 'BasalMetabolicRate');
                 if (!hasBmrPermission) {
                   console.warn('[GoogleHealthProvider] BasalMetabolicRate permission not granted');
@@ -424,9 +423,18 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                 }
 
                 const basalCalories = await readRecords('BasalMetabolicRate', { timeRangeFilter });
+                console.log(`[GoogleHealthProvider] BasalMetabolicRate read returned ${basalCalories.records.length} records`);
+                
+                // Process any records we get, even if empty array
                 const validRecords = (basalCalories.records as unknown as BasalRecord[])
-                  .filter(record => record.energy?.inKilocalories && 
-                    isValidMetricValue(record.energy.inKilocalories, 'basal_calories'))
+                  .filter(record => {
+                    const isValid = record.energy?.inKilocalories && 
+                      isValidMetricValue(record.energy.inKilocalories, 'basal_calories');
+                    if (!isValid && record.energy) {
+                      console.log(`[GoogleHealthProvider] Filtering out invalid BMR: ${record.energy.inKilocalories}`);
+                    }
+                    return isValid;
+                  })
                   .map(record => ({
                     startDate: record.startTime,
                     endDate: record.endTime,
@@ -435,12 +443,10 @@ export class GoogleHealthProvider extends BaseHealthProvider {
                     sourceBundle: 'com.google.android.apps.fitness'
                   }));
 
-                if (validRecords.length > 0) {
-                  rawData.basal_calories = validRecords;
-                  break;
-                }
-
-                throw new Error('No valid BasalMetabolicRate records found');
+                // Set the records even if empty - don't throw an error
+                rawData.basal_calories = validRecords.length > 0 ? validRecords : [];
+                break;
+                
               } catch (error) {
                 bmrLastError = error instanceof Error ? error : new Error('Unknown error reading BasalMetabolicRate');
                 console.warn(
@@ -457,10 +463,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
             // If all retries failed or no permission, use fallback
             if (!rawData.basal_calories) {
-              console.error(
-                '[GoogleHealthProvider] Failed to read BasalMetabolicRate after all retries:',
-                bmrLastError?.message
-              );
+              console.log('[GoogleHealthProvider] Using fallback for BasalMetabolicRate');
               rawData.basal_calories = [{
                 startDate: timeRangeFilter.startTime,
                 endDate: timeRangeFilter.endTime,
