@@ -10,7 +10,7 @@ module.exports = {
   expo: {
     name: "mylera",
     slug: "mylera",
-    version: "1.0.2",
+    version: "1.0.3",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "mylera",
@@ -72,7 +72,7 @@ module.exports = {
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
-        "android.permission.health.READ_FLIGHTS_CLIMBED",
+        "android.permission.health.READ_FLOORS_CLIMBED",
         "android.permission.health.READ_BASAL_METABOLIC_RATE",
         "android.permission.health.READ_EXERCISE",
         "android.permission.CAMERA",

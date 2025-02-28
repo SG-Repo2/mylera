@@ -102,7 +102,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       ];
       
       // Update each health metric that has a value
-      let failedMetrics: string[] = [];
+      const failedMetrics: string[] = [];
       const updates = healthMetrics.map(async metric => {
         const value = healthData[metric];
         if (typeof value === 'number') {
