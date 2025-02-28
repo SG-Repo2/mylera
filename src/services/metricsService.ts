@@ -226,6 +226,200 @@ export const metricsService = {
   },
 
   /**
+   * Verify that the user is authenticated and authorized to update metrics
+   * @param userId - The user's ID
+   * @throws MetricsAuthError if authentication fails
+   */
+  async verifyUserAuthentication(userId: string) {
+    // Verify user is authenticated
+    const session = await supabase.auth.getSession();
+    if (!session.data.session?.user) {
+      throw new MetricsAuthError('User must be authenticated to update metrics');
+    }
+
+    // Verify userId matches authenticated user
+    if (session.data.session.user.id !== userId) {
+      throw new MetricsAuthError('Cannot update metrics for another user');
+    }
+  },
+
+  /**
+   * Get user's measurement system preference
+   * @param userId - The user's ID
+   * @returns The user's measurement system (metric or imperial)
+   */
+  async getUserMeasurementSystem(userId: string) {
+    // Get user's measurement system preference
+    const { data: userProfile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('measurement_system')
+      .eq('id', userId)
+      .single();
+    
+    if (profileError) {
+      logger.error(LogCategory.Metrics, 'Error fetching user profile', profileError.message);
+    }
+    
+    // Default to metric if not specified
+    return userProfile?.measurement_system || 'metric';
+  },
+
+  /**
+   * Prepare and update a single metric
+   * @param userId - The user's ID
+   * @param metricType - The type of metric to update
+   * @param value - The new metric value
+   * @param measurementSystem - The user's measurement system
+   * @returns The updated metric data
+   */
+  async prepareAndUpdateMetric(
+    userId: string,
+    metricType: MetricType,
+    value: number,
+    measurementSystem: string
+  ) {
+    // Get date in local timezone
+    const today = DateUtils.getLocalDateString();
+    
+    // Get metric configuration
+    const config = healthMetrics[metricType];
+    if (!config) {
+      throw new MetricsValidationError(`Unknown metric type: ${metricType}`);
+    }
+    
+    logger.debug(LogCategory.Metrics, 'Metric config', undefined, undefined, {
+      metricType,
+      defaultGoal: config.defaultGoal,
+      unit: config.unit,
+      measurementSystem
+    });
+    
+    // Use default goal from config
+    const goal = config.defaultGoal;
+    
+    // Calculate points and goal status
+    const { points, goalReached } = calculatePoints(value, metricType, goal);
+    
+    logger.debug(LogCategory.Metrics, 'Calculated score', undefined, undefined, {
+      goalReached,
+      points,
+      value,
+      goal
+    });
+    
+    // Prepare the metric data
+    const metricData = {
+      user_id: userId,
+      date: today,
+      metric_type: metricType,
+      value,
+      goal,
+      points,
+      goal_reached: goalReached,
+      updated_at: new Date().toISOString(),
+      is_test_data: false
+    };
+
+    logger.debug(LogCategory.Metrics, 'Upserting metric data', undefined, undefined, metricData);
+
+    // Update metric score
+    const { data: upsertResult, error: metricError } = await supabase
+      .from('daily_metric_scores')
+      .upsert(metricData, {
+        onConflict: 'user_id,date,metric_type'
+      })
+      .select();
+  
+    if (metricError) {
+      logger.error(LogCategory.Metrics, 'Error upserting metric', metricError.message);
+      // Handle RLS policy violation
+      if (metricError.code === '42501') {
+        throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+      }
+      throw new MetricsDatabaseError(
+        `Failed to update metric: ${metricError.message}`,
+        metricError.code
+      );
+    }
+
+    return upsertResult?.[0] || metricData;
+  },
+
+  /**
+   * Update daily totals for a user
+   * @param userId - The user's ID
+   * @param date - The date in YYYY-MM-DD format
+   */
+  async updateDailyTotals(userId: string, date: string) {
+    // Get updated metrics for daily total
+    const { data: metrics, error: fetchError } = await supabase
+      .from('daily_metric_scores')
+      .select('points, goal_reached, metric_type, value')
+      .eq('user_id', userId)
+      .eq('date', date);
+
+    if (fetchError) {
+      logger.error(LogCategory.Metrics, 'Error fetching metrics', fetchError.message);
+      throw new MetricsDatabaseError(
+        `Failed to fetch updated metrics: ${fetchError.message}`,
+        fetchError.code
+      );
+    }
+
+    logger.debug(LogCategory.Metrics, 'Current metrics state', undefined, undefined, metrics);
+
+    // Calculate total points and completed metrics
+    const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
+    const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
+    
+    // Calculate overall health score if we have all metrics
+    let healthScore = 0;
+    if (metrics?.length) {
+      const metricValues = metrics.reduce((acc, m) => {
+        acc[m.metric_type as MetricType] = m.value;
+        return acc;
+      }, {} as Record<MetricType, number>);
+      
+      healthScore = calculateHealthScore(metricValues);
+    }
+
+    // Update daily total
+    const { data: totalResult, error: totalError } = await supabase
+      .from('daily_totals')
+      .upsert({
+        user_id: userId,
+        date,
+        total_points: totalPoints,
+        metrics_completed: metricsCompleted,
+        updated_at: new Date().toISOString(),
+        is_test_data: false
+      }, {
+        onConflict: 'user_id,date'
+      })
+      .select();
+
+    logger.debug(LogCategory.Metrics, 'Daily total update result', undefined, undefined, {
+      totalPoints,
+      metricsCompleted,
+      healthScore,
+      result: totalResult
+    });
+
+    if (totalError) {
+      // Handle RLS policy violation
+      if (totalError.code === '42501') {
+        throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
+      }
+      throw new MetricsDatabaseError(
+        `Failed to update daily total: ${totalError.message}`,
+        totalError.code
+      );
+    }
+
+    return totalResult?.[0] || null;
+  },
+
+  /**
    * Update a single metric value and recalculate scores
    * @param userId - The user's ID
    * @param metricType - The type of metric to update
@@ -256,167 +450,27 @@ export const metricsService = {
         timestamp: options.timestamp || new Date().toISOString()
       });
 
-      // Verify user is authenticated
-      const session = await supabase.auth.getSession();
-      if (!session.data.session?.user) {
-        throw new MetricsAuthError('User must be authenticated to update metrics');
-      }
-
-      // Verify userId matches authenticated user
-      if (session.data.session.user.id !== userId) {
-        throw new MetricsAuthError('Cannot update metrics for another user');
-      }
-
+      // Verify authentication
+      await this.verifyUserAuthentication(userId);
+      
       // Get user's measurement system preference
-      const { data: userProfile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('measurement_system')
-        .eq('id', userId)
-        .single();
+      const measurementSystem = await this.getUserMeasurementSystem(userId);
       
-      if (profileError) {
-        logger.error(LogCategory.Metrics, 'Error fetching user profile', profileError.message);
-      }
-      
-      // Default to metric if not specified
-      const measurementSystem = userProfile?.measurement_system || 'metric';
-      
-      // Get date in local timezone
-      const today = DateUtils.getLocalDateString();
-      
-      // Get metric configuration
-      const config = healthMetrics[metricType];
-      if (!config) {
-        throw new MetricsValidationError(`Unknown metric type: ${metricType}`);
-      }
-      
-      logger.debug(LogCategory.Metrics, 'Metric config', undefined, undefined, {
+      // Update the metric
+      const metricResult = await this.prepareAndUpdateMetric(
+        userId, 
         metricType,
-        defaultGoal: config.defaultGoal,
-        unit: config.unit,
+        value, 
         measurementSystem
-      });
+      );
       
-      // Use provided goal or default from config
-      const goal = options.goal || config.defaultGoal;
-      
-      // Calculate points and goal status
-      const { points, goalReached } = calculatePoints(value, metricType, goal);
-      
-      logger.debug(LogCategory.Metrics, 'Calculated score', undefined, undefined, {
-        goalReached,
-        points,
-        value,
-        goal
-      });
-      
-      // Prepare the metric data
-      const metricData = {
-        user_id: userId,
-        date: today,
-        metric_type: metricType,
-        value,
-        goal,
-        points,
-        goal_reached: goalReached,
-        updated_at: new Date().toISOString(),
-        is_test_data: false // Always false to avoid RLS policy violations
-      };
-
-      logger.debug(LogCategory.Metrics, 'Upserting metric data', undefined, undefined, metricData);
-
-      // Update metric score
-      const { data: upsertResult, error: metricError } = await supabase
-        .from('daily_metric_scores')
-        .upsert(metricData, {
-          onConflict: 'user_id,date,metric_type'
-        })
-        .select();
-    
-      if (metricError) {
-        logger.error(LogCategory.Metrics, 'Error upserting metric', metricError.message);
-        // Handle RLS policy violation
-        if (metricError.code === '42501') {
-          throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
-        }
-        throw new MetricsDatabaseError(
-          `Failed to update metric: ${metricError.message}`,
-          metricError.code
-        );
-      }
-
-      logger.debug(LogCategory.Metrics, 'Upsert result', undefined, undefined, upsertResult);
-
-      // Get updated metrics for daily total
-      const { data: metrics, error: fetchError } = await supabase
-        .from('daily_metric_scores')
-        .select('points, goal_reached, metric_type, value')
-        .eq('user_id', userId)
-        .eq('date', today);
-
-      if (fetchError) {
-        logger.error(LogCategory.Metrics, 'Error fetching metrics', fetchError.message);
-        throw new MetricsDatabaseError(
-          `Failed to fetch updated metrics: ${fetchError.message}`,
-          fetchError.code
-        );
-      }
-
-      logger.debug(LogCategory.Metrics, 'Current metrics state', undefined, undefined, metrics);
-
-      // Calculate total points and completed metrics
-      const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
-      const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
-      
-      // Calculate overall health score if we have all metrics
-      let healthScore = 0;
-      if (metrics?.length) {
-        const metricValues = metrics.reduce((acc, m) => {
-          acc[m.metric_type as MetricType] = m.value;
-          return acc;
-        }, {} as Record<MetricType, number>);
-        
-        healthScore = calculateHealthScore(metricValues);
-      }
-
-      // Update daily total
-      const { data: totalResult, error: totalError } = await supabase
-        .from('daily_totals')
-        .upsert({
-          user_id: userId,
-          date: today,
-          total_points: totalPoints,
-          metrics_completed: metricsCompleted,
-          updated_at: new Date().toISOString(),
-          is_test_data: false
-        }, {
-          onConflict: 'user_id,date'
-        })
-        .select();
-
-      logger.debug(LogCategory.Metrics, 'Daily total update result', undefined, undefined, {
-        totalPoints,
-        metricsCompleted,
-        healthScore,
-        result: totalResult
-      });
-
-      if (totalError) {
-        // Handle RLS policy violation
-        if (totalError.code === '42501') {
-          throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
-        }
-        throw new MetricsDatabaseError(
-          `Failed to update daily total: ${totalError.message}`,
-          totalError.code
-        );
-      }
-      
-      // Weekly totals will be automatically updated via triggers in the database
+      // Update daily totals
+      const today = DateUtils.getLocalDateString();
+      const dailyTotal = await this.updateDailyTotals(userId, today);
       
       return {
-        metric: upsertResult?.[0] || metricData,
-        dailyTotal: totalResult?.[0] || null
+        metric: metricResult,
+        dailyTotal
       };
     } catch (error) {
       if (error instanceof MetricsAuthError || 
@@ -444,24 +498,79 @@ export const metricsService = {
         metricCount: Object.keys(metrics).length
       });
       
+      // Filter out undefined/null values
+      const validMetrics = Object.entries(metrics)
+        .filter(([_, value]) => value !== undefined && value !== null)
+        .map(([type, value]) => ({ type: type as MetricType, value: value as number }));
+      
+      if (validMetrics.length === 0) {
+        return { success: true, updatedMetrics: [], failedMetrics: [], results: {} };
+      }
+      
+      // Validate all metrics first to fail fast
+      const invalidMetrics = validMetrics.filter(
+        ({ type, value }) => !isValidMetricValue(value, type)
+      );
+      
+      if (invalidMetrics.length > 0) {
+        throw new MetricsValidationError(
+          `Invalid metric values: ${invalidMetrics.map(m => m.type).join(', ')}`
+        );
+      }
+      
+      // Verify auth once for all metrics
+      await this.verifyUserAuthentication(userId);
+      
+      // Get user's measurement system once for all metrics
+      const measurementSystem = await this.getUserMeasurementSystem(userId);
+      
+      // Process all metrics in parallel using Promise.all
       const results: Record<string, any> = {};
       const failedMetrics: string[] = [];
       
-      // Update each metric sequentially
-      for (const [type, value] of Object.entries(metrics)) {
-        if (value === undefined || value === null) continue;
-        
+      // Prepare all metric updates
+      const updatePromises = validMetrics.map(async ({ type, value }) => {
         try {
-          results[type] = await this.updateMetric(userId, type as MetricType, value);
+          // Implementation for individual metric updates
+          const metricResult = await this.prepareAndUpdateMetric(
+            userId, type, value, measurementSystem
+          );
+          return { type, success: true, data: metricResult };
         } catch (error) {
-          logger.error(LogCategory.Metrics, `Failed to update metric ${type}`, (error as Error).message);
-          failedMetrics.push(type);
-          
-          // If it's an auth error, stop processing immediately
-          if (error instanceof MetricsAuthError) {
-            throw error;
-          }
+          return { type, success: false, error };
         }
+      });
+      
+      // Run all updates in parallel
+      const updateResults = await Promise.all(updatePromises);
+      
+      // Process results
+      for (const result of updateResults) {
+        if (result.success) {
+          results[result.type] = result.data;
+        } else {
+          failedMetrics.push(result.type);
+          logger.error(
+            LogCategory.Metrics, 
+            `Failed to update metric ${result.type}`, 
+            (result.error as Error).message
+          );
+        }
+      }
+      
+      // Update daily totals with a single query if any metrics were successfully updated
+      const today = DateUtils.getLocalDateString();
+      
+      if (Object.keys(results).length > 0) {
+        const dailyTotal = await this.updateDailyTotals(userId, today);
+        
+        // Add the daily total to all successful results
+        Object.keys(results).forEach(key => {
+          results[key] = {
+            metric: results[key],
+            dailyTotal
+          };
+        });
       }
       
       return {
