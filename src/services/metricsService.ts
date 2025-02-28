@@ -1,6 +1,9 @@
 import { supabase } from './supabaseClient';
-import type { MetricType} from '../types/schemas';
+import type { MetricType } from '../types/schemas';
 import { healthMetrics } from '../config/healthMetrics';
+import { calculatePoints, isValidMetricValue, calculateHealthScore } from '../utils/healthMetricUtils';
+import {logger, LogCategory} from '@/src/utils/logger'
+import { DateUtils } from '../utils/DateUtils';
 
 // Error class for authentication/authorization errors
 class MetricsAuthError extends Error {
@@ -10,199 +13,519 @@ class MetricsAuthError extends Error {
   }
 }
 
+// Error class for validation errors
+class MetricsValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MetricsValidationError';
+  }
+}
+
+// Error class for database errors
+class MetricsDatabaseError extends Error {
+  constructor(message: string, public readonly code?: string) {
+    super(message);
+    this.name = 'MetricsDatabaseError';
+  }
+}
+
+/**
+ * Service responsible for interacting with metrics data in the database.
+ * Handles fetching, updating, and aggregating health metrics.
+ */
 export const metricsService = {
-  // Get user's daily metrics
+  /**
+   * Get user's daily metrics for a specific date
+   * @param userId - The user's ID
+   * @param date - The date in YYYY-MM-DD format
+   * @returns Array of daily metric records
+   */
   async getDailyMetrics(userId: string, date: string) {
-    const { data, error } = await supabase
-      .from('daily_metric_scores')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('date', date)
-      .eq('is_test_data', false);
+    try {
+      logger.debug(LogCategory.Metrics, 'Getting daily metrics', undefined, undefined, { userId, date });
+      
+      const { data, error } = await supabase
+        .from('daily_metric_scores')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .eq('is_test_data', false);
 
-    if (error) throw error;
-    return data || [];
-  },
-
-  // Get user's historical metrics for the last 7 days
-  async getHistoricalMetrics(userId: string, metricType: MetricType, endDate: string) {
-    // Ensure we're working with local dates
-    const endDateTime = new Date(endDate);
-    const startDateTime = new Date(endDate);
-    startDateTime.setDate(startDateTime.getDate() - 6); // Get 7 days including end date
-    
-    // Format dates in YYYY-MM-DD format using local timezone
-    const startDateStr = startDateTime.toLocaleDateString('en-CA'); // en-CA gives YYYY-MM-DD format
-    const endDateStr = endDateTime.toLocaleDateString('en-CA');
-    
-    console.log('Date range:', { startDateStr, endDateStr });
-    
-    const { data, error } = await supabase
-      .from('daily_metric_scores')
-      .select('date, value')
-      .eq('user_id', userId)
-      .eq('metric_type', metricType)
-      .eq('is_test_data', false)
-      .gte('date', startDateStr)
-      .lte('date', endDateStr)
-      .order('date', { ascending: true });
-
-    if (error) throw error;
-
-    // Log the data for debugging
-    console.log('Historical data for', metricType, ':', data);
-    
-    return data || [];
-  },
-
-  // Get daily totals for leaderboard
-  async getDailyTotals(date: string) {
-    const { data, error } = await supabase
-      .from('daily_totals')
-      .select(`
-        *,
-        user_profiles (
-          display_name,
-          avatar_url,
-          show_profile
-        )
-      `)
-      .eq('date', date)
-      .eq('is_test_data', false)
-      .order('total_points', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  },
-
-  // Update a single metric
-  async updateMetric(userId: string, metricType: MetricType, value: number) {
-    console.log('[MetricsService] Updating metric:', {
-      userId,
-      metricType,
-      value,
-      valueType: typeof value,
-      timestamp: new Date().toISOString()
-    });
-
-    // Verify user is authenticated
-    const session = await supabase.auth.getSession();
-    if (!session.data.session?.user) {
-      throw new MetricsAuthError('User must be authenticated to update metrics');
-    }
-
-    // Verify userId matches authenticated user
-    if (session.data.session.user.id !== userId) {
-      throw new MetricsAuthError('Cannot update metrics for another user');
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    const config = healthMetrics[metricType];
-    
-    console.log('[MetricsService] Metric config:', {
-      metricType,
-      defaultGoal: config.defaultGoal,
-      unit: config.unit
-    });
-    
-    // Calculate points and goal status based on environment
-    let goalReached = false;
-    let points = 0;
-    
-    if (__DEV__) {
-      // Development scoring: simplified scoring for easier testing
-      goalReached = value > 0;
-      points = goalReached ? 50 : 0;
-    } else {
-      // Production scoring
-      goalReached = value >= config.defaultGoal;
-      points = Math.min(Math.floor((value / config.defaultGoal) * 100), 100);
-    }
-
-    console.log('[MetricsService] Calculated score:', {
-      goalReached,
-      points,
-      value,
-      defaultGoal: config.defaultGoal
-    });
-    
-    // Prepare the metric data
-    const metricData = {
-      user_id: userId,
-      date: today,
-      metric_type: metricType,
-      value,
-      points,
-      goal_reached: goalReached,
-      updated_at: new Date().toISOString(),
-      is_test_data: false // Always false to avoid RLS policy violations
-    };
-
-    console.log('[MetricsService] Upserting metric data:', metricData);
-
-    // Update metric score
-    const { data: upsertResult, error: metricError } = await supabase
-      .from('daily_metric_scores')
-      .upsert(metricData, {
-        onConflict: 'user_id,date,metric_type'
-      })
-      .select();
-  
-    if (metricError) {
-      console.error('[MetricsService] Error upserting metric:', metricError);
-      // Handle RLS policy violation
-      if (metricError.code === '42501') {
-        throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+      if (error) {
+        logger.error(LogCategory.Metrics, 'Error fetching daily metrics', error.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch daily metrics: ${error.message}`,
+          error.code
+        );
       }
-      throw metricError;
+      
+      logger.debug(LogCategory.Metrics, 'Retrieved daily metrics', undefined, undefined, { count: data?.length || 0 });
+      return data || [];
+    } catch (error) {
+      if (error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to get daily metrics: ${error}`);
     }
+  },
 
-    console.log('[MetricsService] Upsert result:', upsertResult);
+  /**
+   * Get user's historical metrics for a given time period
+   * @param userId - The user's ID
+   * @param metricType - The type of metric to fetch
+   * @param endDate - The end date in YYYY-MM-DD format
+   * @param days - Number of days to look back (default: 7)
+   * @returns Array of metric records with date and value
+   */
+  async getHistoricalMetrics(
+    userId: string, 
+    metricType: MetricType, 
+    endDate: string,
+    days: number = 7
+  ) {
+    try {
+      // Ensure we're working with local dates
+      const endDateTime = new Date(endDate);
+      const startDateTime = new Date(endDate);
+      startDateTime.setDate(startDateTime.getDate() - (days - 1)); // Get N days including end date
+      
+      // Format dates in YYYY-MM-DD format using local timezone
+      const startDateStr = DateUtils.getLocalDateString(startDateTime);
+      const endDateStr = DateUtils.getLocalDateString(endDateTime);
+      
+      logger.debug(LogCategory.Metrics, 'Getting historical metrics', undefined, undefined, { 
+        userId, 
+        metricType, 
+        startDate: startDateStr, 
+        endDate: endDateStr 
+      });
+      
+      const { data, error } = await supabase
+        .from('daily_metric_scores')
+        .select('date, value, goal_reached, points')
+        .eq('user_id', userId)
+        .eq('metric_type', metricType)
+        .eq('is_test_data', false)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: true });
 
-    // Get updated metrics for daily total
-    const { data: metrics, error: fetchError } = await supabase
-      .from('daily_metric_scores')
-      .select('points, goal_reached, metric_type, value')
-      .eq('user_id', userId)
-      .eq('date', today);
-
-    if (fetchError) {
-      console.error('[MetricsService] Error fetching metrics:', fetchError);
-      throw fetchError;
+      if (error) {
+        logger.error(LogCategory.Metrics, 'Error fetching historical metrics', error.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch historical metrics: ${error.message}`,
+          error.code
+        );
+      }
+      
+      logger.debug(LogCategory.Metrics, 'Retrieved historical metrics', undefined, undefined, { 
+        metricType, 
+        count: data?.length || 0 
+      });
+      
+      return data || [];
+    } catch (error) {
+      if (error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to get historical metrics: ${error}`);
     }
+  },
 
-    console.log('[MetricsService] Current metrics state:', metrics);
+  /**
+   * Get daily totals for the leaderboard
+   * @param date - The date in YYYY-MM-DD format
+   * @returns Array of daily totals with user profile information
+   */
+  async getDailyTotals(date: string) {
+    try {
+      logger.debug(LogCategory.Metrics, 'Getting daily totals for leaderboard', undefined, undefined, { date });
+      
+      const { data, error } = await supabase
+        .from('daily_totals')
+        .select(`
+          id,
+          user_id,
+          date,
+          total_points,
+          metrics_completed,
+          created_at,
+          updated_at,
+          user_profiles (
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
+        .eq('date', date)
+        .eq('is_test_data', false)
+        .order('total_points', { ascending: false });
 
-    const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
-    const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
+      if (error) {
+        logger.error(LogCategory.Metrics, 'Error fetching daily totals', error.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch daily totals: ${error.message}`,
+          error.code
+        );
+      }
+      
+      logger.debug(LogCategory.Metrics, 'Retrieved daily totals', undefined, undefined, { count: data?.length || 0 });
+      return data || [];
+    } catch (error) {
+      if (error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to get daily totals: ${error}`);
+    }
+  },
 
-    // Update daily total
-    const { data: totalResult, error: totalError } = await supabase
-      .from('daily_totals')
-      .upsert({
+  /**
+   * Get the weekly leaderboard for a specific week
+   * @param weekStart - The week start date in YYYY-MM-DD format
+   * @returns Array of weekly totals with user profile information
+   */
+  async getWeeklyLeaderboard(weekStart: string) {
+    try {
+      logger.debug(LogCategory.Metrics, 'Getting weekly leaderboard', undefined, undefined, { weekStart });
+      
+      const { data, error } = await supabase
+        .from('weekly_totals')
+        .select(`
+          id,
+          user_id,
+          week_start,
+          total_points,
+          metrics_completed,
+          created_at,
+          updated_at,
+          user_profiles (
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
+        .eq('week_start', weekStart)
+        .order('total_points', { ascending: false });
+
+      if (error) {
+        logger.error(LogCategory.Metrics, 'Error fetching weekly leaderboard', error.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch weekly leaderboard: ${error.message}`,
+          error.code
+        );
+      }
+      
+      logger.debug(LogCategory.Metrics, 'Retrieved weekly leaderboard', undefined, undefined, { count: data?.length || 0 });
+      return data || [];
+    } catch (error) {
+      if (error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to get weekly leaderboard: ${error}`);
+    }
+  },
+
+  /**
+   * Update a single metric value and recalculate scores
+   * @param userId - The user's ID
+   * @param metricType - The type of metric to update
+   * @param value - The new metric value
+   * @param options - Additional options (timestamp, unit, goal)
+   * @returns The updated metric data
+   */
+  async updateMetric(
+    userId: string, 
+    metricType: MetricType, 
+    value: number,
+    options: {
+      timestamp?: string, 
+      unit?: string,
+      goal?: number
+    } = {}
+  ) {
+    try {
+      if (!isValidMetricValue(value, metricType)) {
+        throw new MetricsValidationError(`Invalid value for ${metricType}: ${value}`);
+      }
+      
+      logger.info(LogCategory.Metrics, 'Updating metric', undefined, undefined, {
+        userId,
+        metricType,
+        value,
+        valueType: typeof value,
+        timestamp: options.timestamp || new Date().toISOString()
+      });
+
+      // Verify user is authenticated
+      const session = await supabase.auth.getSession();
+      if (!session.data.session?.user) {
+        throw new MetricsAuthError('User must be authenticated to update metrics');
+      }
+
+      // Verify userId matches authenticated user
+      if (session.data.session.user.id !== userId) {
+        throw new MetricsAuthError('Cannot update metrics for another user');
+      }
+
+      // Get user's measurement system preference
+      const { data: userProfile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('measurement_system')
+        .eq('id', userId)
+        .single();
+      
+      if (profileError) {
+        logger.error(LogCategory.Metrics, 'Error fetching user profile', profileError.message);
+      }
+      
+      // Default to metric if not specified
+      const measurementSystem = userProfile?.measurement_system || 'metric';
+      
+      // Get date in local timezone
+      const today = DateUtils.getLocalDateString();
+      
+      // Get metric configuration
+      const config = healthMetrics[metricType];
+      if (!config) {
+        throw new MetricsValidationError(`Unknown metric type: ${metricType}`);
+      }
+      
+      logger.debug(LogCategory.Metrics, 'Metric config', undefined, undefined, {
+        metricType,
+        defaultGoal: config.defaultGoal,
+        unit: config.unit,
+        measurementSystem
+      });
+      
+      // Use provided goal or default from config
+      const goal = options.goal || config.defaultGoal;
+      
+      // Calculate points and goal status
+      const { points, goalReached } = calculatePoints(value, metricType, goal);
+      
+      logger.debug(LogCategory.Metrics, 'Calculated score', undefined, undefined, {
+        goalReached,
+        points,
+        value,
+        goal
+      });
+      
+      // Prepare the metric data
+      const metricData = {
         user_id: userId,
         date: today,
-        total_points: totalPoints,
-        metrics_completed: metricsCompleted,
+        metric_type: metricType,
+        value,
+        goal,
+        points,
+        goal_reached: goalReached,
         updated_at: new Date().toISOString(),
-        is_test_data: false
-      }, {
-        onConflict: 'user_id,date'
-      })
-      .select();
+        is_test_data: false // Always false to avoid RLS policy violations
+      };
 
-    console.log('[MetricsService] Daily total update result:', {
-      totalPoints,
-      metricsCompleted,
-      result: totalResult
-    });
+      logger.debug(LogCategory.Metrics, 'Upserting metric data', undefined, undefined, metricData);
 
-    if (totalError) {
-      // Handle RLS policy violation
-      if (totalError.code === '42501') {
-        throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
+      // Update metric score
+      const { data: upsertResult, error: metricError } = await supabase
+        .from('daily_metric_scores')
+        .upsert(metricData, {
+          onConflict: 'user_id,date,metric_type'
+        })
+        .select();
+    
+      if (metricError) {
+        logger.error(LogCategory.Metrics, 'Error upserting metric', metricError.message);
+        // Handle RLS policy violation
+        if (metricError.code === '42501') {
+          throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+        }
+        throw new MetricsDatabaseError(
+          `Failed to update metric: ${metricError.message}`,
+          metricError.code
+        );
       }
-      throw totalError;
+
+      logger.debug(LogCategory.Metrics, 'Upsert result', undefined, undefined, upsertResult);
+
+      // Get updated metrics for daily total
+      const { data: metrics, error: fetchError } = await supabase
+        .from('daily_metric_scores')
+        .select('points, goal_reached, metric_type, value')
+        .eq('user_id', userId)
+        .eq('date', today);
+
+      if (fetchError) {
+        logger.error(LogCategory.Metrics, 'Error fetching metrics', fetchError.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch updated metrics: ${fetchError.message}`,
+          fetchError.code
+        );
+      }
+
+      logger.debug(LogCategory.Metrics, 'Current metrics state', undefined, undefined, metrics);
+
+      // Calculate total points and completed metrics
+      const totalPoints = metrics?.reduce((sum, m) => sum + m.points, 0) ?? 0;
+      const metricsCompleted = metrics?.filter(m => m.goal_reached).length ?? 0;
+      
+      // Calculate overall health score if we have all metrics
+      let healthScore = 0;
+      if (metrics?.length) {
+        const metricValues = metrics.reduce((acc, m) => {
+          acc[m.metric_type as MetricType] = m.value;
+          return acc;
+        }, {} as Record<MetricType, number>);
+        
+        healthScore = calculateHealthScore(metricValues);
+      }
+
+      // Update daily total
+      const { data: totalResult, error: totalError } = await supabase
+        .from('daily_totals')
+        .upsert({
+          user_id: userId,
+          date: today,
+          total_points: totalPoints,
+          metrics_completed: metricsCompleted,
+          daily_score: healthScore, // Add overall health score
+          updated_at: new Date().toISOString(),
+          is_test_data: false
+        }, {
+          onConflict: 'user_id,date'
+        })
+        .select();
+
+      logger.debug(LogCategory.Metrics, 'Daily total update result', undefined, undefined, {
+        totalPoints,
+        metricsCompleted,
+        healthScore,
+        result: totalResult
+      });
+
+      if (totalError) {
+        // Handle RLS policy violation
+        if (totalError.code === '42501') {
+          throw new MetricsAuthError('Permission denied: Cannot update daily totals for this user');
+        }
+        throw new MetricsDatabaseError(
+          `Failed to update daily total: ${totalError.message}`,
+          totalError.code
+        );
+      }
+      
+      // Weekly totals will be automatically updated via triggers in the database
+      
+      return {
+        metric: upsertResult?.[0] || metricData,
+        dailyTotal: totalResult?.[0] || null
+      };
+    } catch (error) {
+      if (error instanceof MetricsAuthError || 
+          error instanceof MetricsValidationError || 
+          error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to update metric: ${error}`);
+    }
+  },
+  
+  /**
+   * Batch update multiple metrics at once
+   * @param userId - The user's ID
+   * @param metrics - Object mapping metric types to values
+   * @returns Object containing update results
+   */
+  async updateMetrics(
+    userId: string,
+    metrics: Partial<Record<MetricType, number>>
+  ) {
+    try {
+      logger.info(LogCategory.Metrics, 'Batch updating metrics', undefined, undefined, {
+        userId,
+        metricCount: Object.keys(metrics).length
+      });
+      
+      const results: Record<string, any> = {};
+      const failedMetrics: string[] = [];
+      
+      // Update each metric sequentially
+      for (const [type, value] of Object.entries(metrics)) {
+        if (value === undefined || value === null) continue;
+        
+        try {
+          results[type] = await this.updateMetric(userId, type as MetricType, value);
+        } catch (error) {
+          logger.error(LogCategory.Metrics, `Failed to update metric ${type}`, (error as Error).message);
+          failedMetrics.push(type);
+          
+          // If it's an auth error, stop processing immediately
+          if (error instanceof MetricsAuthError) {
+            throw error;
+          }
+        }
+      }
+      
+      return {
+        success: failedMetrics.length === 0,
+        updatedMetrics: Object.keys(results),
+        failedMetrics,
+        results
+      };
+    } catch (error) {
+      if (error instanceof MetricsAuthError || 
+          error instanceof MetricsValidationError || 
+          error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to batch update metrics: ${error}`);
+    }
+  },
+  
+  /**
+   * Get streak information for a specific metric
+   * @param userId - The user's ID
+   * @param metricType - The type of metric
+   * @param minStreakLength - Minimum streak length to consider (default: 2)
+   * @returns Array of streak objects with start/end dates and length
+   */
+  async getMetricStreaks(
+    userId: string,
+    metricType: MetricType,
+    minStreakLength: number = 2
+  ) {
+    try {
+      logger.debug(LogCategory.Metrics, 'Getting streaks for metric', undefined, undefined, {
+        userId,
+        metricType,
+        minStreakLength
+      });
+      
+      // Call the database function to calculate streaks
+      const { data, error } = await supabase
+        .rpc('get_metric_streaks', {
+          p_user_id: userId,
+          p_metric_type: metricType,
+          p_min_streak_length: minStreakLength
+        });
+      
+      if (error) {
+        logger.error(LogCategory.Metrics, 'Error fetching metric streaks', error.message);
+        throw new MetricsDatabaseError(
+          `Failed to fetch metric streaks: ${error.message}`,
+          error.code
+        );
+      }
+      
+      logger.debug(LogCategory.Metrics, 'Retrieved metric streaks', undefined, undefined, {
+        count: data?.length || 0
+      });
+      
+      return data || [];
+    } catch (error) {
+      if (error instanceof MetricsDatabaseError) {
+        throw error;
+      }
+      throw new Error(`Failed to get metric streaks: ${error}`);
     }
   }
 };

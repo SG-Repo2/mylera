@@ -7,36 +7,53 @@ import { HealthProviderPermissionError } from '../../types/errors';
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../../../services/supabaseClient';
+import { logger, LogCategory } from '@/src/utils/logger';
 
 const STORAGE_KEY = {
   ACCESS_TOKEN: 'fitbit_access_token',
   REFRESH_TOKEN: 'fitbit_refresh_token',
-  TOKEN_EXPIRY: 'fitbit_token_expiry'
+  TOKEN_EXPIRY: 'fitbit_token_expiry',
+  LAST_SYNC: 'fitbit_last_sync'
 };
 
 export class FitbitHealthProvider extends BaseHealthProvider {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiresAt: number | null = null;
+  private tokenRefreshInProgress: boolean = false;
+  private tokenRefreshPromise: Promise<void> | null = null;
 
   async initialize(): Promise<void> {
     try {
+      logger.info(LogCategory.Health, '[FitbitHealthProvider] Initializing...');
+      
       // Load stored tokens
       this.accessToken = await SecureStore.getItemAsync(STORAGE_KEY.ACCESS_TOKEN);
       this.refreshToken = await SecureStore.getItemAsync(STORAGE_KEY.REFRESH_TOKEN);
       const expiryStr = await SecureStore.getItemAsync(STORAGE_KEY.TOKEN_EXPIRY);
       this.tokenExpiresAt = expiryStr ? parseInt(expiryStr, 10) : null;
 
-      if (this.accessToken && this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt) {
+      // Set last sync time from storage
+      const lastSyncStr = await SecureStore.getItemAsync(STORAGE_KEY.LAST_SYNC);
+      if (lastSyncStr) {
+        this.lastSyncTime = new Date(parseInt(lastSyncStr, 10));
+      }
+
+      // Check token expiry with 5-minute buffer
+      if (this.accessToken && this.tokenExpiresAt && 
+          (Date.now() >= this.tokenExpiresAt - 5 * 60 * 1000)) {
         await this.refreshAccessToken();
       }
 
       if (!this.accessToken) {
+        logger.warn(LogCategory.Health, '[FitbitHealthProvider] No access token available');
         throw new Error('Fitbit access token not set. Please authenticate first.');
       }
 
       this.initialized = true;
+      logger.info(LogCategory.Health, '[FitbitHealthProvider] Initialization successful');
     } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Initialization failed:', (error as Error).message);
       throw new Error(`Failed to initialize Fitbit provider: ${error}`);
     }
   }
@@ -106,27 +123,53 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       throw new Error('No refresh token available');
     }
 
-    try {
-      const { data, error } = await supabase.functions.invoke('fitbit-token-refresh', {
-        body: { refresh_token: this.refreshToken },
-      });
-
-      if (error) throw error;
-
-      // Store new tokens
-      await SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token);
-      await SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token);
-      await SecureStore.setItemAsync(
-        STORAGE_KEY.TOKEN_EXPIRY,
-        (Date.now() + data.expires_in * 1000).toString()
-      );
-
-      this.accessToken = data.access_token;
-      this.refreshToken = data.refresh_token;
-      this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
-    } catch (error) {
-      throw new Error(`Failed to refresh token: ${error}`);
+    // Prevent multiple simultaneous refreshes
+    if (this.tokenRefreshInProgress) {
+      logger.info(LogCategory.Health, '[FitbitHealthProvider] Token refresh already in progress');
+      if (this.tokenRefreshPromise) {
+        return this.tokenRefreshPromise;
+      }
     }
+
+    this.tokenRefreshInProgress = true;
+    this.tokenRefreshPromise = (async () => {
+      try {
+        logger.info(LogCategory.Health, '[FitbitHealthProvider] Refreshing access token');
+        
+        // Use retry mechanism for token refresh
+        const { data, error } = await this.retryOperation(
+          () => supabase.functions.invoke('fitbit-token-refresh', {
+            body: { refresh_token: this.refreshToken },
+          }),
+          3,  // 3 retries
+          2000  // 2 second initial delay
+        );
+
+        if (error) throw error;
+
+        // Store new tokens
+        await SecureStore.setItemAsync(STORAGE_KEY.ACCESS_TOKEN, data.access_token);
+        await SecureStore.setItemAsync(STORAGE_KEY.REFRESH_TOKEN, data.refresh_token);
+        await SecureStore.setItemAsync(
+          STORAGE_KEY.TOKEN_EXPIRY,
+          (Date.now() + data.expires_in * 1000).toString()
+        );
+
+        this.accessToken = data.access_token;
+        this.refreshToken = data.refresh_token;
+        this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+        
+        logger.info(LogCategory.Health, '[FitbitHealthProvider] Token refreshed successfully');
+      } catch (error) {
+        logger.error(LogCategory.Health, '[FitbitHealthProvider] Token refresh failed:', (error as Error).message);
+        throw new Error(`Failed to refresh token: ${error}`);
+      } finally {
+        this.tokenRefreshInProgress = false;
+        this.tokenRefreshPromise = null;
+      }
+    })();
+
+    return this.tokenRefreshPromise;
   }
 
   /**
@@ -153,20 +196,50 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    * Helper: fetchFromFitbit
    *
    * Makes a GET request to the specified Fitbit URL with the Bearer token.
+   * Includes automatic token refresh if needed.
    */
   private async fetchFromFitbit(url: string): Promise<any> {
     if (!this.accessToken) {
       throw new Error('No Fitbit access token available');
     }
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`,
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`Fitbit API error: ${response.status}`);
+    
+    // Check if token needs refresh before making request
+    if (this.tokenExpiresAt && Date.now() >= this.tokenExpiresAt - 5 * 60 * 1000) {
+      await this.refreshAccessToken();
     }
-    return response.json();
+
+    // Use retry mechanism for API calls
+    return this.retryOperation(async () => {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+        },
+      });
+      
+      if (response.status === 401) {
+        // Token expired during request, refresh and retry once
+        logger.info(LogCategory.Health, '[FitbitHealthProvider] Token expired during request, refreshing');
+        await this.refreshAccessToken();
+        
+        // Retry with new token
+        const retryResponse = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+          },
+        });
+        
+        if (!retryResponse.ok) {
+          throw new Error(`Fitbit API error: ${retryResponse.status}`);
+        }
+        return retryResponse.json();
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Fitbit API error: ${response.status}`);
+      }
+      
+      return response.json();
+    });
   }
 
   /**
@@ -464,5 +537,11 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    */
   setAccessToken(token: string): void {
     this.accessToken = token;
+  }
+
+  // Update the setLastSyncTime method to store in SecureStore
+  async setLastSyncTime(date: Date): Promise<void> {
+    await super.setLastSyncTime(date);
+    await SecureStore.setItemAsync(STORAGE_KEY.LAST_SYNC, date.getTime().toString());
   }
 }

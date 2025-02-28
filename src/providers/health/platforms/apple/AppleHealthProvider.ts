@@ -18,27 +18,52 @@ import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
 import { DateUtils } from '../../../../utils/DateUtils';
+import { logger, LogCategory } from '@/src/utils/logger';
 
 export class AppleHealthProvider extends BaseHealthProvider {
+  private iosVersion: number | null = null;
+
   async initialize(): Promise<void> {
     if (Platform.OS !== 'ios') {
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Can only be used on iOS');
       throw new Error('AppleHealthProvider can only be used on iOS');
+    }
+
+    // Check iOS version (HealthKit requires iOS 8+)
+    this.iosVersion = Platform.Version ? parseFloat(Platform.Version.toString()) : null;
+    logger.info(LogCategory.Health, `[AppleHealthProvider] iOS version: ${this.iosVersion}`);
+    
+    if (this.iosVersion !== null && this.iosVersion < 8) {
+      logger.error(LogCategory.Health, '[AppleHealthProvider] HealthKit requires iOS 8 or newer');
+      throw new Error('HealthKit requires iOS 8 or newer');
     }
 
     if (this.initialized) {
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      AppleHealthKit.initHealthKit(permissions, (error: string) => {
-        if (error) {
-          reject(new Error(error));
-          return;
-        }
-        this.initialized = true;
-        resolve();
-      });
-    });
+    // Use promisify with retry mechanism
+    try {
+      await this.retryOperation(
+        () => new Promise<void>((resolve, reject) => {
+          AppleHealthKit.initHealthKit(permissions, (error: string) => {
+            if (error) {
+              reject(new Error(error));
+              return;
+            }
+            resolve();
+          });
+        }),
+        2,  // 2 retries
+        500  // 500ms initial delay
+      );
+      
+      this.initialized = true;
+      logger.info(LogCategory.Health, '[AppleHealthProvider] Successfully initialized');
+    } catch (error) {
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Initialization failed:', (error as Error).message);
+      throw error;
+    }
   }
 
   async requestPermissions(): Promise<PermissionStatus> {
@@ -309,7 +334,13 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      const results = await promisify<{ value: number }>(AppleHealthKit.getStepCount, options);
+      // Use retry mechanism for HealthKit calls
+      const results = await this.retryOperation(
+        () => promisify<{ value: number }>(AppleHealthKit.getStepCount, options),
+        2,  // 2 retries
+        500  // 500ms initial delay
+      );
+      
       return [{
         startDate: options.startDate || new Date().toISOString(),
         endDate: options.endDate || new Date().toISOString(),
@@ -318,19 +349,20 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
-      console.error('[AppleHealthProvider] Error reading steps:', error);
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Error reading steps:', (error as Error).message);
       return [];
     }
   }
 
   private async fetchDistanceRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      console.log('[AppleHealthProvider] Fetching distance with options:', options);
+      logger.debug(LogCategory.Health, '[AppleHealthProvider] Fetching distance with options:', undefined, undefined, options);
       
-      // Get walking/running distance
-      const results = await promisify<any>(
-        AppleHealthKit.getDistanceWalkingRunning,
-        options
+      // Use retry mechanism for distance
+      const results = await this.retryOperation(
+        () => promisify<any>(AppleHealthKit.getDistanceWalkingRunning, options),
+        2, 
+        500
       );
       
       console.log('[AppleHealthProvider] Distance raw results:', results);
@@ -400,7 +432,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         sourceBundle: 'com.apple.health'
       }];
     } catch (error) {
-      console.error('[AppleHealthProvider] Error reading distance:', error);
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Error reading distance:', (error as Error).message);
       return [];
     }
   }
