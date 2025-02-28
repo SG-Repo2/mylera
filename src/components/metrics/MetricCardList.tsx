@@ -54,6 +54,20 @@ const metricOrder: DisplayedMetricType[] = [
   'flights_climbed'
 ];
 
+// Add this utility function above the MetricCardList component
+const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  
+  // Only compare the actual metrics that affect what's displayed
+  const metricKeys: (keyof HealthMetrics)[] = [
+    'steps', 'distance', 'calories', 'heart_rate',
+    'exercise', 'basal_calories', 'flights_climbed'
+  ];
+  
+  return metricKeys.every(key => prev[key] === next[key]);
+};
+
 export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
@@ -67,6 +81,10 @@ export const MetricCardList = React.memo(function MetricCardList({
   const theme = useTheme();
   const { user } = useAuth();
   const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
+  
+  // Add tracking to reset animations when metrics change
+  const prevMetricsIdRef = React.useRef<string | null>(null);
+  const animationsRun = React.useRef(false);
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
@@ -77,28 +95,46 @@ export const MetricCardList = React.memo(function MetricCardList({
       config: healthMetrics[metricType]
     }));
   }, [metrics]);
+  
   // Create fade-in animations for each card
   const fadeAnims = React.useRef(
     metricOrder.map(() => new Animated.Value(0))
   ).current;
 
   React.useEffect(() => {
+    // Only run animations on initial render or if metrics ID changes
+    const shouldRunAnimations = !animationsRun.current || metrics.id !== prevMetricsIdRef.current;
+    prevMetricsIdRef.current = metrics.id;
+    
+    if (!shouldRunAnimations) return;
+    
+    // Reset animations first
+    fadeAnims.forEach(anim => anim.setValue(0));
+    
     // Enhanced stagger animation sequence
     const animations = fadeAnims.map((anim, index) =>
       Animated.sequence([
         Animated.delay(index * 80), // Slightly faster stagger for better flow
-          Animated.spring(anim, {
-            toValue: 1,
-            useNativeDriver: true,
-            stiffness: 100,
-            damping: 15,
-            mass: 0.8,
-          })
+        Animated.spring(anim, {
+          toValue: 1,
+          useNativeDriver: true,
+          stiffness: 100,
+          damping: 15,
+          mass: 0.8,
+        })
       ])
     );
 
-    Animated.stagger(50, animations).start();
-  }, [fadeAnims]);
+    const animationController = Animated.stagger(50, animations);
+    animationController.start(() => {
+      animationsRun.current = true;
+    });
+    
+    // Cleanup animation when component unmounts
+    return () => {
+      animationController.stop();
+    };
+  }, [fadeAnims, metrics.id]); // Add metrics.id as dependency
 
   // Memoize modal handlers
   const handleModalClose = useCallback(() => {
@@ -195,6 +231,7 @@ export const MetricCardList = React.memo(function MetricCardList({
 }, (prevProps, nextProps) => {
   return (
     prevProps.showAlerts === nextProps.showAlerts &&
-    JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics)
+    prevProps.provider === nextProps.provider &&
+    areMetricsEqual(prevProps.metrics, nextProps.metrics)
   );
 });

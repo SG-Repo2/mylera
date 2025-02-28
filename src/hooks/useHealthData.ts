@@ -5,6 +5,22 @@ import type { MetricType } from '../types/schemas';
 import { isValidMetricValue } from '../utils/healthMetricUtils';
 
 /**
+ * Returns a user-friendly error message based on the error type
+ */
+const getUserFriendlyErrorMessage = (error: Error): string => {
+  if (error.name === 'MetricsAuthError') {
+    return 'Your session has expired. Please sign in again.';
+  } else if (error.message.includes('permission')) {
+    return 'Limited health data access. Some features may be unavailable.';
+  } else if (error.message.includes('network') || error.message.includes('timeout')) {
+    return 'Network error. Check your connection and try again.';
+  } else {
+    return error.message.includes('health') ? error.message :
+      'Unable to sync health data. Please try again later.';
+  }
+};
+
+/**
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
  * 
@@ -34,17 +50,20 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
+  const isSyncInProgress = useRef(false);
   const syncAttempts = useRef(0);
   const MAX_SYNC_ATTEMPTS = 3;
 
   const syncHealthData = useCallback(async () => {
-    if (!isMounted.current) return;
+    // Prevent concurrent syncs and handle unmounting
+    if (!isMounted.current || isSyncInProgress.current) return;
     if (!userId) {
       setError(new Error('User ID is required to sync health data'));
       setLoading(false);
       return;
     }
     
+    isSyncInProgress.current = true;
     setLoading(true);
     setError(null);
     syncAttempts.current += 1;
@@ -53,13 +72,22 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       // Use the atomic initialization with permissions
       await provider.initializeWithPermissions(userId);
       
+      // Check mount state before continuing
+      if (!isMounted.current) return;
+      
       // Check permission status
       const permissionState = await provider.checkPermissionsStatus();
+      
+      // Check mount state before continuing
+      if (!isMounted.current) return;
       
       // If permissions aren't granted, request them
       if (permissionState.status !== 'granted') {
         console.log('[useHealthData] Requesting health permissions...');
         const granted = await provider.requestPermissions();
+        
+        // Check mount state before continuing
+        if (!isMounted.current) return;
         
         // If user explicitly denied permissions, show useful error but don't block UI
         if (granted !== 'granted') {
@@ -74,6 +102,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       console.log('[useHealthData] Permissions granted, fetching health data...');
       const healthData = await provider.getMetrics();
       
+      // Check mount state before continuing
+      if (!isMounted.current) return;
+      
       // Only update specific health metrics
       const healthMetrics: MetricType[] = [
         'steps', 'distance', 'calories', 'heart_rate',
@@ -83,6 +114,8 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       // Update each health metric that has a value
       const failedMetrics: string[] = [];
       const updates = healthMetrics.map(async metric => {
+        if (!isMounted.current) return;
+        
         const value = healthData[metric];
         if (typeof value === 'number' && isValidMetricValue(value, metric)) {
           try {
@@ -102,6 +135,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       });
 
       await Promise.all(updates);
+      
+      // Check mount state before continuing
+      if (!isMounted.current) return;
 
       // If some metrics failed but not all, show a warning but don't fail completely
       if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
@@ -112,36 +148,33 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       syncAttempts.current = 0;
 
     } catch (err) {
+      // Return early if component is unmounted
+      if (!isMounted.current) return;
+      
       // Determine if we should retry
       const shouldRetry = syncAttempts.current < MAX_SYNC_ATTEMPTS &&
                         !(err instanceof Error && err.message.includes('permissions not granted'));
       
-      let errorMessage: string;
+      // Improved error handling with original error preservation
+      const originalError = err instanceof Error ? err : new Error(String(err));
+      const enhancedError = new Error(
+        getUserFriendlyErrorMessage(originalError)
+      );
+      enhancedError.name = originalError.name;
+      enhancedError.stack = originalError.stack;
+      // @ts-ignore - Add originalError for debugging
+      enhancedError.originalError = originalError;
       
-      // Create user-friendly error messages
-      if (err instanceof Error) {
-        if (err.name === 'MetricsAuthError') {
-          errorMessage = 'Your session has expired. Please sign in again.';
-        } else if (err.message.includes('permission')) {
-          // Show this error but still allow app to function with limited features
-          errorMessage = 'Limited health data access. Some features may be unavailable.';
-        } else if (err.message.includes('network') || err.message.includes('timeout')) {
-          errorMessage = 'Network error. Check your connection and try again.';
-        } else {
-          errorMessage = err.message.includes('health') ? err.message :
-            'Unable to sync health data. Please try again later.';
-        }
-      } else {
-        errorMessage = 'An unexpected error occurred. Please try again.';
-      }
-      
-      setError(new Error(errorMessage));
+      setError(enhancedError);
       console.error('[useHealthData] Health sync error:', err);
       
       // If we should retry, do so after a delay
       if (shouldRetry) {
         setTimeout(() => {
-          if (isMounted.current) syncHealthData();
+          if (isMounted.current) {
+            isSyncInProgress.current = false;
+            syncHealthData();
+          }
         }, 1000);
         return;
       }
@@ -149,6 +182,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       if (isMounted.current) {
         setLoading(false);
         setIsInitialized(true);
+        isSyncInProgress.current = false;
       }
     }
   }, [provider, userId]);
@@ -156,6 +190,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   // Sync on mount and cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
+    isSyncInProgress.current = false;
     
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
