@@ -33,72 +33,50 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const [error, setError] = useState<Error | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const isMounted = useRef(true);
+  const syncAttempts = useRef(0);
+  const MAX_SYNC_ATTEMPTS = 3;
 
   const syncHealthData = useCallback(async () => {
     if (!isMounted.current) return;
+    if (!userId) {
+      setError(new Error('User ID is required to sync health data'));
+      setLoading(false);
+      return;
+    }
     
     setLoading(true);
     setError(null);
+    syncAttempts.current += 1;
 
     try {
-      // Initialize provider first
-      try {
-        await provider.initialize();
-      } catch (err) {
-        const originalMessage = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[useHealthData] Health initialization error:', err);
+      // Use the atomic initialization with permissions
+      await provider.initializeWithPermissions(userId);
+      
+      // Check permission status
+      const permissionState = await provider.checkPermissionsStatus();
+      
+      // If permissions aren't granted, request them
+      if (permissionState.status !== 'granted') {
+        console.log('[useHealthData] Requesting health permissions...');
+        const granted = await provider.requestPermissions();
         
-        // More user-friendly error message
-        const errorMessage = originalMessage.includes('not available')
-          ? 'Health Connect is not available. Please ensure it is installed and set up on your device.'
-          : 'Unable to connect to health services. Please check your device settings and try again.';
-        
-        setError(new Error(errorMessage));
-        setLoading(false);
-        return; // Exit early on initialization failure
-      }
-
-      // Initialize permissions
-      await provider.initializePermissions(userId);
-
-      // Only proceed with permission checks if initialization succeeded
-      try {
-        const permissionState = await provider.checkPermissionsStatus();
-        if (permissionState.status !== 'granted') {
-          console.log('[useHealthData] Requesting health permissions...');
-          const granted = await provider.requestPermissions();
-          if (granted !== 'granted') {
-            throw new Error(
-              'Health permissions are required to track your fitness metrics. ' +
-              'Please grant permissions in your device settings.'
-            );
-          }
+        // If user explicitly denied permissions, show useful error but don't block UI
+        if (granted !== 'granted') {
+          // Set error but still continue to show UI with limited functionality
+          throw new Error(
+            'Health permissions not granted. Some features may be limited.'
+          );
         }
-      } catch (permError) {
-        console.error('[useHealthData] Permission error:', permError);
-        const isPermissionDenied = permError instanceof Error &&
-          (permError.message.includes('permission') || permError.message.includes('denied'));
-        
-        throw new Error(
-          isPermissionDenied
-            ? 'Unable to access health data. Please check your permissions in device settings.'
-            : 'There was a problem accessing health services. Please try again.'
-        );
       }
 
+      // Fetch health data and update metrics
       console.log('[useHealthData] Permissions granted, fetching health data...');
-      // Get health data and update scores
       const healthData = await provider.getMetrics();
       
       // Only update specific health metrics
       const healthMetrics: MetricType[] = [
-        'steps',
-        'distance',
-        'calories',
-        'heart_rate',
-        'basal_calories',
-        'flights_climbed',
-        'exercise'
+        'steps', 'distance', 'calories', 'heart_rate',
+        'basal_calories', 'flights_climbed', 'exercise'
       ];
       
       // Update each health metric that has a value
@@ -127,19 +105,26 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
       }
 
+      // Reset sync attempts on success
+      syncAttempts.current = 0;
+
     } catch (err) {
+      // Determine if we should retry
+      const shouldRetry = syncAttempts.current < MAX_SYNC_ATTEMPTS &&
+                        !(err instanceof Error && err.message.includes('permissions not granted'));
+      
       let errorMessage: string;
       
-      // Handle specific error types with user-friendly messages
+      // Create user-friendly error messages
       if (err instanceof Error) {
         if (err.name === 'MetricsAuthError') {
           errorMessage = 'Your session has expired. Please sign in again.';
         } else if (err.message.includes('permission')) {
-          errorMessage = 'Unable to access health data. Please check your permissions in device settings.';
+          // Show this error but still allow app to function with limited features
+          errorMessage = 'Limited health data access. Some features may be unavailable.';
         } else if (err.message.includes('network') || err.message.includes('timeout')) {
-          errorMessage = 'Network error. Please check your connection and try again.';
+          errorMessage = 'Network error. Check your connection and try again.';
         } else {
-          // Use the error message if it's user-friendly, otherwise use a generic message
           errorMessage = err.message.includes('health') ? err.message :
             'Unable to sync health data. Please try again later.';
         }
@@ -149,6 +134,14 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       
       setError(new Error(errorMessage));
       console.error('[useHealthData] Health sync error:', err);
+      
+      // If we should retry, do so after a delay
+      if (shouldRetry) {
+        setTimeout(() => {
+          if (isMounted.current) syncHealthData();
+        }, 1000);
+        return;
+      }
     } finally {
       if (isMounted.current) {
         setLoading(false);

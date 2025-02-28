@@ -127,9 +127,25 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
+  async initializeWithPermissions(userId: string): Promise<void> {
+    try {
+      // First ensure provider is initialized 
+      await this.initialize();
+      
+      // Then initialize the permission manager
+      await this.initializePermissions(userId);
+      
+      console.log('[GoogleHealthProvider] Provider and permission manager initialized successfully');
+    } catch (error) {
+      console.error('[GoogleHealthProvider] Failed to initialize with permissions:', error);
+      throw error;
+    }
+  }
+
   async requestPermissions(): Promise<PermissionStatus> {
     if (!this.permissionManager) {
-      throw new Error('Permission manager not initialized');
+      console.error('[GoogleHealthProvider] Cannot request permissions - permission manager not initialized');
+      return 'not_determined';
     }
 
     try {
@@ -159,8 +175,13 @@ export class GoogleHealthProvider extends BaseHealthProvider {
   }
 
   async checkPermissionsStatus(): Promise<PermissionState> {
+    // Validate permission manager exists
     if (!this.permissionManager) {
-      throw new Error('Permission manager not initialized');
+      console.warn('[GoogleHealthProvider] Permission manager not initialized, returning not_determined');
+      return {
+        status: 'not_determined',
+        lastChecked: Date.now()
+      };
     }
 
     // First check cached state
@@ -214,24 +235,75 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         endTime: now.toISOString(),
       };
 
-      // First verify basic permissions
-      const basicPermissionsResult = await Promise.all([
-        readRecords('Steps', { timeRangeFilter: testRange }),
-        readRecords('Distance', { timeRangeFilter: testRange }),
-        readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange }),
-        readRecords('HeartRate', { timeRangeFilter: testRange })
-      ]);
+      // Check each permission individually and track results
+      const permissionResults = {
+        steps: false,
+        distance: false,
+        calories: false,
+        heartRate: false,
+        floorsClimbed: false,
+        basal: false,
+        exercise: false
+      };
 
-      // Separately verify BasalMetabolicRate permission
+      // Test each permission individually with proper error handling
       try {
-        await readRecords('BasalMetabolicRate', { timeRangeFilter: testRange });
+        const stepsResult = await readRecords('Steps', { timeRangeFilter: testRange });
+        permissionResults.steps = true;
       } catch (error) {
-        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
-        // Don't fail the entire verification for BasalMetabolicRate
-        // Other permissions might still be valid
+        console.warn('[GoogleHealthProvider] Steps permission verification failed:', error);
       }
 
-      return basicPermissionsResult.every(result => result !== null);
+      try {
+        const distanceResult = await readRecords('Distance', { timeRangeFilter: testRange });
+        permissionResults.distance = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] Distance permission verification failed:', error);
+      }
+
+      try {
+        const caloriesResult = await readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange });
+        permissionResults.calories = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] Calories permission verification failed:', error);
+      }
+
+      try {
+        const heartRateResult = await readRecords('HeartRate', { timeRangeFilter: testRange });
+        permissionResults.heartRate = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] HeartRate permission verification failed:', error);
+      }
+
+      try {
+        const basalResult = await readRecords('BasalMetabolicRate', { timeRangeFilter: testRange });
+        permissionResults.basal = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
+      }
+
+      try {
+        const floorsResult = await readRecords('FloorsClimbed', { timeRangeFilter: testRange });
+        permissionResults.floorsClimbed = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] FloorsClimbed permission verification failed:', error);
+      }
+
+      // Log the results for debugging
+      console.log('[GoogleHealthProvider] Permission verification results:', permissionResults);
+
+      // Consider permissions granted if at least 3 core permissions are available
+      // This allows the app to function with partial permissions
+      const grantedCount = Object.values(permissionResults).filter(Boolean).length;
+      const hasMinimumPermissions = grantedCount >= 3;
+      
+      if (hasMinimumPermissions) {
+        console.log('[GoogleHealthProvider] Minimum required permissions granted');
+      } else {
+        console.warn('[GoogleHealthProvider] Insufficient permissions granted');
+      }
+      
+      return hasMinimumPermissions;
     } catch (error) {
       console.error('[GoogleHealthProvider] Permission verification failed:', error);
       return false;

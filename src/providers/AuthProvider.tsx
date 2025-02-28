@@ -275,6 +275,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
 
       const provider = HealthProviderFactory.getProvider();
+      
+      // Ensure provider is properly initialized with permissions
+      try {
+        await provider.initializeWithPermissions(user.id);
+      } catch (initError) {
+        console.error('[AuthProvider] Error initializing health provider:', initError);
+        throw initError;
+      }
+      
       const status = await provider.requestPermissions();
       setHealthPermissionStatus(status);
       return status;

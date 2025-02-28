@@ -42,19 +42,21 @@ export async function initializeHealthProviderForUser(
 
       const deviceType = userData.device_type as 'os' | 'fitbit';
       
-      // Initialize the appropriate provider based on device type
+      // Get the provider and initialize it WITH permissions in a single atomic operation
       const provider = HealthProviderFactory.getProvider(deviceType);
+      
       try {
-        await provider.initialize();
-        const permissionState = await provider.checkPermissionsStatus();
+        // IMPORTANT: Do both initialization and permission manager setup together
+        await provider.initializeWithPermissions(userId);
         
-        // Log successful initialization
-        console.log('[HealthProvider] Successfully initialized health provider');
+        // Only after both are complete, check permission state
+        const permissionState = await provider.checkPermissionsStatus();
+        console.log('[HealthProvider] Successfully initialized health provider with permissions');
         
         setHealthStatus(permissionState.status);
         return;
       } catch (providerError) {
-        console.error('[HealthProvider] Error initializing provider:', providerError);
+        console.error('[HealthProvider] Error initializing provider with permissions:', providerError);
         throw providerError;
       }
     } catch (error) {

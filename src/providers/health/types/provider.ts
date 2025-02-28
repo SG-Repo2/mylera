@@ -101,6 +101,13 @@ export interface HealthProvider {
    * @param date - The timestamp to set
    */
   setLastSyncTime?(date: Date): Promise<void>;
+
+  /**
+   * Initialize both the provider and its permission management.
+   * @param userId - The unique identifier of the user
+   * @throws {Error} If initialization fails
+   */
+  initializeWithPermissions(userId: string): Promise<void>;
 }
 
 /**
@@ -147,6 +154,16 @@ export abstract class BaseHealthProvider implements HealthProvider {
    */
   async initializePermissions(userId: string): Promise<void> {
     this.permissionManager = new PermissionManager(userId);
+  }
+
+  /**
+   * Initialize both the provider and its permission management.
+   * @param userId - The unique identifier of the user
+   * @throws {Error} If initialization fails
+   */
+  async initializeWithPermissions(userId: string): Promise<void> {
+    await this.initialize();
+    await this.initializePermissions(userId);
   }
 
   /**
