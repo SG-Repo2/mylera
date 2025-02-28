@@ -130,6 +130,32 @@ export const leaderboardService = {
 
     if (error) {
       console.error('Error fetching user profile:', error);
+      
+      // If profile not found, try to create one from auth metadata
+      if (error.code === 'PGRST116') { // Record not found
+        try {
+          // Get user metadata from auth
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user) {
+            const metadata = userData.user.user_metadata;
+            const defaultProfile = this.mapMetadataToProfile(metadata);
+            
+            // Create profile from metadata
+            await this.updateUserProfile(userId, defaultProfile);
+            
+            // Return the newly created profile
+            return {
+              id: userId,
+              ...defaultProfile,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+          }
+        } catch (createError) {
+          console.error('Error creating profile from metadata:', createError);
+        }
+      }
+      
       throw error;
     }
 
@@ -137,24 +163,44 @@ export const leaderboardService = {
   },
 
   async updateUserProfile(userId: string, profile: Partial<UserProfile>) {
+    // Ensure we have a valid display name
+    const displayName = profile.display_name?.trim() || null;
+    
     const { data, error } = await supabase
       .from('user_profiles')
       .upsert({
         id: userId,
-        display_name: profile.display_name,
+        display_name: displayName,
         show_profile: profile.show_profile,
         avatar_url: profile.avatar_url,
         device_type: profile.device_type,
         measurement_system: profile.measurement_system,
         updated_at: new Date().toISOString(),
       })
-      .select();
+      .select()
+      .single();
 
     if (error) {
       console.error('Error updating user profile:', error);
       throw error;
     } else {
       console.log('User profile updated successfully:', data);
+      
+      // Also update the auth metadata to keep display name in sync
+      try {
+        const { error: metadataError } = await supabase.auth.updateUser({
+          data: { 
+            displayName: displayName 
+          }
+        });
+        
+        if (metadataError) {
+          console.warn('Failed to update auth metadata with display name:', metadataError);
+        }
+      } catch (metadataUpdateError) {
+        console.warn('Error updating auth metadata:', metadataUpdateError);
+        // Don't throw - this is a non-critical update
+      }
     }
 
     return data;
@@ -166,7 +212,72 @@ export const leaderboardService = {
       avatar_url: metadata.avatarUri || null,
       device_type: metadata.deviceType || null,
       measurement_system: metadata.measurementSystem || 'metric',
+      show_profile: metadata.showProfile !== undefined ? metadata.showProfile : true,
     };
+  },
+
+  async createUserProfile(userId: string, profile: Partial<UserProfile>): Promise<UserProfile | null> {
+    console.log(`[leaderboardService] Creating profile for user ${userId}:`, profile);
+    
+    // Ensure we have a valid display name
+    const displayName = profile.display_name?.trim() || null;
+    
+    try {
+      // Check if profile already exists
+      const { data: existing, error: checkError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+        
+      if (checkError && checkError.code !== 'PGRST116') { // Not found error is ok
+        console.error('[leaderboardService] Error checking for existing profile:', checkError);
+        throw checkError;
+      }
+      
+      // If profile already exists, update it
+      if (existing) {
+        console.log('[leaderboardService] Profile already exists, updating instead');
+        return this.updateUserProfile(userId, profile);
+      }
+      
+      // Create minimal required fields for new profile
+      const newProfile = {
+        id: userId,
+        display_name: displayName,
+        // Use defaults for other fields to reduce chance of errors
+        show_profile: true,
+        device_type: 'os',
+        measurement_system: 'metric',
+        avatar_url: null as string | null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      // Override defaults with provided values
+      if (profile.show_profile !== undefined) newProfile.show_profile = profile.show_profile;
+      if (profile.device_type) newProfile.device_type = profile.device_type;
+      if (profile.measurement_system) newProfile.measurement_system = profile.measurement_system;
+      if (profile.avatar_url) newProfile.avatar_url = profile.avatar_url;
+      
+      // Create the profile
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .insert(newProfile)
+        .select('*')
+        .single();
+      
+      if (error) {
+        console.error('[leaderboardService] Error creating user profile:', error);
+        throw error;
+      }
+      
+      console.log('[leaderboardService] Profile created successfully:', data);
+      return data;
+    } catch (error) {
+      console.error('[leaderboardService] Error in createUserProfile:', error);
+      throw error;
+    }
   },
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {

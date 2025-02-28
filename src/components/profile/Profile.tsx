@@ -38,7 +38,7 @@ export function Profile() {
 
   // Form state
   const [displayName, setDisplayName] = useState('');
-  const [showProfile, setShowProfile] = useState(false);
+  const [showProfile, setShowProfile] = useState(true);
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -60,7 +60,7 @@ export function Profile() {
           const metadata = user.user_metadata || {};
           const defaultProfile = {
             display_name: metadata.displayName || null,
-            show_profile: false,
+            show_profile: metadata.showProfile !== undefined ? metadata.showProfile : true, // Default to true
             avatar_url: metadata.avatarUri || null,
             device_type: metadata.deviceType || null,
             measurement_system: metadata.measurementSystem || 'metric',
@@ -119,6 +119,18 @@ export function Profile() {
       });
 
       try {
+        // Update user metadata to maintain name consistency
+        const { error: updateError } = await supabase.auth.updateUser({
+          data: { 
+            displayName: trimmedName || null,
+            showProfile: showProfile
+          }
+        });
+        
+        if (updateError) {
+          console.warn('Failed to update auth metadata:', updateError);
+        }
+        
         await loadProfile(); // Reload to confirm changes
         setEditingName(false);
       } catch (reloadErr) {

@@ -13,6 +13,7 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -33,6 +34,7 @@ interface RegisterProfileData {
   deviceType: 'os' | 'fitbit';
   measurementSystem: 'metric' | 'imperial';
   avatarUri?: string | null;
+  showProfile?: boolean;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -91,95 +93,137 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deviceType: 'os' | 'fitbit';
       measurementSystem: 'metric' | 'imperial';
       avatarUri?: string | null;
+      showProfile?: boolean;
     }
   ) => {
     try {
       console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
+      
+      // Validate display name first
+      if (!profile.displayName?.trim()) {
+        throw new Error('Display name is required');
+      }
 
-      console.log('[AuthProvider] Calling supabase.auth.signUp...');
+      // First attempt to sign up - only include critical metadata
+      console.log('[AuthProvider] Registering user with Supabase...');
       const signUpData = {
         email,
         password,
         options: {
           data: {
-            displayName: profile.displayName,
-            deviceType: profile.deviceType,
-            measurementSystem: profile.measurementSystem,
-            avatarUri: profile.avatarUri,
+            displayName: profile.displayName.trim(),
+            // Only include essential fields initially to reduce chance of DB errors
           },
         },
       };
-      console.log('[AuthProvider] signUpData:', signUpData);
+      
+      // Attempt to register the user
       const { data, error } = await supabase.auth.signUp(signUpData);
-      console.log('[AuthProvider] supabase.auth.signUp complete');
-
+      
       if (error) {
-        console.error('[AuthProvider] supabase.auth.signUp error:', error);
+        console.error('[AuthProvider] Registration error with Supabase:', error);
         throw error;
+      }
+      
+      if (!data.user) {
+        console.error('[AuthProvider] Registration completed but no user returned');
+        throw new Error('Registration failed: No user data returned');
+      }
+      
+      console.log('[AuthProvider] User registered successfully with ID:', data.user.id);
+      
+      // Now update the user metadata with additional fields
+      try {
+        const { error: metadataError } = await supabase.auth.updateUser({
+          data: {
+            deviceType: profile.deviceType,
+            measurementSystem: profile.measurementSystem,
+            showProfile: profile.showProfile ?? true
+          }
+        });
+        
+        if (metadataError) {
+          console.warn('[AuthProvider] Failed to update user metadata:', metadataError);
+        }
+      } catch (metadataError) {
+        console.warn('[AuthProvider] Error updating user metadata:', metadataError);
+      }
+      
+      // Create profile separately through the API
+      try {
+        console.log('[AuthProvider] Creating user profile...');
+        await leaderboardService.createUserProfile(data.user.id, {
+          display_name: profile.displayName.trim(),
+          device_type: profile.deviceType,
+          measurement_system: profile.measurementSystem,
+          show_profile: profile.showProfile ?? true,
+        });
+        
+        console.log('[AuthProvider] Initial profile created successfully');
+      } catch (profileError) {
+        console.error('[AuthProvider] Error creating initial profile:', profileError);
       }
 
       // Handle avatar upload if provided
       if (data.user && profile.avatarUri) {
         try {
-          console.log('[AuthProvider] Calling leaderboardService.uploadAvatar...');
+          // Upload avatar and update profile
           const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-          console.log('[AuthProvider] leaderboardService.uploadAvatar complete');
-          // Update user profile with avatar URL
-          console.log('[AuthProvider] Calling leaderboardService.updateUserProfile...');
-          await leaderboardService.updateUserProfile(data.user.id, {
-            ...profile,
-            avatar_url: avatarUrl
-          });
-          console.log('[AuthProvider] leaderboardService.updateUserProfile complete');
-          console.log('[AuthProvider] User profile updated successfully');
+          
+          if (avatarUrl) {
+            await leaderboardService.updateUserProfile(data.user.id, {
+              avatar_url: avatarUrl
+            });
+            console.log('[AuthProvider] Avatar uploaded and profile updated');
+          }
         } catch (uploadError) {
-          console.error('Avatar upload failed:', uploadError);
-          // Don't throw here - the user is still registered, just without an avatar
+          console.error('[AuthProvider] Avatar upload failed:', uploadError);
+          // Continue even if avatar upload fails
         }
       }
 
       // Initialize health provider for new user
-      if (data.user) {
-        console.log('[AuthProvider] User created, attempting auto-login...');
-        console.log('[AuthProvider] Calling supabase.auth.signInWithPassword...');
+      try {
+        console.log('[AuthProvider] Attempting auto-login...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
         });
-        console.log('[AuthProvider] supabase.auth.signInWithPassword complete');
         
         if (signInError) {
-          console.error('[AuthProvider] Auto-login failed:', signInError);
           throw signInError;
         }
         
         console.log('[AuthProvider] Auto-login successful, initializing health provider');
         
-        // Initialize the appropriate health provider based on device type
+        // Initialize health provider based on device type
         const provider = HealthProviderFactory.getProvider(profile.deviceType);
         
-        // If it's a Fitbit device, handle OAuth flow
         if (profile.deviceType === 'fitbit') {
-          console.log('[AuthProvider] Initiating Fitbit OAuth flow...');
           const status = await provider.requestPermissions();
           if (status !== 'granted') {
-            throw new Error('Fitbit permissions not granted');
+            console.warn('[AuthProvider] Fitbit permissions not granted');
           }
         }
         
         await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+        console.log('[AuthProvider] Health provider initialized successfully');
+      } catch (healthError) {
+        console.error('[AuthProvider] Error initializing health provider:', healthError);
+        // Don't block registration on health provider errors
       }
+      
+      console.log('[AuthProvider] Registration process completed successfully');
     } catch (err) {
       console.error('[AuthProvider] Registration error:', err);
       const mappedError = mapAuthError(err);
-      console.log('[AuthProvider] Mapped error:', mappedError);
       setError(mappedError);
+      throw err; // Re-throw to allow caller to handle
     } finally {
-      console.log('[AuthProvider] Registration process complete. Setting loading to false');
       setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in register');
+      console.log('[AuthProvider] Registration process complete. Setting loading to false');
     }
   };
 

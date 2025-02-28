@@ -125,6 +125,9 @@ export default function RegisterScreen() {
     if (!displayName.trim()) {
       errors.displayName = 'Display name is required';
       hasError = true;
+    } else if (displayName.trim().length > 50) {
+      errors.displayName = 'Display name must be 50 characters or less';
+      hasError = true;
     }
 
     if (!deviceType) {
@@ -149,25 +152,19 @@ export default function RegisterScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       
-      let avatarUrl = null;
-      
-      // If an avatar was selected, upload it first
-      if (avatar) {
-        try {
-          // Create a temporary ID for the avatar
-          const tempId = `temp-${Date.now()}`;
-          avatarUrl = await leaderboardService.uploadAvatar(tempId, avatar);
-        } catch (avatarErr) {
-          console.error('Failed to upload avatar:', avatarErr);
-          // Continue registration without avatar if upload fails
-        }
+      // Ensure display name is properly trimmed
+      const trimmedDisplayName = displayName.trim();
+      if (!trimmedDisplayName) {
+        setLocalError({ displayName: 'Display name is required' });
+        return;
       }
       
       await register(email, password, {
-        displayName,
+        displayName: trimmedDisplayName,
         deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatarUrl
+        avatarUri: avatar,
+        showProfile: true
       });
 
       // If successful, AuthProvider will handle the navigation
@@ -175,7 +172,14 @@ export default function RegisterScreen() {
     } catch (err) {
       console.error('Registration error:', err);
       if (err instanceof Error) {
-        setLocalError({ submit: err.message });
+        // Handle specific error cases
+        if (err.message.includes('duplicate key')) {
+          setLocalError({ submit: 'This email is already registered. Please try logging in instead.' });
+        } else if (err.message.includes('Database error')) {
+          setLocalError({ submit: 'Registration failed. Please try again later.' });
+        } else {
+          setLocalError({ submit: err.message });
+        }
       } else {
         setLocalError({ submit: 'An unexpected error occurred during registration.' });
       }
