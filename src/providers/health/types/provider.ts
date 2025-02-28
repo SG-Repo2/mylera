@@ -179,6 +179,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async initializePermissions(userId: string): Promise<void> {
     logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing permissions for user: ${userId}`);
     this.permissionManager = new PermissionManager(userId);
+    // Verify that the manager was created successfully
+    if (!this.permissionManager) {
+      logger.error(LogCategory.Health, `[BaseHealthProvider] Failed to create permission manager for user: ${userId}`);
+      throw new Error('Failed to initialize permission manager');
+    }
   }
 
   /**
@@ -191,6 +196,13 @@ export abstract class BaseHealthProvider implements HealthProvider {
       logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing provider and permissions for user: ${userId}`);
       await this.initialize();
       await this.initializePermissions(userId);
+      
+      // Double-check that permissions were properly initialized
+      if (!this.permissionManager) {
+        logger.error(LogCategory.Health, '[BaseHealthProvider] Permission manager is still null after initialization');
+        throw new Error('Permission manager failed to initialize properly');
+      }
+      
       logger.info(LogCategory.Health, '[BaseHealthProvider] Provider and permissions initialized successfully');
     } catch (error) {
       logger.error(LogCategory.Health, '[BaseHealthProvider] Failed to initialize with permissions:');
@@ -221,7 +233,13 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async handlePermissionDenial(): Promise<void> {
     logger.info(LogCategory.Health, '[BaseHealthProvider] Handling permission denial');
     if (this.permissionManager) {
-      await this.permissionManager.clearCache();
+      try {
+        await this.permissionManager.clearCache();
+      } catch (error) {
+        logger.error(LogCategory.Health, '[BaseHealthProvider] Error clearing permission cache:', (error as Error).message);
+      }
+    } else {
+      logger.warn(LogCategory.Health, '[BaseHealthProvider] Permission manager is null during handlePermissionDenial');
     }
   }
 

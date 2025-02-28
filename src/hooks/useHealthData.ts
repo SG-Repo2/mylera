@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
+import { isValidMetricValue } from '../utils/healthMetricUtils';
 
 /**
  * React hook for managing health data synchronization.
@@ -83,7 +84,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       const failedMetrics: string[] = [];
       const updates = healthMetrics.map(async metric => {
         const value = healthData[metric];
-        if (typeof value === 'number') {
+        if (typeof value === 'number' && isValidMetricValue(value, metric)) {
           try {
             await metricsService.updateMetric(userId, metric, value);
           } catch (err) {
@@ -95,6 +96,8 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
             console.error(`[useHealthData] Error updating metric ${metric}:`, err);
             failedMetrics.push(metric);
           }
+        } else if (typeof value === 'number') {
+          console.log(`[useHealthData] Skipping invalid ${metric} value: ${value}`);
         }
       });
 

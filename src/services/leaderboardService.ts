@@ -10,23 +10,7 @@ import {
 import { healthMetrics } from '@/src/config/healthMetrics';
 import type { MetricType } from '@/src/types/metrics';
 import type { DailyMetricScore } from '@/src/types/schemas';
-
-const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
-  return metrics.reduce((total, metric) => {
-    const config = healthMetrics[metric.metric_type];
-    if (!config || typeof metric.value !== 'number') return total;
-
-    if (metric.metric_type === 'heart_rate') {
-      const targetValue = config.defaultGoal;
-      const deviation = Math.abs(metric.value - targetValue);
-      const points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-      return total + Math.round(points);
-    }
-
-    const points = Math.floor(metric.value / config.pointIncrement.value);
-    return total + Math.min(points, config.pointIncrement.maxPoints);
-  }, 0);
-};
+import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 
 // Helper function to get week start date
 function getWeekStart(date: Date): string {
@@ -73,7 +57,7 @@ export const leaderboardService = {
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
-        .select('user_id, metric_type, value')
+        .select('user_id, metric_type, value, points')
         .eq('date', date);
 
       if (metricsError) throw metricsError;
@@ -89,7 +73,7 @@ export const leaderboardService = {
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
-          total: calculateTotalPoints(metrics),
+          total: calculateTotalPoints(metrics, 'leaderboardService.getDailyLeaderboard'),
           completed: metrics.length
         });
       });
@@ -240,7 +224,7 @@ export const leaderboardService = {
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
-        .select('user_id, metric_type, value, date')
+        .select('user_id, metric_type, value, points, date')
         .gte('date', weekStart)
         .lte('date', date);
 
@@ -257,7 +241,7 @@ export const leaderboardService = {
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
-          total: calculateTotalPoints(metrics),
+          total: calculateTotalPoints(metrics, 'leaderboardService.getWeeklyLeaderboard'),
           completed: metrics.length
         });
       });

@@ -17,6 +17,7 @@ import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
 import { healthMetrics } from '@/src/config/healthMetrics';
+import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
@@ -117,30 +118,6 @@ const LoadingView = React.memo(() => {
   );
 });
 
-const calculateTotalPoints = (metrics: DailyMetricScore[]): number => {
-  return metrics.reduce((total, metric) => {
-    const config = healthMetrics[metric.metric_type];
-    if (!config || typeof metric.value !== 'number') return total;
-
-    let points = 0;
-    if (metric.metric_type === 'heart_rate') {
-      const targetValue = config.defaultGoal;
-      const deviation = Math.abs(metric.value - targetValue);
-      points = Math.max(0, config.pointIncrement.maxPoints * (1 - deviation / 15));
-    } else {
-      points = Math.floor(metric.value / config.pointIncrement.value);
-      points = Math.min(points, config.pointIncrement.maxPoints);
-      
-      // Cap bonus points at 25 for goal achievements
-      if (metric.value >= config.defaultGoal) {
-        points = Math.min(points, 25);
-      }
-    }
-    
-    return total + Math.round(points);
-  }, 0);
-};
-
 const transformMetricsToHealthMetrics = (
   metrics: DailyMetricScore[],
   dailyTotal: DailyTotal | null,
@@ -236,7 +213,12 @@ export const Dashboard = React.memo(function Dashboard({
       console.log('Daily totals:', totals);
       console.log('Metric scores:', metricScores);
       
-      const totalPoints = calculateTotalPoints(metricScores);
+      const totalPoints = calculateTotalPoints(metricScores, 'Dashboard.fetchData');
+      
+      console.log('Dashboard calculated points:', {
+        fromMetricScores: totalPoints,
+        fromDailyTotals: totals.find(t => t.user_id === userId)?.total_points || 'not found'
+      });
       
       const userTotal = {
         id: `${userId}-${date}`,

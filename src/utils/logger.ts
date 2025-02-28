@@ -14,7 +14,9 @@ export enum LogCategory {
   Rendering = 'rendering',
   Lifecycle = "Lifecycle",
   User = "User",
-  Database = "Database"
+  Database = "Database",
+  UI = "UI",
+  Navigation = "Navigation"
 }
 
 interface LogMetadata {

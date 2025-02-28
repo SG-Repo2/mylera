@@ -37,7 +37,14 @@ export function ToggleableLeaderboard() {
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
-      console.log('Fetched leaderboard data:', data);
+      // Add detailed logging of point values
+      console.log('Fetched leaderboard data:', data.map(entry => ({
+        id: entry.user_id.slice(0, 8),
+        name: entry.display_name,
+        points: entry.total_points,
+        rank: entry.rank
+      })));
+      
       setLeaderboardData(data);
     } catch (err) {
       console.error('Error while fetching leaderboard:', err);

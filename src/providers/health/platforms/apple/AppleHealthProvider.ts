@@ -68,7 +68,13 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   async requestPermissions(): Promise<PermissionStatus> {
     if (!this.permissionManager) {
-      throw new Error('Permission manager not initialized');
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Permission manager not initialized during requestPermissions');
+      await this.ensurePermissionsInitialized();
+      
+      // If still not initialized, throw error
+      if (!this.permissionManager) {
+        throw new Error('Permission manager could not be initialized');
+      }
     }
 
     try {
@@ -84,7 +90,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
       return new Promise((resolve) => {
         AppleHealthKit.initHealthKit(permissions, async (error: string) => {
           if (error) {
-            await this.permissionManager?.updatePermissionState('denied');
+            // Handle null permissionManager safely
+            if (this.permissionManager) {
+              await this.permissionManager.updatePermissionState('denied');
+            }
             resolve('denied');
             return;
           }
@@ -93,22 +102,48 @@ export class AppleHealthProvider extends BaseHealthProvider {
           const available = await this.checkAvailability();
           const status: PermissionStatus = available ? 'granted' : 'denied';
           
-          await this.permissionManager?.updatePermissionState(status);
+          // Handle null permissionManager safely
+          if (this.permissionManager) {
+            await this.permissionManager.updatePermissionState(status);
+          }
           resolve(status);
         });
       });
     } catch (error) {
-      await this.permissionManager?.handlePermissionError(
-        'HealthKit',
-        error
-      );
+      // Handle null permissionManager safely
+      if (this.permissionManager) {
+        await this.permissionManager.handlePermissionError(
+          'HealthKit',
+          error
+        );
+      }
       return 'denied';
     }
   }
 
   async checkPermissionsStatus(): Promise<PermissionState> {
+    // Try to ensure permission manager is initialized
     if (!this.permissionManager) {
-      throw new Error('Permission manager not initialized');
+      logger.warn(LogCategory.Health, '[AppleHealthProvider] Permission manager not initialized during checkPermissionsStatus');
+      try {
+        await this.ensurePermissionsInitialized();
+      } catch (error) {
+        logger.error(LogCategory.Health, '[AppleHealthProvider] Failed to initialize permissions', (error as Error).message);
+        // Return a default state if initialization fails
+        return {
+          status: 'not_determined',
+          lastChecked: Date.now()
+        };
+      }
+    }
+
+    // If we still don't have a permission manager, use a default state
+    if (!this.permissionManager) {
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Permission manager still null after initialization attempt');
+      return {
+        status: 'not_determined',
+        lastChecked: Date.now()
+      };
     }
 
     // First check cached state
@@ -572,5 +607,15 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private aggregateMetric(metrics: NormalizedMetric[]): number {
     return aggregateMetrics(metrics);
+  }
+
+  // Add a helper method to ensure permissions are initialized
+  private async ensurePermissionsInitialized(): Promise<void> {
+    if (!this.permissionManager) {
+      // Try to initialize with a default user ID if one wasn't provided
+      const userId = 'default-user-id';
+      logger.warn(LogCategory.Health, `[AppleHealthProvider] Attempting to initialize permissions with default user ID: ${userId}`);
+      await this.initializePermissions(userId);
+    }
   }
 }

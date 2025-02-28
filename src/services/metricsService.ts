@@ -387,7 +387,6 @@ export const metricsService = {
           date: today,
           total_points: totalPoints,
           metrics_completed: metricsCompleted,
-          daily_score: healthScore, // Add overall health score
           updated_at: new Date().toISOString(),
           is_test_data: false
         }, {
