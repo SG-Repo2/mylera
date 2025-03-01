@@ -6,7 +6,6 @@ import { brandColors } from '@/src/theme/theme';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import Svg, { Rect } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
-import { metricsService } from '@/src/services/metricsService';
 
 interface BarChartProps {
   metricType: MetricType;
@@ -20,6 +19,8 @@ interface DataPoint {
   value: number;
   animation: Animated.Value;
   dayName: string;
+  isToday: boolean;
+  isEmpty: boolean;
 }
 
 export function BarChart({ metricType, userId, date, provider }: BarChartProps) {
@@ -28,9 +29,25 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
   const [data, setData] = useState<DataPoint[]>([]);
   const theme = useTheme();
 
-  const getDayName = (dateStr: string): string => {
+  // Enhanced day name function with better context
+  const getDayNameWithContext = (dateStr: string): { name: string, isToday: boolean } => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return days[new Date(dateStr).getDay()];
+    const d = new Date(dateStr);
+    const dayName = days[d.getDay()];
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalize to start of day
+    
+    const dateToCheck = new Date(dateStr);
+    dateToCheck.setHours(0, 0, 0, 0); // Normalize to start of day
+    
+    const diffTime = today.getTime() - dateToCheck.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return { name: `${dayName}\nToday`, isToday: true };
+    if (diffDays === 1) return { name: `${dayName}\nYest.`, isToday: false };
+    
+    return { name: dayName, isToday: false };
   };
 
   useEffect(() => {
@@ -40,12 +57,12 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
     const fetchData = async () => {
       try {
-        console.log('Fetching health data for:', { userId, metricType });
+        console.log('Fetching native health data for:', { userId, metricType });
         
         // Initialize provider
         await provider.initialize();
 
-        // Get current date and date range
+        // Get current date and date range for the past 7 days
         const endDateTime = new Date();
         const startDateTime = new Date();
         startDateTime.setDate(startDateTime.getDate() - 6);
@@ -55,16 +72,8 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
         console.log('Date range:', { startDateStr, endDateStr });
 
-        // First try to get stored metrics from our database
-        const storedMetrics = await metricsService.getHistoricalMetrics(
-          userId,
-          metricType,
-          endDateStr
-        );
-
-        console.log('Stored metrics:', storedMetrics);
-
-        // Then get native health data for the full range
+        // Get native health data for the full range ONLY
+        // Skip stored metrics completely
         const rawData = await provider.fetchRawMetrics(
           startDateTime,
           endDateTime,
@@ -72,7 +81,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         );
 
         const normalizedData = provider.normalizeMetrics(rawData, metricType);
-        console.log('Native health data:', normalizedData);
+        console.log('Native health data count:', normalizedData.length);
 
         // Create a map of daily totals from native data
         const nativeDataMap = new Map<string, number>();
@@ -82,39 +91,30 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
           nativeDataMap.set(day, currentTotal + metric.value);
         });
 
-        // Create a map of stored metrics for quick lookup
-        const storedDataMap = new Map(
-          storedMetrics.map(metric => [metric.date, metric.value])
-        );
+        // Enhanced logging to debug data availability
+        console.log('Native data by day:', Object.fromEntries(nativeDataMap.entries()));
 
         // Fill data starting from current day going back 6 days
-        const filledData = [];
+        const filledData: DataPoint[] = [];
         for (let i = 0; i >= -6; i--) {
           const d = new Date();
           d.setDate(d.getDate() + i);
           const dateStr = d.toLocaleDateString('en-CA');
           
-          // Prefer stored metric, fall back to native data
-          let value = storedDataMap.get(dateStr);
-          if (value === undefined) {
-            value = nativeDataMap.get(dateStr) || 0;
-            // Store the native data for future use
-            if (value > 0) {
-              try {
-                await metricsService.updateMetric(userId, metricType, value);
-              } catch (err) {
-                console.warn('Failed to store metric:', err);
-              }
-            }
-          }
+          // Get value directly from native data
+          const value = nativeDataMap.get(dateStr) || 0;
+          
+          const dayInfo = getDayNameWithContext(dateStr);
           
           filledData.push({
             date: dateStr,
             value,
-            dayName: getDayName(dateStr),
+            dayName: dayInfo.name,
+            isToday: dayInfo.isToday,
+            isEmpty: value === 0,
             animation: new Animated.Value(0)
           });
-          console.log(`${getDayName(dateStr)} (${dateStr}): ${value}`);
+          console.log(`${dayInfo.name} (${dateStr}): ${value}`);
         }
 
         // Reverse the array so most recent day is on the right
@@ -141,7 +141,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
 
       } catch (err) {
         if (!mounted) return;
-        console.error('Error fetching health data:', err);
+        console.error('Error fetching native health data:', err);
         setError('Failed to load health data');
         setLoading(false);
       }
@@ -186,7 +186,7 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
   }));
 
-  const maxValue = Math.max(...validData.map(d => d.value));
+  const maxValue = Math.max(...validData.map(d => d.value), 1); // Ensure minimum of 1 to avoid NaN issues
   const minValue = Math.min(...validData.map(d => d.value));
   const padding = Math.max((maxValue - minValue) * 0.1, 1);
   const yMax = maxValue + padding;
@@ -230,18 +230,25 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
         <View style={styles.barsContainer}>
           {validData.map((point, index) => {
             const normalizedValue = (point.value - yMin) / range;
+            // Ensure minimum bar height for visibility even with zero values
             const barHeight = Math.max(
               Math.min(normalizedValue * chartHeight, chartHeight),
-              0
+              point.isEmpty ? 2 : 4 // Minimum height for bars with zero values
             );
             
-            const isToday = point.date === new Date().toLocaleDateString('en-CA');
+            // Use the appropriate metric color from healthMetrics configuration
+            const color = point.isEmpty 
+              ? theme.colors.surfaceDisabled 
+              : healthMetrics[metricType].color;
+            
             return (
               <View key={point.date} style={styles.barWrapper}>
                 <View style={styles.barLabelContainer}>
                   <Text variant="bodySmall" style={[styles.barValue, { 
                     color: theme.colors.onSurface,
-                    opacity: isToday ? 1 : 0.9
+                    opacity: point.isToday ? 1 : 0.9,
+                    // Hide zero values in the label
+                    display: point.isEmpty ? 'none' : 'flex'
                   }]}>
                     {Math.round(point.value)}
                   </Text>
@@ -249,10 +256,13 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                 <Animated.View style={[styles.barContainer, {
                   height: point.animation.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, Math.max(barHeight, 1)],
+                    outputRange: [0, barHeight],
                   }),
                   width: barWidth,
-                  backgroundColor: metricColor + '1A', // 10% opacity version for container
+                  // Use different background color for empty bars
+                  backgroundColor: point.isEmpty 
+                    ? theme.colors.surfaceDisabled + '80' // Lighter color for empty bars
+                    : color + '1A', // 10% opacity version for container
                   transform: [{
                     scaleY: point.animation.interpolate({
                       inputRange: [0, 0.8, 0.9, 1],
@@ -269,18 +279,18 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
                       height="100%"
                       rx={4}
                       ry={4}
-                      fill={metricColor}
+                      fill={color}
                     />
                   </Svg>
                 </Animated.View>
                 <Text variant="bodySmall" style={[
                   styles.dayLabel,
                   { color: theme.colors.onSurface },
-                  isToday && { 
+                  point.isToday && { 
                     fontWeight: '600',
                     opacity: 1
                   },
-                  !isToday && {
+                  !point.isToday && {
                     opacity: 0.7
                   }
                 ]}>
