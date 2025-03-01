@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform, AppState } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -12,7 +12,7 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
@@ -169,6 +169,12 @@ export const Dashboard = React.memo(function Dashboard({
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Replace fetchId state with a ref to avoid infinite update loops
+  const fetchIdRef = useRef(0);
+  const isFetchingRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
   
   const {
     loading,
@@ -199,59 +205,83 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
 
-  const fetchData = useCallback(async () => {
-    if (!isInitialized) return;
+  const fetchData = useCallback(async (requestId: number) => {
+    if (!isInitialized || !userId || isFetchingRef.current) return;
+    
+    isFetchingRef.current = true;
+    setIsRefreshing(true);
     
     try {
-      console.log('Dashboard fetching data for:', { userId, date });
+      console.log('Dashboard fetching data for:', { userId, date, requestId });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
         leaderboardService.getUserRank(userId, date)
       ]);
       
-      console.log('Daily totals:', totals);
-      console.log('Metric scores:', metricScores);
+      // Check if this response is stale
+      if (requestId !== fetchIdRef.current) {
+        console.log('Stale data response, ignoring');
+        return;
+      }
       
-      const totalPoints = calculateTotalPoints(metricScores, 'Dashboard.fetchData');
-      
-      console.log('Dashboard calculated points:', {
-        fromMetricScores: totalPoints,
-        fromDailyTotals: totals.find(t => t.user_id === userId)?.total_points || 'not found'
-      });
-      
+      // Keep original structure without modifications
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
         date: date,
-        total_points: totalPoints,
+        total_points: calculateTotalPoints(metricScores),
         metrics_completed: metricScores.length,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
+      
       setDailyTotal(userTotal);
-      
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores,
-        userTotal,
-        userId,
-        date
-      );
-      console.log('Transformed metrics:', transformedMetrics);
-      
-      setHealthMetrics(transformedMetrics);
+      setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
       setUserRank(rank);
       setFetchError(null);
     } catch (err) {
+      // Only handle errors from current request
+      if (requestId !== fetchIdRef.current) return;
       console.error('Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
       setErrorDialogVisible(true);
+    } finally {
+      if (requestId === fetchIdRef.current) {
+        setIsRefreshing(false);
+        isFetchingRef.current = false;
+      }
     }
-  }, [userId, date, isInitialized]);
+  }, [userId, date, isInitialized]); // Remove fetchId from dependencies
 
   useEffect(() => {
-    fetchData();
+    // Increment fetch ID in the ref without triggering re-renders
+    fetchIdRef.current += 1;
+    const currentFetchId = fetchIdRef.current;
+    
+    // Call fetchData with current request ID
+    fetchData(currentFetchId);
   }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+
+  // Add AppState change listener to refresh data when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appStateRef.current.match(/inactive|background/) && 
+        nextAppState === 'active'
+      ) {
+        console.log('App has come to the foreground - refreshing dashboard data');
+        // Increment fetch ID in the ref
+        fetchIdRef.current += 1;
+        fetchData(fetchIdRef.current);
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchData]);
 
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
@@ -266,8 +296,11 @@ export const Dashboard = React.memo(function Dashboard({
   }, [error, requestHealthPermissions, syncHealthData]);
 
   const handleRefresh = React.useCallback(() => {
+    // Increment fetch ID in the ref
+    fetchIdRef.current += 1;
     syncHealthData();
-  }, [syncHealthData]);
+    fetchData(fetchIdRef.current);
+  }, [syncHealthData, fetchData]);
 
   if (loading) {
     return <LoadingView />;
@@ -306,7 +339,7 @@ export const Dashboard = React.memo(function Dashboard({
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={isRefreshing}
             onRefresh={handleRefresh}
             colors={[theme.colors.primary]}
             progressBackgroundColor={theme.colors.surface}
