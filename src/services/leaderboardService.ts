@@ -6,9 +6,10 @@ import {
 } from '@/src/types/leaderboard';
 import type { DailyMetricScore } from '@/src/types/schemas';
 import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
-import { Platform, Image } from 'react-native';
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Image } from 'expo-image';
 
 // Helper function to get week start date
 function getWeekStart(date: Date): string {
@@ -293,6 +294,18 @@ export const leaderboardService = {
         { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
       );
       
+      // Check file size and adjust compression if needed
+      const fileInfo = await FileSystem.getInfoAsync(manipResult.uri);
+      let compressedResult = manipResult;
+      if (fileInfo.exists && 'size' in fileInfo && fileInfo.size > 1000000) { // 1MB
+        // More aggressive compression for large images
+        compressedResult = await ImageManipulator.manipulateAsync(
+          imageUri,
+          [{ resize: { width: 300, height: 300 } }],
+          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
+        );
+      }
+      
       // Implement retry logic for uploads
       const maxRetries = 3;
       let attempt = 0;
@@ -318,28 +331,33 @@ export const leaderboardService = {
               headers: {
                 'Authorization': `Bearer ${token}`,
                 'x-upsert': 'true',
-                'Cache-Control': 'no-cache'
+                'Cache-Control': 'max-age=0, no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
               }
             }
           );
           
           if (uploadResult.status >= 200 && uploadResult.status < 300) {
+            // Add a longer delay after successful upload
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
             // Get public URL and add cache busting parameter
             const { data } = supabase.storage
               .from('avatars')
               .getPublicUrl(fileName);
               
-            const publicUrl = data.publicUrl;
+            const publicUrl = `${data.publicUrl}?v=${timestamp}`;
             
-            // Preload the image to ensure it's in the cache
+            // Try to clear any existing cached version
             try {
-              // Add a small delay to give CDN time to propagate
-              await new Promise(resolve => setTimeout(resolve, 300));
-              await Image.prefetch(publicUrl);
-              console.log('[leaderboardService] Avatar prefetched successfully');
-            } catch (prefetchError) {
-              // Don't fail the upload if prefetch fails
-              console.warn('[leaderboardService] Failed to prefetch image, continuing anyway:', prefetchError);
+              if (Platform.OS === 'ios') {
+                await Image.clearMemoryCache();  // Reset entire cache on iOS
+              } else {
+                await Image.clearDiskCache(); // Clear disk cache on Android
+              }
+            } catch (cacheError) {
+              console.log('[leaderboardService] Cache clearing error (non-fatal):', cacheError);
             }
             
             console.log('[leaderboardService] Avatar uploaded successfully:', publicUrl);

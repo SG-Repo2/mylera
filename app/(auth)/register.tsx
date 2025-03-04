@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Platform, Keyboard, Pressable, Image, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Platform, Keyboard, Pressable, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -19,7 +19,7 @@ import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/val
 import { useAuth } from '@/src/providers/AuthProvider';
 import * as ImagePicker from 'expo-image-picker';
 import { leaderboardService } from '@/src/services/leaderboardService';
-
+import { Image } from 'expo-image';
 interface DeviceOptionProps {
   title: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;

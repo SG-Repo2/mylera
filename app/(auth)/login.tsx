@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, StyleSheet, Platform, Keyboard, Image } from 'react-native';
+import { View, StyleSheet, Platform, Keyboard} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -16,7 +16,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { isValidEmail, isValidPassword } from '@/src/utils/validation';
 import { useAuth } from '@/src/providers/AuthProvider';
-
+import { Image } from 'expo-image';
 export default function LoginScreen() {
   const router = useRouter();
   const theme = useTheme();

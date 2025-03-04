@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform, AppState, AppStateStatus } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Animated, Platform, AppState, AppStateStatus } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
@@ -14,7 +14,7 @@ import type { DailyTotal } from '@/src/types/schemas';
 import type { z } from 'zod';
 import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
-
+import { Image } from 'expo-image';
 // Define DailyMetricScore type using the schema
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 

@@ -2,13 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
-  Image,
   TextInput,
   Pressable,
   ActivityIndicator,
   Switch,
   ScrollView,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../providers/AuthProvider';
@@ -19,7 +19,7 @@ import { ErrorView } from '../shared/ErrorView';
 import { theme } from '../../theme/theme';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../services/supabaseClient';
-
+import { Image } from 'expo-image';
 // Add spacing constants to match theme
 const spacing = {
   xs: 4,
@@ -229,12 +229,28 @@ export function Profile() {
         throw new Error('Upload failed. Please try again with a smaller image.');
       }
 
-      // Force a delay before reloading profile to ensure storage consistency
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Reload profile to show new avatar
-      await loadProfile();
-      
+      // After successful upload
+      if (publicUrl) {
+        // Update local state immediately
+        setProfile(prev => prev ? {
+          ...prev,
+          avatar_url: publicUrl
+        } : null);
+
+        // Clear image cache after upload
+        try {
+          await Image.clearMemoryCache();
+        } catch (e) {
+          console.warn('Image cache clearing error (non-critical):', e);
+        }
+        
+        // Delayed server refresh
+        setTimeout(() => {
+          loadProfile().catch(err => {
+            console.warn('[Profile] Profile reload error:', err);
+          });
+        }, 1000);
+      }
     } catch (err) {
       console.error('[Profile] Error updating avatar:', err);
       setError(err instanceof Error ? err : new Error('Failed to update avatar'));
