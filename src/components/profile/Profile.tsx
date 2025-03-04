@@ -175,53 +175,61 @@ export function Profile() {
     
     try {
       setLoading(true);
+      setError(null);
+      
+      console.log("[Profile] Starting avatar update process");
       
       // Request permissions first
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
+        console.log("[Profile] Permission denied for media library");
         setError(new Error('Permission to access media library was denied'));
         return;
       }
 
+      console.log("[Profile] Launching image picker");
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.5, // Reduce quality to prevent memory issues
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        if (!asset.uri) {
-          throw new Error('No image URI available');
-        }
-
-        try {
-          // Upload the image
-          const publicUrl = await leaderboardService.uploadAvatar(user.id, asset.uri);
-          
-          if (!publicUrl) {
-            throw new Error('Failed to get public URL for uploaded avatar');
-          }
-
-          // Update profile with new avatar URL
-          await leaderboardService.updateUserProfile(user.id, {
-            ...profile,
-            avatar_url: publicUrl
-          });
-
-          // Reload profile
-          await loadProfile();
-        } catch (uploadError) {
-          console.error('Error during avatar upload:', uploadError);
-          throw new Error('Failed to upload avatar. Please try again.');
-        }
+      console.log("[Profile] Image picker result:", result.canceled ? "canceled" : "success");
+      
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        console.log("[Profile] User canceled image selection");
+        setLoading(false);
+        return;
       }
+      
+      const imageUri = result.assets[0].uri;
+      if (!imageUri) {
+        console.log("[Profile] No image URI available");
+        throw new Error('No image URI available');
+      }
+
+      console.log("[Profile] Selected image URI:", imageUri);
+      
+      const publicUrl = await leaderboardService.uploadAvatar(user.id, imageUri);
+      
+      if (!publicUrl) {
+        throw new Error('Upload failed. Please try again with a smaller image.');
+      }
+
+      // Reload profile to show new avatar
+      await loadProfile();
+      
+      // Force refresh leaderboard data
+      const today = new Date().toISOString().split('T')[0];
+      await leaderboardService.getDailyLeaderboard(today);
+      
     } catch (err) {
-      console.error('Error updating avatar:', err);
+      console.error('[Profile] Error updating avatar:', err);
       setError(err instanceof Error ? err : new Error('Failed to update avatar'));
     } finally {
       setLoading(false);
+      console.log("[Profile] Avatar update process completed");
     }
   };
 

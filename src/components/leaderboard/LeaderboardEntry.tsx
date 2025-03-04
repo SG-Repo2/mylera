@@ -84,31 +84,58 @@ export function LeaderboardEntry({
 
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
+      // If we have an avatar URL, try to render it
       return (
-        <Image 
-          source={{ uri: avatar_url }} 
-          defaultSource={DEFAULT_AVATAR}
-          style={[
-            styles.avatar,
-            isPodium && position === 1 && styles.firstPlaceAvatar,
-            isPodium && (position === 2 || position === 3) && styles.podiumAvatar
-          ]}
-          testID="avatar-image"
-        />
+        <View style={[
+          styles.avatarContainer,
+          isPodium && position === 1 && styles.firstPlaceAvatar,
+          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+        ]}>
+          <Image 
+            source={{ 
+              uri: avatar_url,
+              cache: 'reload',
+              headers: {
+                Accept: 'image/jpeg,image/png,image/*',
+                'Cache-Control': 'no-cache'
+              }
+            }}
+            defaultSource={DEFAULT_AVATAR}
+            style={[
+              styles.avatar,
+              isPodium && position === 1 && styles.firstPlaceAvatar,
+              isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+            ]}
+            testID="avatar-image"
+            onError={(e) => {
+              console.error('Error loading avatar:', e.nativeEvent.error);
+              console.log('Failed to load avatar from URL:', avatar_url);
+              
+              // Force the component to use the placeholder
+              if (avatar_url) {
+                // We'll use a ref to record that this URL failed
+                entry.avatar_url = null;
+              }
+            }}
+            fadeDuration={0}
+            resizeMode="cover"
+          />
+        </View>
       );
     }
     
+    // Fallback to placeholder with first letter of name
     return (
       <View 
         style={[
           styles.avatarPlaceholder,
           isPodium && position === 1 && styles.firstPlaceAvatar,
           isPodium && (position === 2 || position === 3) && styles.podiumAvatar
-        ]} 
+        ]}
         testID="avatar-placeholder"
       >
-        <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
-          {display_name?.charAt(0).toUpperCase() ?? '?'}
+        <Text style={styles.avatarPlaceholderText}>
+          {display_name ? display_name[0].toUpperCase() : '?'}
         </Text>
       </View>
     );
@@ -306,7 +333,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarLetter: {
+  avatarPlaceholderText: {
     ...theme.fonts.titleMedium,
     color: '#64748B',
   },

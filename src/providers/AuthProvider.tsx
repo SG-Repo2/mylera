@@ -169,10 +169,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Handle avatar upload if provided
       if (data.user && profile.avatarUri) {
         try {
-          // Upload avatar and update profile
+          setLoading(true); // Keep loading state active
+          console.log('[AuthProvider] Uploading avatar...');
+          
+          // Wait for avatar upload
           const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
           
           if (avatarUrl) {
+            // Wait for profile update
             await leaderboardService.updateUserProfile(data.user.id, {
               avatar_url: avatarUrl
             });
@@ -181,6 +185,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (uploadError) {
           console.error('[AuthProvider] Avatar upload failed:', uploadError);
           // Continue even if avatar upload fails
+        } finally {
+          setLoading(false); // Ensure loading state is reset
         }
       }
 
