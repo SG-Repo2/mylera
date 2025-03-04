@@ -6,7 +6,7 @@ import {
 } from '@/src/types/leaderboard';
 import type { DailyMetricScore } from '@/src/types/schemas';
 import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
-import { Platform } from 'react-native';
+import { Platform, Image } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 
@@ -282,137 +282,90 @@ export const leaderboardService = {
     try {
       console.log('[leaderboardService] Starting avatar upload for user:', userId);
       
-      // Create filename with consistent format
+      // Create filename with consistent format and timestamp for cache busting
       const timestamp = Date.now();
       const fileName = `${userId}-${timestamp}.jpeg`;
-      const contentType = 'image/jpeg';
       
-      // Check if we have a valid URI
-      if (!imageUri || typeof imageUri !== 'string') {
-        console.error('[leaderboardService] Invalid image URI:', imageUri);
-        return null;
-      }
+      // Process and resize image
+      const manipResult = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [{ resize: { width: 300, height: 300 } }],
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+      );
       
-      console.log('[leaderboardService] Processing image from:', imageUri);
+      // Implement retry logic for uploads
+      const maxRetries = 3;
+      let attempt = 0;
+      let lastError;
       
-      // Create temp directories if they don't exist
-      const tempDir = `${FileSystem.cacheDirectory}temp-avatars/`;
-      const tempDirInfo = await FileSystem.getInfoAsync(tempDir);
-      if (!tempDirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
-      }
-      
-      // Define temp file paths
-      const tempOriginal = `${tempDir}original-${timestamp}.jpg`;
-      
-      let publicUrl = null;
-      
-      try {
-        // Step 1: Get the source image and save locally
-        if (imageUri.startsWith('file://')) {
-          // For local file, copy to our temp directory
-          await FileSystem.copyAsync({
-            from: imageUri,
-            to: tempOriginal
-          });
-        } else {
-          // For remote URL, download to temp directory
-          const downloadResult = await FileSystem.downloadAsync(imageUri, tempOriginal);
-          if (downloadResult.status !== 200) {
-            throw new Error(`Download failed with status ${downloadResult.status}`);
-          }
-        }
-        
-        // Step 2: Get image info
-        const originalInfo = await FileSystem.getInfoAsync(tempOriginal);
-        console.log('[leaderboardService] Original file info:', originalInfo);
-        
+      while (attempt < maxRetries) {
         try {
-          // Step 3: Process image - resize and convert using expo-image-manipulator
-          const manipResult = await ImageManipulator.manipulateAsync(
-            tempOriginal,
-            [
-              { resize: { width: 300, height: 300 } } // Smaller size to reduce upload issues
-            ],
-            { 
-              compress: 0.7, // Lower quality to reduce size
-              format: ImageManipulator.SaveFormat.JPEG 
-            }
-          );
-
-          console.log('[leaderboardService] Image processed successfully:', manipResult);
-          
-          // Step 4: Get authentication token for upload
+          // Get auth token
           const { data: { session } } = await supabase.auth.getSession();
           const token = session?.access_token;
           
-          if (!token) {
-            throw new Error('Not authenticated');
-          }
+          if (!token) throw new Error('Not authenticated');
           
-          // Step 5: Use FileSystem.uploadAsync for more reliable uploads in React Native
-          const storageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/public/${fileName}`;
-          
-          console.log('[leaderboardService] Using FileSystem.uploadAsync for reliable upload');
-          console.log('[leaderboardService] Upload URL:', storageUrl);
-          
+          // Upload with proper content type and headers
           const uploadResult = await FileSystem.uploadAsync(
-            storageUrl,
+            `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/public/${fileName}`,
             manipResult.uri,
             {
               httpMethod: 'POST',
               uploadType: FileSystem.FileSystemUploadType.MULTIPART,
               fieldName: 'file',
-              mimeType: contentType,
+              mimeType: 'image/jpeg',
               headers: {
                 'Authorization': `Bearer ${token}`,
-                'x-upsert': 'true'
+                'x-upsert': 'true',
+                'Cache-Control': 'no-cache'
               }
             }
           );
           
-          console.log('[leaderboardService] Upload result status:', uploadResult.status);
-          
           if (uploadResult.status >= 200 && uploadResult.status < 300) {
-            // Get the public URL
-            const { data: { publicUrl: url } } = supabase.storage
+            // Get public URL and add cache busting parameter
+            const { data } = supabase.storage
               .from('avatars')
               .getPublicUrl(fileName);
               
-            publicUrl = url;
-            console.log('[leaderboardService] Public URL generated:', publicUrl);
-          } else {
-            console.error('[leaderboardService] Upload failed with status:', uploadResult.status);
-            throw new Error(`Upload failed with status ${uploadResult.status}: ${uploadResult.body}`);
+            const publicUrl = data.publicUrl;
+            
+            // Preload the image to ensure it's in the cache
+            try {
+              // Add a small delay to give CDN time to propagate
+              await new Promise(resolve => setTimeout(resolve, 300));
+              await Image.prefetch(publicUrl);
+              console.log('[leaderboardService] Avatar prefetched successfully');
+            } catch (prefetchError) {
+              // Don't fail the upload if prefetch fails
+              console.warn('[leaderboardService] Failed to prefetch image, continuing anyway:', prefetchError);
+            }
+            
+            console.log('[leaderboardService] Avatar uploaded successfully:', publicUrl);
+            return publicUrl;
           }
+          
+          throw new Error(`Upload failed with status ${uploadResult.status}`);
         } catch (error) {
-          console.error('[leaderboardService] Error processing or uploading image:', error);
-          throw error;
-        }
-      } catch (error) {
-        console.error('[leaderboardService] Error in avatar upload process:', error);
-        throw error;
-      } finally {
-        // Clean up temp files
-        try {
-          const fileInfo = await FileSystem.getInfoAsync(tempOriginal);
-          if (fileInfo.exists) {
-            await FileSystem.deleteAsync(tempOriginal);
+          attempt++;
+          lastError = error;
+          
+          if (attempt < maxRetries) {
+            // Add exponential backoff
+            const delay = Math.pow(2, attempt) * 1000;
+            console.log(`[leaderboardService] Retrying upload in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
-          console.log('[leaderboardService] Temporary files cleaned up');
-        } catch (cleanupError) {
-          console.warn('[leaderboardService] Error cleaning up temp files:', cleanupError);
         }
       }
       
-      if (!publicUrl) {
-        throw new Error('Failed to generate public URL for avatar');
-      }
+      // All retries failed
+      throw lastError || new Error('Upload failed after maximum retries');
       
-      return publicUrl;
     } catch (error) {
       console.error('[leaderboardService] Avatar upload failed:', error);
-      throw new Error('Upload failed. Please try again with a smaller image.');
+      throw error;
     }
   },
 

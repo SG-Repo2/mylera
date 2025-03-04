@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Animated, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Image, StyleSheet, Animated, Platform, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
 import { theme } from '../../theme/theme';
@@ -8,12 +8,11 @@ import { supabase } from '@/src/services/supabaseClient';
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
 
-// Add state for tracking avatar load errors
+// Update the isValidImageUrl function to be more permissive for Supabase URLs
 const isValidImageUrl = (url: string | null): boolean => {
   if (!url) return false;
-  // Basic URL validation for images
-  return url.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null || 
-         url.includes('/storage/v1/object/public/');
+  // More permissive check for URLs - accepts any http/https URLs
+  return url.startsWith('http') || url.startsWith('https');
 };
 
 interface Props {
@@ -34,13 +33,12 @@ export function LeaderboardEntry({
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
   
-  // Add state for tracking avatar load errors
-  const [avatarError, setAvatarError] = React.useState(!isValidImageUrl(avatar_url));
-  
-  // Add state for avatar URL with cache busting
-  const [avatarUrl, setAvatarUrl] = React.useState<string | null>(
-    avatar_url ? `${avatar_url}?_cb=${Date.now()}` : null
+  // Initialize avatarUrl with a more permissive check
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    isValidImageUrl(avatar_url) ? avatar_url : null
   );
+  const [avatarError, setAvatarError] = useState(false);
+  const [isAvatarLoading, setIsAvatarLoading] = useState(true);
   
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
@@ -48,6 +46,22 @@ export function LeaderboardEntry({
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const prevRankRef = useRef(rank);
   const prevPointsRef = useRef(total_points);
+
+  // Use useEffect to update avatarUrl with cache busting when avatar_url changes
+  useEffect(() => {
+    if (avatar_url && isValidImageUrl(avatar_url)) {
+      // Always add cache busting query param with higher timestamp
+      const cacheBuster = Date.now() + 10000; // Future timestamp to force refresh
+      setAvatarUrl(avatar_url.includes('?') 
+        ? `${avatar_url}&_cb=${cacheBuster}` 
+        : `${avatar_url}?_cb=${cacheBuster}`);
+      setAvatarError(false);
+      setIsAvatarLoading(true);
+      console.log(`Setting avatar URL with cache busting: ${avatar_url}`);
+    } else {
+      setAvatarUrl(null);
+    }
+  }, [avatar_url]);
 
   // Animate when rank or points change
   useEffect(() => {
@@ -100,36 +114,41 @@ export function LeaderboardEntry({
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
   const renderAvatar = (isPodium = false) => {
-    // Always use placeholder for problematic avatar URLs from past uploads
-    // The new avatar uploads will work fine
-    const hasProblematicAvatar = avatar_url && avatar_url.includes('43f78d94-243b-4b17-a22f-ecf5155211bc');
-    
-    if (avatarUrl && !avatarError && !hasProblematicAvatar) {
-      // If we have a valid avatar URL, try to render it
+    // Remove problematic avatar check - trust the error handling instead
+    if (avatarUrl && !avatarError) {
       return (
         <View style={[
           styles.avatarContainer,
           isPodium && position === 1 && styles.firstPlaceAvatar,
           isPodium && (position === 2 || position === 3) && styles.podiumAvatar
         ]}>
+          {isAvatarLoading && (
+            <ActivityIndicator size="small" color="#1E3A8A" style={styles.loaderOverlay} />
+          )}
           <Image 
             source={{ 
               uri: avatarUrl,
-              // Specify a small, fixed size to avoid decoding large images
-              width: 100,
-              height: 100,
-              scale: 1
+              width: isPodium ? (position === 1 ? 88 : 72) : 56,
+              height: isPodium ? (position === 1 ? 88 : 72) : 56,
+              // Add cache: 'reload' to force refresh from network
+              cache: 'reload'
             }}
             defaultSource={DEFAULT_AVATAR}
             style={[
               styles.avatar,
+              isAvatarLoading && { opacity: 0.3 },
               isPodium && position === 1 && styles.firstPlaceAvatar,
               isPodium && (position === 2 || position === 3) && styles.podiumAvatar
             ]}
             testID="avatar-image"
             onError={(e) => {
-              console.log('Avatar load error, falling back to placeholder');
+              console.log('Avatar load error:', e.nativeEvent.error);
               setAvatarError(true);
+              setIsAvatarLoading(false);
+            }}
+            onLoad={() => {
+              console.log('Avatar loaded successfully:', avatarUrl);
+              setIsAvatarLoading(false);
             }}
             fadeDuration={300}
             resizeMode="cover"
@@ -451,5 +470,10 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     borderWidth: 2,
     borderColor: '#E2E8F0',
+  },
+  loaderOverlay: {
+    position: 'absolute',
+    zIndex: 2,
+    alignSelf: 'center',
   },
 });

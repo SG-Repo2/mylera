@@ -188,11 +188,12 @@ export const Dashboard = React.memo(function Dashboard({
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Replace fetchId state with a ref to avoid infinite update loops
   const fetchIdRef = useRef(0);
   const isFetchingRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const mountedRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const lastFetchTimeRef = useRef(0);
   
   const {
     loading,
@@ -203,9 +204,6 @@ export const Dashboard = React.memo(function Dashboard({
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
-
-  // Add a timestamp ref to prevent frequent refetches
-  const lastFetchTimeRef = useRef(0);
   
   // Set mounted state
   useEffect(() => {
@@ -240,105 +238,86 @@ export const Dashboard = React.memo(function Dashboard({
     };
   }, [loading, dailyTotal]);
   
-  // Function to fetch data - improved with better error handling
+  // Function to fetch data - improved with better error handling and race condition fixes
   const fetchData = useCallback(async () => {
-    const currentFetchId = ++fetchIdRef.current;
-    const now = Date.now();
+    // Create new controller for this request
+    const abortController = new AbortController();
+    const signal = abortController.signal;
     
-    // Prevent duplicate fetches
+    // Store reference to abort controller
+    abortControllerRef.current = abortController;
+    
+    // Prevent duplicate fetches with better tracking
     if (isFetchingRef.current) {
       console.log('[Dashboard] Already fetching data, skipping duplicate fetch request');
       return;
     }
     
-    // Throttle fetches
-    if (now - lastFetchTimeRef.current < 2000) {
-      console.log('[Dashboard] Fetch throttled, skipping');
-      return;
-    }
-    
+    const now = Date.now();
     lastFetchTimeRef.current = now;
     isFetchingRef.current = true;
     
-    console.log(`Dashboard: Starting data fetch, ID: ${currentFetchId}`);
-    console.log('Dashboard fetching data for:', { userId, date, requestId: currentFetchId });
-    
     try {
-      // Fetch daily metrics - with a timeout for safety
-      const dailyMetricsPromise = metricsService.getDailyMetrics(userId, date);
-      const timeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Daily metrics fetch timeout')), 5000)
-      );
+      // Use Promise.all with AbortController signal
+      const [dailyMetrics, dailyTotals] = await Promise.all([
+        fetchWithTimeout(
+          () => metricsService.getDailyMetrics(userId, date),
+          5000, // 5 second timeout
+          signal
+        ),
+        fetchWithTimeout(
+          () => metricsService.getDailyTotals(date),
+          5000,
+          signal
+        )
+      ]);
       
-      const dailyMetrics = await Promise.race([dailyMetricsPromise, timeoutPromise])
-        .catch(err => {
-          console.warn(`[Dashboard] Error fetching daily metrics: ${err.message}`);
-          return [] as DailyMetricScore[]; // Return empty array instead of null
-        });
-      
-      // Fetch daily totals - with a timeout for safety
-      const dailyTotalsPromise = metricsService.getDailyTotals(date);
-      const totalsTimeoutPromise = new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Daily totals fetch timeout')), 5000)
-      );
-      
-      const dailyTotalsResult = await Promise.race([dailyTotalsPromise, totalsTimeoutPromise])
-        .catch(err => {
-          console.warn(`[Dashboard] Error fetching daily totals: ${err.message}`);
-          return null;
-        });
-      
-      // Check if this is still the latest fetch request
-      if (!mountedRef.current || currentFetchId !== fetchIdRef.current) {
-        console.log(`[Dashboard] Fetch ${currentFetchId} superseded, discarding results`);
+      // Process metrics data
+      if (mountedRef.current) {
+        // Process daily metrics
+        if (Array.isArray(dailyMetrics) && dailyMetrics.length > 0) {
+          const healthMetricsData = transformMetricsToHealthMetrics(
+            dailyMetrics,
+            dailyTotals as DailyTotal | null,
+            userId,
+            date
+          );
+          setHealthMetrics(healthMetricsData);
+        } else {
+          console.log('[Dashboard] No daily metrics found, using empty data');
+          setHealthMetrics(createEmptyHealthMetrics(userId, date));
+        }
+
+        // Set daily total data
+        if (dailyTotals && Array.isArray(dailyTotals) && dailyTotals.length > 0) {
+          setDailyTotal({
+            id: dailyTotals[0].id,
+            user_id: dailyTotals[0].user_id,
+            date: dailyTotals[0].date,
+            total_points: dailyTotals[0].total_points,
+            metrics_completed: dailyTotals[0].metrics_completed,
+            created_at: dailyTotals[0].created_at,
+            updated_at: dailyTotals[0].updated_at
+          });
+        } else if (dailyTotals && !Array.isArray(dailyTotals)) {
+          setDailyTotal(dailyTotals as DailyTotal);
+        }
+
+        setFetchError(null);
+      }
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
+        console.log('[Dashboard] Fetch aborted due to component unmount or new request');
         return;
       }
-      
-      // Process daily metrics
-      if (Array.isArray(dailyMetrics) && dailyMetrics.length > 0) {
-        const healthMetricsData = transformMetricsToHealthMetrics(
-          dailyMetrics,
-          dailyTotalsResult as DailyTotal | null,
-          userId,
-          date
-        );
-        setHealthMetrics(healthMetricsData);
-      } else {
-        console.log('[Dashboard] No daily metrics found, using empty data');
-        // Initialize with empty metrics to prevent loading state
-        setHealthMetrics(createEmptyHealthMetrics(userId, date));
-      }
-      
-      // Set daily total data
-      if (dailyTotalsResult && Array.isArray(dailyTotalsResult) && dailyTotalsResult.length > 0) {
-        // If it's an array, use the first item (newest)
-        setDailyTotal({
-          id: dailyTotalsResult[0].id,
-          user_id: dailyTotalsResult[0].user_id,
-          date: dailyTotalsResult[0].date,
-          total_points: dailyTotalsResult[0].total_points,
-          metrics_completed: dailyTotalsResult[0].metrics_completed,
-          created_at: dailyTotalsResult[0].created_at,
-          updated_at: dailyTotalsResult[0].updated_at
-        });
-      } else if (dailyTotalsResult && !Array.isArray(dailyTotalsResult)) {
-        // If it's a single object
-        setDailyTotal(dailyTotalsResult as DailyTotal);
-      }
-      
-      setFetchError(null);
-      
-      console.log(`[Dashboard] Fetch ${currentFetchId} completed successfully`);
-      
-    } catch (err) {
-      if (!mountedRef.current) return;
-      
-      console.error('[Dashboard] Error fetching data:', err);
-      setFetchError(err instanceof Error ? err : new Error(String(err)));
-      
-      // Set empty metrics to prevent eternal loading
-      if (!healthMetrics) {
-        setHealthMetrics(createEmptyHealthMetrics(userId, date));
+      if (mountedRef.current) {
+        console.error('[Dashboard] Error fetching data:', err);
+        setFetchError(err instanceof Error ? err : new Error(String(err)));
+        
+        // Set empty metrics to prevent eternal loading
+        if (!healthMetrics) {
+          setHealthMetrics(createEmptyHealthMetrics(userId, date));
+        }
       }
     } finally {
       if (mountedRef.current) {
@@ -347,6 +326,33 @@ export const Dashboard = React.memo(function Dashboard({
       }
     }
   }, [userId, date, healthMetrics]);
+
+  // Helper function for timeout
+  const fetchWithTimeout = async (fetchFn: { (): Promise<any[]>; (): Promise<{ id: any; user_id: any; date: any; total_points: any; metrics_completed: any; created_at: any; updated_at: any; user_profiles: { display_name: any; avatar_url: any; show_profile: any; }[]; }[]>; (arg0: { aborted: boolean; addEventListener: (type: any, listener: any) => void; removeEventListener: (type: any, listener: any) => void; }): any; }, timeout: number | undefined, signal: AbortSignal) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+      // Create a signal that aborts if either the timeout or parent signal aborts
+      const combinedSignal = {
+        aborted: false,
+        addEventListener: (type: string, listener: (this: AbortSignal, ev: Event) => any) => {
+          if (type !== 'abort') return;
+          controller.signal.addEventListener('abort', listener);
+          signal?.addEventListener('abort', listener);
+        },
+        removeEventListener: (type: string, listener: (this: AbortSignal, ev: Event) => any) => {
+          if (type !== 'abort') return;
+          controller.signal.removeEventListener('abort', listener);
+          signal?.removeEventListener('abort', listener);
+        }
+      };
+      
+      return await fetchFn(combinedSignal);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
   
   // Modified fetch on mount and when dependencies change
   useEffect(() => {

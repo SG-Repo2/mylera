@@ -106,50 +106,59 @@ export function Profile() {
     if (!user) return;
     setSaving(true);
     setError(null);
+    
+    // Validate display name
+    const trimmedName = displayName.trim();
+    if (trimmedName.length > 50) {
+      setError(new Error('Display name must be 50 characters or less'));
+      setSaving(false);
+      return;
+    }
+
+    // Create update object
+    const profileUpdates = {
+      display_name: trimmedName || null,
+      show_profile: showProfile,
+    };
+    
     try {
-      // Validate display name
-      const trimmedName = displayName.trim();
-      if (trimmedName.length > 50) {
-        throw new Error('Display name must be 50 characters or less');
-      }
-
-      await leaderboardService.updateUserProfile(user.id, {
-        display_name: trimmedName || null,
-        show_profile: showProfile,
-      });
-
-      try {
-        // Update user metadata to maintain name consistency
-        const { error: updateError } = await supabase.auth.updateUser({
+      // Run both updates in parallel with Promise.all for efficiency
+      const results = await Promise.all([
+        // Update profile in database
+        leaderboardService.updateUserProfile(user.id, profileUpdates),
+        
+        // Update user metadata (non-critical, won't block if it fails)
+        supabase.auth.updateUser({
           data: { 
             displayName: trimmedName || null,
             showProfile: showProfile
           }
-        });
-        
-        if (updateError) {
-          console.warn('Failed to update auth metadata:', updateError);
-        }
-        
-        await loadProfile(); // Reload to confirm changes
-        setEditingName(false);
-      } catch (reloadErr) {
-        console.warn('Profile saved but reload failed:', reloadErr);
-        // Don't throw here - the save was successful even if reload failed
-        // Just update local state
-        setProfile(prev => prev ? {
-          ...prev,
-          display_name: trimmedName || null,
-          show_profile: showProfile,
-        } : null);
-      }
+        }).catch(err => {
+          // Just log but don't fail the whole operation
+          console.warn('Auth metadata update failed:', err);
+          return null;
+        })
+      ]);
+      
+      // Update local state immediately instead of waiting for profile reload
+      setProfile(prev => prev ? {
+        ...prev,
+        ...profileUpdates
+      } : null);
+      
+      setEditingName(false);
+      
+      // Reload profile in background (don't await)
+      loadProfile().catch(err => {
+        console.warn('Profile reload error:', err);
+      });
     } catch (err) {
       console.error('Error saving profile:', err);
+      
+      // More specific error handling...
       if (err instanceof Error) {
         if (err.message.includes('42501')) {
           setError(new Error('You do not have permission to update this profile.'));
-        } else if (err.message.includes('PGRST200')) {
-          setError(new Error('Profile service is temporarily unavailable. Please try again later.'));
         } else {
           setError(err);
         }

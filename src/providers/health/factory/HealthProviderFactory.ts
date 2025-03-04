@@ -36,6 +36,8 @@ export class HealthProviderFactory {
   private static isInitializing = false;
   private static lastError: HealthProviderError | null = null;
   private static initializationPromise: Promise<HealthProvider> | null = null;
+  private static currentUserId: string | null = null;
+
   /**
    * Validates if the current platform is supported for OS-based health providers.
    * Fitbit is platform-independent and thus always valid.
@@ -54,8 +56,6 @@ export class HealthProviderFactory {
         'UNSUPPORTED_PLATFORM'
       );
     }
-
-
   }
 
   /**
@@ -104,6 +104,44 @@ export class HealthProviderFactory {
     }
   }
 
+  private static createDeferredProvider(): HealthProvider {
+    const queuedOperations: Array<[string, any[], (result: any) => void, (error: any) => void]> = [];
+    
+    const executeQueuedOperations = (realProvider: HealthProvider) => {
+      queuedOperations.forEach(([method, args, resolve, reject]) => {
+        try {
+          const result = (realProvider as any)[method](...args);
+          if (result instanceof Promise) {
+            result.then(resolve).catch(reject);
+          } else {
+            resolve(result);
+          }
+        } catch (error) {
+          reject(error);
+        }
+      });
+    };
+    
+    // When initialization completes, process queue
+    this.initializationPromise!.then(
+      provider => executeQueuedOperations(provider),
+      error => queuedOperations.forEach(([_, __, ___, reject]) => reject(error))
+    );
+    
+    // Create a proxy handler that queues operations
+    return new Proxy({} as HealthProvider, {
+      get: (target, prop) => {
+        if (typeof prop !== 'string') return undefined;
+        
+        return (...args: any[]) => {
+          return new Promise((resolve, reject) => {
+            queuedOperations.push([prop, args, resolve, reject]);
+          });
+        };
+      }
+    });
+  }
+
   /**
    * Gets the appropriate health provider instance for the current platform.
    * Creates a new instance if one doesn't exist.
@@ -114,22 +152,13 @@ export class HealthProviderFactory {
    */
   static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     if (this.instance) {
+      logger.info(LogCategory.Health, '[HealthProviderFactory] Returning existing provider instance');
       return this.instance;
     }
 
-    if (this.isInitializing) {
-      if (this.initializationPromise) {
-        // If initialization is in progress, we should wait for it rather than throwing an error
-        logger.warn(LogCategory.Health, '[HealthProviderFactory] Provider initialization in progress, waiting...');
-        throw new HealthProviderError(
-          'Provider initialization already in progress',
-          'INITIALIZATION_IN_PROGRESS'
-        );
-      } else {
-        // This is an inconsistent state that shouldn't happen
-        logger.error(LogCategory.Health, '[HealthProviderFactory] Inconsistent state: isInitializing true but no promise');
-        this.isInitializing = false;
-      }
+    if (this.isInitializing && this.initializationPromise) {
+      logger.info(LogCategory.Health, '[HealthProviderFactory] Provider initialization in progress, returning proxy');
+      return this.createDeferredProvider();
     }
 
     this.isInitializing = true;
@@ -153,39 +182,19 @@ export class HealthProviderFactory {
     if (this.isInitializing) {
       logger.info(LogCategory.Health, '[HealthProviderFactory] Waiting for in-progress initialization...');
       if (this.initializationPromise) {
-        try {
-          return await this.initializationPromise;
-        } catch (error) {
-          // If the existing promise fails, we should try again
-          logger.error(
-            LogCategory.Health, 
-            '[HealthProviderFactory] Existing initialization failed, retrying',
-            error instanceof Error ? error.message : String(error)
-          );
-          // Continue to create a new promise below
-        }
+        return await this.initializationPromise;
       }
     }
 
     logger.info(LogCategory.Health, '[HealthProviderFactory] Starting provider initialization');
-    
-    // Mark as initializing before creating the promise
     this.isInitializing = true;
     
-    // Create a fresh promise
     this.initializationPromise = (async () => {
       try {
-        // Clear previous errors
         this.lastError = null;
-        
-        // Get the provider instance
         const provider = this.initializeProvider(deviceType);
-        
-        // Return provider without waiting for initialization
-        // Individual components will handle waiting for initialize()
         return provider;
       } catch (error) {
-        // Record the error
         const err = error instanceof Error ? error : new Error(String(error));
         this.lastError = new HealthProviderError(
           `Failed to initialize health provider: ${err.message}`,
@@ -194,7 +203,6 @@ export class HealthProviderFactory {
         );
         throw this.lastError;
       } finally {
-        // Always reset the initializing flag so future attempts can proceed
         setTimeout(() => {
           this.isInitializing = false;
         }, 100);
@@ -227,6 +235,11 @@ export class HealthProviderFactory {
    * @returns Promise that resolves when cleanup is complete
    */
   static async cleanup(): Promise<void> {
+    if (this.isInitializing && this.initializationPromise) {
+      logger.info(LogCategory.Health, '[HealthProviderFactory] Waiting for initialization before cleanup');
+      await this.initializationPromise;
+    }
+    
     if (!this.instance) {
       logger.info(LogCategory.Health, '[HealthProviderFactory] No instance to clean up');
       return;
@@ -249,6 +262,7 @@ export class HealthProviderFactory {
       this.platform = null;
       this.isInitializing = false;
       this.initializationPromise = null;
+      this.currentUserId = null;
       this.lastError = null;
     }
   }
