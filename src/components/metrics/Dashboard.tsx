@@ -346,7 +346,7 @@ export const Dashboard = React.memo(function Dashboard({
         setIsRefreshing(false);
       }
     }
-  }, [userId, date, healthMetrics]);
+  }, [userId, date, dailyTotal, healthMetrics]);
 
   // Helper function for timeout
   const fetchWithTimeout = async (fetchFn: { (): Promise<any[]>; (): Promise<{ id: any; user_id: any; date: any; total_points: any; metrics_completed: any; created_at: any; updated_at: any; user_profiles: { display_name: any; avatar_url: any; show_profile: any; }[]; }[]>; (arg0: { aborted: boolean; addEventListener: (type: any, listener: any) => void; removeEventListener: (type: any, listener: any) => void; }): any; }, timeout: number | undefined, signal: AbortSignal) => {
@@ -463,13 +463,7 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [healthMetrics, dailyTotal, loading, userId, date]);
 
-  // Modified loading state behavior
-  if (loading && !dailyTotal && !healthMetrics) {
-    // Only show loading if we have no data at all
-    return <LoadingView />;
-  }
-
-  // Use a default dailyTotal if none exists
+  // Define a fallback dailyTotal
   const effectiveDailyTotal = dailyTotal || {
     id: `default-${userId}-${date}`,
     user_id: userId,
@@ -484,6 +478,12 @@ export const Dashboard = React.memo(function Dashboard({
   if ((error && error.name !== 'HealthProviderPermissionError') && 
       healthPermissionStatus === 'denied' && !dailyTotal) {
     return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
+  }
+
+  // Update the loading condition
+  if (loading && !dailyTotal && !healthMetrics) {
+    // Only show loading if we have no data at all
+    return <LoadingView />;
   }
 
   // Always render once data is available, even with minor errors
