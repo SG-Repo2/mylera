@@ -369,20 +369,65 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchStepsRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
-      // Use retry mechanism for HealthKit calls
+      // Use getDailyStepCountSamples instead of getStepCount to get daily values
       const results = await this.retryOperation(
-        () => promisify<{ value: number }>(AppleHealthKit.getStepCount, options),
-        2,  // 2 retries
-        500  // 500ms initial delay
+        () => promisify<Array<{ 
+          value: number; 
+          startDate: string; 
+          endDate: string;
+          day?: string; // Some implementations include a day field
+        }>>(
+          AppleHealthKit.getDailyStepCountSamples, 
+          options
+        ),
+        2,
+        500
       );
       
-      return [{
-        startDate: options.startDate || new Date().toISOString(),
-        endDate: options.endDate || new Date().toISOString(),
-        value: results.value || 0,
+      console.log('[AppleHealthProvider] Steps raw results:', results);
+      
+      if (!Array.isArray(results) || results.length === 0) {
+        return [{
+          startDate: options.startDate || new Date().toISOString(),
+          endDate: options.endDate || new Date().toISOString(),
+          value: 0,
+          unit: 'count',
+          sourceBundle: 'com.apple.health'
+        }];
+      }
+      
+      // If we receive a single value instead of daily samples, still create a daily entry
+      if (results.length === 1 && !results[0].day) {
+        const startDate = new Date(options.startDate || new Date());
+        const endDate = new Date(options.endDate || new Date());
+        const daySpan = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        // For range queries, try to distribute the value across days
+        if (daySpan > 1) {
+          const samples = [];
+          for (let i = 0; i < daySpan; i++) {
+            const day = new Date(startDate);
+            day.setDate(day.getDate() + i);
+            samples.push({
+              startDate: day.toISOString(),
+              endDate: day.toISOString(),
+              value: Math.round(results[0].value / daySpan),
+              unit: 'count',
+              sourceBundle: 'com.apple.health'
+            });
+          }
+          return samples;
+        }
+      }
+      
+      // Process daily samples
+      return results.map(sample => ({
+        startDate: sample.startDate,
+        endDate: sample.endDate,
+        value: Math.round(sample.value || 0),
         unit: 'count',
         sourceBundle: 'com.apple.health'
-      }];
+      }));
     } catch (error) {
       logger.error(LogCategory.Health, '[AppleHealthProvider] Error reading steps:', (error as Error).message);
       return [];
@@ -393,79 +438,97 @@ export class AppleHealthProvider extends BaseHealthProvider {
     try {
       logger.debug(LogCategory.Health, '[AppleHealthProvider] Fetching distance with options:', undefined, undefined, options);
       
-      // Use retry mechanism for distance
+      // First, try daily samples API if available
+      try {
+        const dailyResults = await this.retryOperation(
+          () => promisify<Array<{ value: number; startDate: string; endDate: string; }>>(
+            AppleHealthKit.getDailyDistanceWalkingRunningSamples, 
+            {
+              ...options,
+              interval: 24 * 60 * 60 * 1000, // 24-hour intervals (daily)
+            }
+          ),
+          1, // Only try once, fall back to other method if this fails
+          500
+        );
+        
+        if (Array.isArray(dailyResults) && dailyResults.length > 0) {
+          console.log('[AppleHealthProvider] Retrieved daily distance samples:', dailyResults);
+          
+          const mappedResults = dailyResults.map(sample => ({
+            startDate: sample.startDate,
+            endDate: sample.endDate,
+            value: Math.round(sample.value || 0),
+            unit: 'meters',
+            sourceBundle: 'com.apple.health'
+          }));
+          
+          return mappedResults;
+        }
+      } catch (dailyError) {
+        console.warn('[AppleHealthProvider] Error using daily distance samples, falling back to standard API:', dailyError);
+      }
+      
+      // Fall back to standard distance API
       const results = await this.retryOperation(
         () => promisify<any>(AppleHealthKit.getDistanceWalkingRunning, options),
         2, 
         500
       );
       
-      console.log('[AppleHealthProvider] Distance raw results:', results);
-
-      // Log the type of results to help with debugging
-      console.log('[AppleHealthProvider] Results type:', {
-        isObject: typeof results === 'object',
-        hasValue: 'value' in (results || {}),
-        valueType: typeof results?.value,
-        keys: results ? Object.keys(results) : []
-      });
-
-      // Handle the case where results is a plain object with startDate, endDate, and value
-      if (results && typeof results === 'object' && 'startDate' in results && 'endDate' in results && typeof results.value === 'number') {
-        const metric = {
-          startDate: results.startDate,
-          endDate: results.endDate,
-          value: Math.round(results.value),
-          unit: 'meters',
-          sourceBundle: 'com.apple.health'
-        };
+      // Handle different return formats
+      if (results && typeof results === 'object' && typeof results.value === 'number') {
+        // Create daily records by splitting the value across the date range
+        const startDate = new Date(options.startDate || new Date());
+        const endDate = new Date(options.endDate || new Date());
+        const daySpan = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         
-        console.log('[AppleHealthProvider] Processed plain distance result:', metric);
-        return [metric];
+        if (daySpan <= 1) {
+          return [{
+            startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
+            value: Math.round(results.value),
+            unit: 'meters',
+            sourceBundle: 'com.apple.health'
+          }];
+        }
+        
+        // Distribute the total across days for multi-day ranges
+        const dailyValue = results.value / daySpan;
+        const samples = [];
+        
+        for (let i = 0; i < daySpan; i++) {
+          const dayDate = new Date(startDate);
+          dayDate.setDate(dayDate.getDate() + i);
+          const dayStart = new Date(dayDate);
+          dayStart.setHours(0, 0, 0, 0);
+          
+          const dayEnd = new Date(dayDate);
+          dayEnd.setHours(23, 59, 59, 999);
+          
+          samples.push({
+            startDate: dayStart.toISOString(),
+            endDate: dayEnd.toISOString(),
+            value: Math.round(dailyValue),
+            unit: 'meters',
+            sourceBundle: 'com.apple.health'
+          });
+        }
+        
+        return samples;
       }
       
-      // Handle legacy allResults format (keeping for backward compatibility)
-      if (results?.allResults && typeof results.allResults.value === 'number') {
-        const metric = {
-          startDate: results.allResults.startDate || options.startDate,
-          endDate: results.allResults.endDate || options.endDate,
-          value: Math.round(results.allResults.value),
-          unit: 'meters',
-          sourceBundle: 'com.apple.health'
-        };
-        
-        console.log('[AppleHealthProvider] Processed single distance result:', metric);
-        return [metric];
-      }
-      
-      // Handle array response format
-      if (Array.isArray(results) && results.length > 0) {
-        const mappedResults = results.map(sample => ({
-          startDate: sample.startDate,
-          endDate: sample.endDate,
-          value: Math.round(sample.value || 0),
-          unit: 'meters',
-          sourceBundle: 'com.apple.health'
-        }));
-
-        console.log('[AppleHealthProvider] Processed distance results:', {
-          totalResults: mappedResults.length,
-          totalValue: mappedResults.reduce((sum, item) => sum + item.value, 0),
-          samples: mappedResults
-        });
-
-        return mappedResults;
-      }
-
-      // No valid results found
-      console.log('[AppleHealthProvider] No valid distance results found, returning 0');
-      return [{
+      // No valid results found, return empty data for the range
+      const emptyResult = [{
         startDate: options.startDate || new Date().toISOString(),
         endDate: options.endDate || new Date().toISOString(),
         value: 0,
         unit: 'meters',
         sourceBundle: 'com.apple.health'
       }];
+      
+      console.log('[AppleHealthProvider] No valid distance data found, returning empty result');
+      return emptyResult;
     } catch (error) {
       logger.error(LogCategory.Health, '[AppleHealthProvider] Error reading distance:', (error as Error).message);
       return [];
@@ -475,10 +538,16 @@ export class AppleHealthProvider extends BaseHealthProvider {
   private async fetchCaloriesRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
       console.log('[AppleHealthProvider] Fetching calories with options:', options);
+      
+      // Use getActiveEnergyBurned which can return samples
       const results = await promisify<Array<{ value: number; startDate: string; endDate: string }>>(
         AppleHealthKit.getActiveEnergyBurned,
-        options
+        {
+          ...options,
+          interval: 24 * 60 * 60 * 1000, // Get daily samples
+        }
       );
+      
       console.log('[AppleHealthProvider] Calories raw results:', results);
       
       if (!Array.isArray(results) || results.length === 0) {
@@ -491,13 +560,37 @@ export class AppleHealthProvider extends BaseHealthProvider {
         }];
       }
 
-      return results.map(sample => ({
-        startDate: sample.startDate,
-        endDate: sample.endDate,
-        value: Math.round(sample.value || 0),
-        unit: 'kcal',
-        sourceBundle: 'com.apple.health'
-      }));
+      // Group results by day to handle multiple entries per day
+      const dailyTotals = new Map<string, number>();
+      
+      results.forEach(sample => {
+        // Get the date portion (YYYY-MM-DD) from the timestamp
+        const day = new Date(sample.startDate).toISOString().split('T')[0];
+        const currentTotal = dailyTotals.get(day) || 0;
+        dailyTotals.set(day, currentTotal + (sample.value || 0));
+      });
+      
+      // Convert daily totals to array format
+      const dailyResults: RawHealthMetric[] = [];
+      
+      dailyTotals.forEach((value, day) => {
+        const date = new Date(day);
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        dailyResults.push({
+          startDate: startOfDay.toISOString(),
+          endDate: endOfDay.toISOString(),
+          value: Math.round(value),
+          unit: 'kcal',
+          sourceBundle: 'com.apple.health'
+        });
+      });
+      
+      return dailyResults;
     } catch (error) {
       console.error('[AppleHealthProvider] Error reading active calories:', error);
       return [];
@@ -525,12 +618,13 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   private async fetchHeartRateRaw(options: HealthInputOptions): Promise<RawHealthMetric[]> {
     try {
+      // Use heart rate sample API with more samples and daily grouping
       const results = await promisify<Array<{ value: number; startDate: string; endDate: string }>>(
         AppleHealthKit.getHeartRateSamples,
         {
           ...options,
           ascending: false,
-          limit: 100, // Get more samples for better accuracy
+          limit: 1000, // Get more samples for better accuracy
         }
       );
 
@@ -541,14 +635,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
           !isNaN(sample.value) &&
           sample.value > 30 && // More realistic minimum heart rate
           sample.value < 220 // Maximum realistic heart rate
-        )
-        .map(sample => ({
-          startDate: sample.startDate,
-          endDate: sample.endDate,
-          value: Math.round(sample.value),
-          unit: 'bpm',
-          sourceBundle: 'com.apple.health'
-        }));
+        );
 
       if (validSamples.length === 0) {
         return [{
@@ -560,7 +647,61 @@ export class AppleHealthProvider extends BaseHealthProvider {
         }];
       }
 
-      return validSamples;
+      // Group by day and calculate daily averages
+      const dailyReadings = new Map<string, number[]>();
+      
+      validSamples.forEach(sample => {
+        const day = new Date(sample.startDate).toISOString().split('T')[0];
+        if (!dailyReadings.has(day)) {
+          dailyReadings.set(day, []);
+        }
+        dailyReadings.get(day)!.push(sample.value);
+      });
+      
+      // Convert to daily averages
+      const dailyAverages: RawHealthMetric[] = [];
+      
+      dailyReadings.forEach((readings, day) => {
+        // Calculate average heart rate for the day
+        // Recent readings get more weight
+        const recentWeight = 0.6;
+        const oldWeight = 0.4;
+        let avgValue;
+        
+        if (readings.length <= 3) {
+          // Simple average for few readings
+          avgValue = readings.reduce((sum, val) => sum + val, 0) / readings.length;
+        } else {
+          // Weighted average giving more weight to recent readings
+          const recentReadings = readings.slice(0, 3);
+          const olderReadings = readings.slice(3);
+          
+          const recentAvg = recentReadings.reduce((sum, val) => sum + val, 0) / recentReadings.length;
+          const olderAvg = olderReadings.reduce((sum, val) => sum + val, 0) / olderReadings.length;
+          
+          avgValue = (recentAvg * recentWeight) + (olderAvg * oldWeight);
+        }
+        
+        const date = new Date(day);
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        dailyAverages.push({
+          startDate: startOfDay.toISOString(),
+          endDate: endOfDay.toISOString(),
+          value: Math.round(avgValue),
+          unit: 'bpm',
+          sourceBundle: 'com.apple.health'
+        });
+      });
+      
+      // Sort by date
+      return dailyAverages.sort((a, b) => 
+        new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+      );
     } catch (error) {
       console.error('[AppleHealthProvider] Error reading heart rate:', error);
       return [];
@@ -617,5 +758,52 @@ export class AppleHealthProvider extends BaseHealthProvider {
       logger.warn(LogCategory.Health, `[AppleHealthProvider] Attempting to initialize permissions with default user ID: ${userId}`);
       await this.initializePermissions(userId);
     }
+  }
+
+  // Additional utility method for processing data by day
+  private groupDataByDay<T extends { startDate: string; value: number }>(
+    data: T[],
+    aggregator: (values: number[]) => number = values => values.reduce((sum, v) => sum + v, 0)
+  ): RawHealthMetric[] {
+    const dailyData = new Map<string, number[]>();
+    
+    // Group values by day
+    data.forEach(item => {
+      const day = new Date(item.startDate).toISOString().split('T')[0];
+      if (!dailyData.has(day)) {
+        dailyData.set(day, []);
+      }
+      dailyData.get(day)!.push(item.value);
+    });
+    
+    // Create a RawHealthMetric for each day
+    const result: RawHealthMetric[] = [];
+    
+    dailyData.forEach((values, day) => {
+      const date = new Date(day);
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      result.push({
+        startDate: startOfDay.toISOString(),
+        endDate: endOfDay.toISOString(),
+        value: aggregator(values),
+        unit: this.getUnitForDay(day),
+        sourceBundle: 'com.apple.health'
+      });
+    });
+    
+    // Return sorted by date
+    return result.sort((a, b) => 
+      new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+    );
+  }
+
+  // Helper to get appropriate unit
+  private getUnitForDay(day: string): string {
+    return 'count'; // Override in subclasses if needed
   }
 }

@@ -1,17 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Dimensions, StyleSheet, Animated } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MetricType } from '@/src/types/metrics';
 import { brandColors } from '@/src/theme/theme';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import Svg, { Rect } from 'react-native-svg';
+import Svg, { Rect, Line } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
+import { getYAxisConfig, formatTickValue, convertMetricValue } from '../../utils/metricUtils';
+import { MeasurementSystem } from '../../types/metrics';
 
 interface BarChartProps {
   metricType: MetricType;
   userId: string;
   date: string;
   provider: HealthProvider;
+  measurementSystem: MeasurementSystem;
 }
 
 interface DataPoint {
@@ -23,11 +26,57 @@ interface DataPoint {
   isEmpty: boolean;
 }
 
-export function BarChart({ metricType, userId, date, provider }: BarChartProps) {
+export function BarChart({ metricType, userId, date, provider, measurementSystem }: BarChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataPoint[]>([]);
   const theme = useTheme();
+
+  // Move all useMemo hooks to the top level
+  const chartWidth = useMemo(() => Math.max(Dimensions.get('window').width - 48, 100), []);
+  const chartHeight = useMemo(() => 220, []);
+  const barWidth = useMemo(() => Math.max((chartWidth - 40) / 7 - 8, 20), []); // Use fixed value 7 for data points
+
+  // Calculate chart metrics using useMemo
+  const chartMetrics = useMemo(() => {
+    if (data.length === 0) {
+      return {
+        validData: [],
+        maxValue: 1,
+        minValue: 0,
+        yMin: 0,
+        yMax: 1,
+        range: 1
+      };
+    }
+
+    const validData = data.map(d => ({
+      ...d,
+      value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
+    }));
+
+    const maxValue = Math.max(...validData.map(d => d.value), 1);
+    const minValue = Math.min(...validData.map(d => d.value));
+    const padding = Math.max((maxValue - minValue) * 0.1, 1);
+    const yMax = maxValue + padding;
+    const yMin = Math.max(0, minValue - padding);
+    const range = Math.max(yMax - yMin, 1);
+
+    return {
+      validData,
+      maxValue,
+      minValue,
+      yMin,
+      yMax,
+      range
+    };
+  }, [data]);
+
+  // Calculate Y-axis configuration using useMemo
+  const yAxisConfig = useMemo(() => 
+    getYAxisConfig(metricType, chartMetrics.maxValue, measurementSystem),
+    [metricType, chartMetrics.maxValue, measurementSystem]
+  );
 
   // Enhanced day name function with better context
   const getDayNameWithContext = (dateStr: string): { name: string, isToday: boolean } => {
@@ -151,160 +200,177 @@ export function BarChart({ metricType, userId, date, provider }: BarChartProps) 
     return () => { mounted = false; };
   }, [metricType, userId, date, provider]);
 
-  if (loading) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
+  const renderContent = () => {
+    if (loading) {
+      return (
         <Text variant="bodyLarge" style={{ color: theme.colors.onSurface }}>
           Loading chart data...
         </Text>
-      </View>
-    );
-  }
+      );
+    }
 
-  if (error) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.errorContainer }]}>
+    if (error) {
+      return (
         <Text variant="bodyLarge" style={{ color: theme.colors.error }}>
           {error}
         </Text>
-      </View>
-    );
-  }
+      );
+    }
 
-  if (data.length === 0) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
+    if (data.length === 0) {
+      return (
         <Text variant="bodyLarge" style={{ color: theme.colors.onSurface }}>
           No data available
         </Text>
-      </View>
-    );
-  }
+      );
+    }
 
-  const validData = data.map(d => ({
-    ...d,
-    value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
-  }));
+    const metricColor = healthMetrics[metricType].color;
 
-  const maxValue = Math.max(...validData.map(d => d.value), 1); // Ensure minimum of 1 to avoid NaN issues
-  const minValue = Math.min(...validData.map(d => d.value));
-  const padding = Math.max((maxValue - minValue) * 0.1, 1);
-  const yMax = maxValue + padding;
-  const yMin = Math.max(0, minValue - padding);
-  const range = Math.max(yMax - yMin, 1);
-
-  const chartWidth = Math.max(Dimensions.get('window').width - 48, 100);
-  const chartHeight = 220;
-  const barWidth = Math.max((chartWidth - 40) / data.length - 8, 20);
-
-  const metricColor = healthMetrics[metricType].color;
-
-  return (
-    <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
-      <View style={styles.yAxisLabels}>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
-          {Math.ceil(yMax)}
-        </Text>
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
-          {Math.floor(yMin)}
-        </Text>
-      </View>
-
-      <View style={styles.chartArea}>
-        <View style={styles.gridContainer}>
-          {[0, 25, 50, 75, 100].map((percent) => (
-            <View
-              key={percent}
+    return (
+      <>
+        <View style={styles.yAxisLabels}>
+          {yAxisConfig.tickValues.map((value, index) => (
+            <View 
+              key={index} 
               style={[
-                styles.gridLine,
-                {
-                  top: `${percent}%`,
-                  backgroundColor: brandColors.primary,
-                  opacity: percent === 0 ? 0.15 : 0.05
+                styles.tickContainer,
+                { 
+                  top: `${100 - ((value - yAxisConfig.yMin) / (yAxisConfig.yMax - yAxisConfig.yMin) * 100)}%`,
+                  zIndex: 5
                 }
               ]}
-            />
+            >
+              <Text
+                variant="bodySmall"
+                style={{ 
+                  color: theme.colors.onSurface, 
+                  fontWeight: index === 0 || index === yAxisConfig.tickValues.length - 1 ? '600' : '400',
+                  fontSize: 10
+                }}
+              >
+                {formatTickValue(value, metricType, measurementSystem)}
+              </Text>
+              <View 
+                style={[
+                  styles.gridLine,
+                  { 
+                    backgroundColor: brandColors.primary,
+                    opacity: index === 0 ? 0.15 : 0.05
+                  }
+                ]} 
+              />
+            </View>
           ))}
         </View>
 
-        <View style={styles.barsContainer}>
-          {validData.map((point, index) => {
-            const normalizedValue = (point.value - yMin) / range;
-            // Ensure minimum bar height for visibility even with zero values
-            const barHeight = Math.max(
-              Math.min(normalizedValue * chartHeight, chartHeight),
-              point.isEmpty ? 2 : 4 // Minimum height for bars with zero values
-            );
-            
-            // Use the appropriate metric color from healthMetrics configuration
-            const color = point.isEmpty 
-              ? theme.colors.surfaceDisabled 
-              : healthMetrics[metricType].color;
-            
-            return (
-              <View key={point.date} style={styles.barWrapper}>
-                <View style={styles.barLabelContainer}>
-                  <Text variant="bodySmall" style={[styles.barValue, { 
-                    color: theme.colors.onSurface,
-                    opacity: point.isToday ? 1 : 0.9,
-                    // Hide zero values in the label
-                    display: point.isEmpty ? 'none' : 'flex'
+        <View style={styles.chartArea}>
+          <View style={styles.gridContainer}>
+            {[0, 25, 50, 75, 100].map((percent) => (
+              <View
+                key={percent}
+                style={[
+                  styles.gridLine,
+                  {
+                    top: `${percent}%`,
+                    backgroundColor: brandColors.primary,
+                    opacity: percent === 0 ? 0.15 : 0.05
+                  }
+                ]}
+              />
+            ))}
+          </View>
+
+          <View style={styles.barsContainer}>
+            {chartMetrics.validData.map((point, index) => {
+              const normalizedValue = (point.value - chartMetrics.yMin) / chartMetrics.range;
+              // Ensure minimum bar height for visibility even with zero values
+              const barHeight = Math.max(
+                Math.min(normalizedValue * chartHeight, chartHeight),
+                point.isEmpty ? 2 : 4 // Minimum height for bars with zero values
+              );
+              
+              // Use the appropriate metric color from healthMetrics configuration
+              const color = point.isEmpty 
+                ? theme.colors.surfaceDisabled 
+                : healthMetrics[metricType].color;
+              
+              return (
+                <View key={point.date} style={styles.barWrapper}>
+                  <View style={styles.barLabelContainer}>
+                    <Text variant="bodySmall" style={[styles.barValue, { 
+                      color: theme.colors.onSurface,
+                      opacity: point.isToday ? 1 : 0.9,
+                      // Hide zero values in the label
+                      display: point.isEmpty ? 'none' : 'flex'
+                    }]}>
+                      {Math.round(point.value)}
+                    </Text>
+                  </View>
+                  <Animated.View style={[styles.barContainer, {
+                    height: point.animation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, barHeight],
+                    }),
+                    width: barWidth,
+                    // Use different background color for empty bars
+                    backgroundColor: point.isEmpty 
+                      ? theme.colors.surfaceDisabled + '80' // Lighter color for empty bars
+                      : color + '1A', // 10% opacity version for container
+                    transform: [{
+                      scaleY: point.animation.interpolate({
+                        inputRange: [0, 0.8, 0.9, 1],
+                        outputRange: [0.3, 1.05, 1.02, 1],
+                      })
+                    }],
+                    transformOrigin: 'bottom'
                   }]}>
-                    {Math.round(point.value)}
+                    <Svg height="100%" width="100%">
+                      <Rect
+                        x="0"
+                        y="0"
+                        width="100%"
+                        height="100%"
+                        rx={4}
+                        ry={4}
+                        fill={color}
+                      />
+                    </Svg>
+                  </Animated.View>
+                  <Text variant="bodySmall" style={[
+                    styles.dayLabel,
+                    { color: theme.colors.onSurface },
+                    point.isToday && { 
+                      fontWeight: '600',
+                      opacity: 1
+                    },
+                    !point.isToday && {
+                      opacity: 0.7
+                    }
+                  ]}>
+                    {point.dayName}
                   </Text>
                 </View>
-                <Animated.View style={[styles.barContainer, {
-                  height: point.animation.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, barHeight],
-                  }),
-                  width: barWidth,
-                  // Use different background color for empty bars
-                  backgroundColor: point.isEmpty 
-                    ? theme.colors.surfaceDisabled + '80' // Lighter color for empty bars
-                    : color + '1A', // 10% opacity version for container
-                  transform: [{
-                    scaleY: point.animation.interpolate({
-                      inputRange: [0, 0.8, 0.9, 1],
-                      outputRange: [0.3, 1.05, 1.02, 1],
-                    })
-                  }],
-                  transformOrigin: 'bottom'
-                }]}>
-                  <Svg height="100%" width="100%">
-                    <Rect
-                      x="0"
-                      y="0"
-                      width="100%"
-                      height="100%"
-                      rx={4}
-                      ry={4}
-                      fill={color}
-                    />
-                  </Svg>
-                </Animated.View>
-                <Text variant="bodySmall" style={[
-                  styles.dayLabel,
-                  { color: theme.colors.onSurface },
-                  point.isToday && { 
-                    fontWeight: '600',
-                    opacity: 1
-                  },
-                  !point.isToday && {
-                    opacity: 0.7
-                  }
-                ]}>
-                  {point.dayName}
-                </Text>
-              </View>
-            );
-          })}
+              );
+            })}
+          </View>
         </View>
-      </View>
+      </>
+    );
+  };
+
+  return (
+    <View style={[styles.container, { 
+      backgroundColor: error 
+        ? theme.colors.errorContainer 
+        : theme.colors.surface 
+    }]}>
+      {renderContent()}
     </View>
   );
 }
 
+// Add new styles for tick container
 const styles = StyleSheet.create({
   container: {
     height: 280,
@@ -385,4 +451,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  tickContainer: {
+    position: 'absolute',
+    left: 0,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 8,
+    transform: [{ translateY: -8 }]
+  }
 });

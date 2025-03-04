@@ -27,3 +27,5 @@ export interface MetricValidationError {
   message: string;
   field?: string;
 }
+
+export type MeasurementSystem = 'metric' | 'imperial';
