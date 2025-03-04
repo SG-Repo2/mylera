@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { theme } from '../../theme/theme';
 
@@ -14,6 +14,8 @@ interface AvatarProps {
 
 export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWidth = 2, style }: AvatarProps) {
   const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(!!url);
+  const [cachedUrl, setCachedUrl] = useState<string | null>(null);
   
   // Get the first letter of the name or use a fallback
   const firstLetter = (name && name.length > 0) ? name.charAt(0).toUpperCase() : '?';
@@ -31,8 +33,26 @@ export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWi
   
   const bgColor = getBackgroundColor(name);
 
+  // Add cache busting to the URL
+  useEffect(() => {
+    if (url) {
+      // Generate unique timestamp for cache busting
+      const timestamp = Date.now();
+      const newUrl = url.includes('?') 
+        ? `${url}&t=${timestamp}` 
+        : `${url}?t=${timestamp}`;
+      
+      setCachedUrl(newUrl);
+      setHasError(false);
+      setIsLoading(true);
+    } else {
+      setCachedUrl(null);
+      setIsLoading(false);
+    }
+  }, [url]);
+
   // Only try to render the image if URL exists and no previous error
-  const shouldRenderImage = url && !hasError;
+  const shouldRenderImage = cachedUrl && !hasError;
 
   return (
     <View 
@@ -44,23 +64,42 @@ export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWi
           borderRadius: size / 2,
           borderColor,
           borderWidth,
-          backgroundColor: bgColor
+          backgroundColor: bgColor,
+          zIndex: 10 // Higher than PodiumView's z-indexes which go up to 3
         },
         style
       ]}
     >
       {shouldRenderImage ? (
-        <Image
-          source={{ uri: url }}
-          style={{ width: '100%', height: '100%', borderRadius: size / 2 }}
-          contentFit="cover"
-          transition={200}
-          cachePolicy="none"
-          onError={(error) => {
-            console.log('[Avatar] Image load error:', error);
-            setHasError(true);
-          }}
-        />
+        <>
+          {isLoading && (
+            <ActivityIndicator 
+              size="small" 
+              color="#FFFFFF" 
+              style={styles.loader} 
+            />
+          )}
+          <Image
+            source={{ uri: cachedUrl }}
+            style={{ 
+              width: '100%', 
+              height: '100%', 
+              borderRadius: size / 2,
+              opacity: isLoading ? 0.3 : 1
+            }}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="none"
+            onError={(error) => {
+              console.log('[Avatar] Image load error:', error);
+              setHasError(true);
+              setIsLoading(false);
+            }}
+            onLoad={() => {
+              setIsLoading(false);
+            }}
+          />
+        </>
       ) : (
         <Text style={[styles.letter, { fontSize: size * 0.4 }]}>
           {firstLetter}
@@ -79,5 +118,9 @@ const styles = StyleSheet.create({
   letter: {
     color: '#FFFFFF',
     fontWeight: 'bold',
+  },
+  loader: {
+    position: 'absolute',
+    zIndex: 11 // Higher than container's z-index
   }
 });

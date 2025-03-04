@@ -14,17 +14,22 @@ interface PodiumProps {
  * First place is centered and elevated, with second and third place on either side.
  */
 export function PodiumView({ topThree, currentUserId }: PodiumProps) {
-  // Create podium order with null entries for missing positions
-  const podiumOrder = [
-    { entry: topThree[1] || null, rank: 2 }, // Second place
-    { entry: topThree[0] || null, rank: 1 }, // First place
-    { entry: topThree[2] || null, rank: 3 }, // Third place
-  ].filter(item => item.entry !== null); // Filter out null entries
+  // Only include entries that actually exist
+  const podiumEntries = [
+    topThree[1] ? { entry: topThree[1], rank: 2 } : null, // Second place
+    topThree[0] ? { entry: topThree[0], rank: 1 } : null, // First place
+    topThree[2] ? { entry: topThree[2], rank: 3 } : null  // Third place
+  ].filter(Boolean) as { entry: LeaderboardEntryType, rank: number }[];
+  
+  // If no entries, don't render the podium
+  if (podiumEntries.length === 0) {
+    return null;
+  }
   
   return (
     <View style={styles.outerContainer}>
       <View style={styles.podiumContainer}>
-        {podiumOrder.map(({ entry, rank }) => (
+        {podiumEntries.map(({ entry, rank }) => (
           <View
             key={entry.user_id}
             style={[
@@ -61,6 +66,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.roundness * 2,
     // Add overflow: 'hidden' to contain shadows
     overflow: 'hidden',
+    zIndex: 20, // Higher than Avatar's z-index of 10
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -104,13 +110,13 @@ const styles = StyleSheet.create({
   },
   firstPlace: {
     transform: [{ translateY: -20 }],
-    zIndex: 3,
+    zIndex: 23, // Higher than outerContainer
   },
   secondPlace: {
     transform: [{ translateY: -10 }],
-    zIndex: 2,
+    zIndex: 22, // Higher than outerContainer
   },
   thirdPlace: {
-    zIndex: 1,
+    zIndex: 21, // Higher than outerContainer
   },
 });

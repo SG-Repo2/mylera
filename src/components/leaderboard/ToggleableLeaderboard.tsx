@@ -60,10 +60,15 @@ export function ToggleableLeaderboard() {
       } else {
         setError(new Error('Failed to load leaderboard'));
       }
+      
+      // Ensure we always have valid leaderboard data even if fetch fails
+      if (!leaderboardData.length) {
+        setLeaderboardData([]);
+      }
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [user, timeframe]);
+  }, [user, timeframe, leaderboardData.length]);
 
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     if (
@@ -94,6 +99,14 @@ export function ToggleableLeaderboard() {
     }
   }, [user, loadData, handleAppStateChange, timeframe]);
 
+  // Effect to ensure we have valid data even if there's an error
+  useEffect(() => {
+    if (error && !leaderboardData.length) {
+      // Set empty array as fallback
+      setLeaderboardData([]);
+    }
+  }, [error, leaderboardData.length]);
+
   if (loading && !leaderboardData.length && !error) {
     return (
       <View style={styles.centered} testID="leaderboard-loading">
@@ -102,7 +115,7 @@ export function ToggleableLeaderboard() {
     );
   }
 
-  if (error) {
+  if (error && !leaderboardData.length) {
     return (
       <ErrorView 
         error={error} 
@@ -192,7 +205,10 @@ export function ToggleableLeaderboard() {
             color="#64748B"
           />
           <Text style={styles.emptyStateText}>
-            No leaderboard data available for {timeframe === 'daily' ? 'today' : 'this week'}.
+            {error 
+              ? "Couldn't load leaderboard data. Pull down to retry."
+              : `No leaderboard data available for ${timeframe === 'daily' ? 'today' : 'this week'}.`
+            }
           </Text>
         </View>
       )}
@@ -276,6 +292,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
+    paddingHorizontal: 20,
   },
   emptyStateText: {
     marginTop: 12,

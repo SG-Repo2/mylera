@@ -50,14 +50,18 @@ export function LeaderboardEntry({
   // Use useEffect to update avatarUrl with cache busting when avatar_url changes
   useEffect(() => {
     if (avatar_url && isValidImageUrl(avatar_url)) {
-      // Always add cache busting query param with higher timestamp
-      const cacheBuster = Date.now() + 10000; // Future timestamp to force refresh
-      setAvatarUrl(avatar_url.includes('?') 
-        ? `${avatar_url}&_cb=${cacheBuster}` 
-        : `${avatar_url}?_cb=${cacheBuster}`);
-      setAvatarError(false);
+      // Generate unique timestamp for cache busting
+      const timestamp = Date.now();
+      const newUrl = avatar_url.includes('?') 
+        ? `${avatar_url}&t=${timestamp}` 
+        : `${avatar_url}?t=${timestamp}`;
+      
+      // Reset loading state when URL changes
       setIsAvatarLoading(true);
-      console.log(`Setting avatar URL with cache busting: ${avatar_url}`);
+      setAvatarError(false);
+      setAvatarUrl(newUrl);
+      
+      console.log(`Updated avatar URL with cache busting: ${newUrl}`);
     } else {
       setAvatarUrl(null);
     }
@@ -113,8 +117,19 @@ export function LeaderboardEntry({
     }
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
+  // Calculate display points consistently
+  const displayPoints = React.useMemo(() => {
+    // Ensure points is a number
+    const points = typeof total_points === 'number' ? total_points : 0;
+    return `${points} pts`;
+  }, [total_points]);
+
   const renderAvatar = (isPodium = false) => {
-    // Remove problematic avatar check - trust the error handling instead
+    const size = isPodium 
+      ? (position === 1 ? 88 : 72) 
+      : 56;
+      
+    // Better conditional for showing avatar
     if (avatarUrl && !avatarError) {
       return (
         <View style={[
@@ -128,28 +143,24 @@ export function LeaderboardEntry({
           <Image 
             source={{ 
               uri: avatarUrl,
-              width: isPodium ? (position === 1 ? 88 : 72) : 56,
-              height: isPodium ? (position === 1 ? 88 : 72) : 56,
-              // Add cache: 'reload' to force refresh from network
+              width: size,
+              height: size,
+              // Force cache refresh
               cache: 'reload'
             }}
             defaultSource={DEFAULT_AVATAR}
             style={[
               styles.avatar,
-              isAvatarLoading && { opacity: 0.3 },
-              isPodium && position === 1 && styles.firstPlaceAvatar,
-              isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+              { width: size, height: size, borderRadius: size/2 },
+              isAvatarLoading && { opacity: 0.3 }
             ]}
             testID="avatar-image"
-            onError={(e) => {
-              console.log('Avatar load error:', e.nativeEvent.error);
+            onError={() => {
+              console.log('Avatar load error for:', display_name);
               setAvatarError(true);
               setIsAvatarLoading(false);
             }}
-            onLoad={() => {
-              console.log('Avatar loaded successfully:', avatarUrl);
-              setIsAvatarLoading(false);
-            }}
+            onLoad={() => setIsAvatarLoading(false)}
             fadeDuration={300}
             resizeMode="cover"
           />
@@ -162,6 +173,7 @@ export function LeaderboardEntry({
       <View 
         style={[
           styles.avatarPlaceholder,
+          { width: size, height: size, borderRadius: size/2 },
           isPodium && position === 1 && styles.firstPlaceAvatar,
           isPodium && (position === 2 || position === 3) && styles.podiumAvatar
         ]}
@@ -226,7 +238,7 @@ export function LeaderboardEntry({
             adjustsFontSizeToFit
             minimumFontScale={0.7}
           >
-            {total_points} pts
+            {displayPoints}
           </Animated.Text>
         </Animated.View>
       </View>
@@ -301,7 +313,7 @@ export function LeaderboardEntry({
             adjustsFontSizeToFit
             minimumFontScale={0.7}
           >
-            {total_points} pts
+            {displayPoints}
           </Animated.Text>
         </View>
       </Animated.View>
