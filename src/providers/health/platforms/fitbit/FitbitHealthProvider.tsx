@@ -245,8 +245,8 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   /**
    * fetchRawMetrics
    *
-   * For simplicity, this implementation assumes that the startDate and endDate
-   * fall on the same day. Fitbit’s daily endpoints are used to fetch raw metrics.
+   * Enhanced to properly fetch and organize data for a date range (like past 7 days)
+   * for the bar chart visualization.
    */
   async fetchRawMetrics(
     startDate: Date,
@@ -259,142 +259,403 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     }
     await this.ensureInitialized();
 
-    // Fitbit endpoints are typically date-based; we assume both dates are the same.
-    const dateStr = startDate.toISOString().split('T')[0];
+    // Calculate the date range in the proper format Fitbit API needs
+    const startDateStr = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    const endDateStr = endDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    logger.info(LogCategory.Health, '[FitbitHealthProvider] Fetching data for date range:', undefined, undefined, { 
+      startDateStr, 
+      endDateStr 
+    });
+
+    // Determine number of days in the range
+    const daysDiff = Math.round(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    logger.info(LogCategory.Health, '[FitbitHealthProvider] Days in range:', daysDiff.toString());
+
     const rawData: RawHealthData = {};
 
     await Promise.all(
       types.map(async (type) => {
-        switch (type) {
-          case 'steps':
-            rawData.steps = await this.fetchStepsRaw(dateStr);
-            break;
-          case 'distance':
-            rawData.distance = await this.fetchDistanceRaw(dateStr);
-            break;
-          case 'calories':
-            rawData.calories = await this.fetchCaloriesRaw(dateStr);
-            break;
-          case 'heart_rate':
-            rawData.heart_rate = await this.fetchHeartRateRaw(dateStr);
-            break;
-          case 'basal_calories':
-            rawData.basal_calories = await this.fetchBasalCaloriesRaw(dateStr);
-            break;
-          case 'flights_climbed':
-            rawData.flights_climbed = await this.fetchFlightsClimbedRaw(dateStr);
-            break;
-          case 'exercise':
-            rawData.exercise = await this.fetchExerciseRaw(dateStr);
-            break;
+        try {
+          switch (type) {
+            case 'steps':
+              rawData.steps = await this.fetchStepsRawRange(startDateStr, endDateStr);
+              break;
+            case 'distance':
+              rawData.distance = await this.fetchDistanceRawRange(startDateStr, endDateStr);
+              break;
+            case 'calories':
+              rawData.calories = await this.fetchCaloriesRawRange(startDateStr, endDateStr);
+              break;
+            case 'heart_rate':
+              rawData.heart_rate = await this.fetchHeartRateRawRange(startDateStr, endDateStr);
+              break;
+            case 'basal_calories':
+              rawData.basal_calories = await this.fetchBasalCaloriesRawRange(startDateStr, endDateStr);
+              break;
+            case 'flights_climbed':
+              rawData.flights_climbed = await this.fetchFlightsClimbedRawRange(startDateStr, endDateStr);
+              break;
+            case 'exercise':
+              rawData.exercise = await this.fetchExerciseRawRange(startDateStr, endDateStr);
+              break;
+          }
+        } catch (error) {
+          logger.error(LogCategory.Health, `[FitbitHealthProvider] Error fetching ${type} metrics:`, (error as Error).message);
         }
       })
     );
 
+    // Fill in any missing days to ensure a complete dataset for the bar chart
+    this.fillMissingDays(rawData, startDate, endDate);
+
     return rawData;
   }
 
-  // ----- Below are helper methods to fetch each metric type via Fitbit API -----
+  /**
+   * Helper method to ensure all days have data, even if no Fitbit records exist
+   */
+  private fillMissingDays(rawData: RawHealthData, startDate: Date, endDate: Date): void {
+    const allDays = this.generateDayRange(startDate, endDate);
 
-  private async fetchStepsRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/steps/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/steps/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-steps'] && data['activities-steps'].length > 0) {
-      return data['activities-steps'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: 'count',
+    // Process each metric type
+    Object.keys(rawData).forEach(metricKey => {
+      const metricData = rawData[metricKey as keyof RawHealthData];
+      if (!metricData || !Array.isArray(metricData)) return;
+
+      // Get existing days
+      const existingDays = new Set(
+        metricData.map(item => item.startDate.split('T')[0])
+      );
+
+      // Add placeholder entries for missing days using 0 as the default value
+      const unit = metricData.length > 0 ? metricData[0].unit : 'count';
+
+      allDays.forEach(day => {
+        if (!existingDays.has(day)) {
+          metricData.push({
+            startDate: `${day}T00:00:00.000Z`,
+            endDate: `${day}T23:59:59.999Z`,
+            value: 0, // placeholder value of 0 to match RawHealthMetric interface
+            unit,
+            sourceBundle: 'com.fitbit.api'
+          });
+        }
+      });
+
+      // Sort by date to ensure correct order
+      metricData.sort((a, b) => a.startDate.localeCompare(b.startDate));
+    });
+  }
+
+  /**
+   * Generate an array of date strings (YYYY-MM-DD) for all days in a range
+   */
+  private generateDayRange(startDate: Date, endDate: Date): string[] {
+    const days: string[] = [];
+    const current = new Date(startDate);
+
+    while (current <= endDate) {
+      days.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return days;
+  }
+
+  // ----- Updated methods to fetch each metric type via Fitbit API for a date range -----
+
+  /**
+   * Fetch steps data for a date range
+   */
+  private async fetchStepsRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    // Endpoint: /activities/steps/date/{baseDate}/{endDate}.json
+    const url = `https://api.fitbit.com/1/user/-/activities/steps/date/${startDateStr}/${endDateStr}.json`;
+    try {
+      const data = await this.fetchFromFitbit(url);
+
+      if (data && data['activities-steps'] && data['activities-steps'].length > 0) {
+        return data['activities-steps'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          value: Number(item.value),
+          unit: 'count',
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+
+      return [];
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error fetching steps range:', (error as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch distance data for a date range
+   */
+  private async fetchDistanceRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    // Endpoint: /activities/distance/date/{baseDate}/{endDate}.json
+    const url = `https://api.fitbit.com/1/user/-/activities/distance/date/${startDateStr}/${endDateStr}.json`;
+    try {
+      const data = await this.fetchFromFitbit(url);
+
+      if (data && data['activities-distance'] && data['activities-distance'].length > 0) {
+        return data['activities-distance'].map((item: any) => {
+          // Fitbit distance is in kilometers, convert to meters for internal consistency
+          const distanceKm = Number(item.value);
+          const distanceMeters = distanceKm * 1000;
+
+          return {
+            startDate: `${item.dateTime}T00:00:00.000Z`,
+            endDate: `${item.dateTime}T23:59:59.999Z`,
+            value: distanceMeters,
+            unit: METRIC_UNITS.DISTANCE,
+            sourceBundle: 'com.fitbit.api'
+          };
+        });
+      }
+
+      return [];
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error fetching distance range:', (error as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch calories data for a date range
+   */
+  private async fetchCaloriesRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    // Endpoint: /activities/calories/date/{baseDate}/{endDate}.json
+    const url = `https://api.fitbit.com/1/user/-/activities/calories/date/${startDateStr}/${endDateStr}.json`;
+    try {
+      const data = await this.fetchFromFitbit(url);
+
+      if (data && data['activities-calories'] && data['activities-calories'].length > 0) {
+        return data['activities-calories'].map((item: any) => ({
+          startDate: `${item.dateTime}T00:00:00.000Z`,
+          endDate: `${item.dateTime}T23:59:59.999Z`,
+          value: Number(item.value),
+          unit: METRIC_UNITS.CALORIES,
+          sourceBundle: 'com.fitbit.api'
+        }));
+      }
+
+      return [];
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error fetching calories range:', (error as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch heart rate data for a date range
+   */
+  private async fetchHeartRateRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    try {
+      // Fetch heart rate data day by day for the range
+      const result: RawHealthMetric[] = [];
+      const start = new Date(startDateStr);
+      const end = new Date(endDateStr);
+
+      for (let current = new Date(start); current <= end; current.setDate(current.getDate() + 1)) {
+        const dateStr = current.toISOString().split('T')[0];
+
+        // Endpoint: /activities/heart/date/{date}/1d.json
+        const url = `https://api.fitbit.com/1/user/-/activities/heart/date/${dateStr}/1d.json`;
+        try {
+          const data = await this.fetchFromFitbit(url);
+
+          if (data && data['activities-heart'] && data['activities-heart'].length > 0) {
+            data['activities-heart'].forEach((item: any) => {
+              if (item.value.restingHeartRate) {
+                result.push({
+                  startDate: `${item.dateTime}T00:00:00.000Z`,
+                  endDate: `${item.dateTime}T23:59:59.999Z`,
+                  value: Number(item.value.restingHeartRate),
+                  unit: METRIC_UNITS.HEART_RATE,
+                  sourceBundle: 'com.fitbit.api'
+                });
+              }
+            });
+          }
+        } catch (innerError) {
+          logger.warn(LogCategory.Health, `[FitbitHealthProvider] Error fetching heart rate for date ${dateStr}:`, 
+            innerError instanceof Error ? innerError.message : 'Unknown error');
+          // Continue to next day even if this one fails
+        }
+      }
+
+      return result;
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error in heart rate range fetch:', (error as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch basal calories for a date range (estimated)
+   */
+  private async fetchBasalCaloriesRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    try {
+      // For Fitbit, basal calories can be estimated from the daily summary
+      const url = `https://api.fitbit.com/1/user/-/activities/date/${startDateStr}/${endDateStr}.json`;
+      const data = await this.fetchFromFitbit(url);
+
+      const result: RawHealthMetric[] = [];
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+
+      for (const date of dateRange) {
+        // Look for the date in the response
+        const dayData = data.find((day: any) => day.dateTime === date);
+
+        // Extract basal calories (BMR) if available; if not, use 0
+        const basalCalories = dayData?.summary?.caloriesBMR;
+        result.push({
+          startDate: `${date}T00:00:00.000Z`,
+          endDate: `${date}T23:59:59.999Z`,
+          value: basalCalories ? Number(basalCalories) : 0,
+          unit: METRIC_UNITS.CALORIES,
+          sourceBundle: 'com.fitbit.api'
+        });
+      }
+
+      return result;
+    } catch (error) {
+      logger.warn(LogCategory.Health, '[FitbitHealthProvider] Error or unsupported basal calories:', 
+        error instanceof Error ? error.message : 'Unknown error');
+
+      // Generate placeholder entries for the date range
+      const result: RawHealthMetric[] = [];
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+
+      for (const date of dateRange) {
+        result.push({
+          startDate: `${date}T00:00:00.000Z`,
+          endDate: `${date}T23:59:59.999Z`,
+          value: 0,
+          unit: METRIC_UNITS.CALORIES,
+          sourceBundle: 'com.fitbit.api'
+        });
+      }
+
+      return result;
+    }
+  }
+
+  /**
+   * Fetch flights climbed for a date range
+   */
+  private async fetchFlightsClimbedRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    try {
+      // Endpoint: /activities/elevation/date/{baseDate}/{endDate}.json
+      const url = `https://api.fitbit.com/1/user/-/activities/elevation/date/${startDateStr}/${endDateStr}.json`;
+      const data = await this.fetchFromFitbit(url);
+
+      if (data && data['activities-elevation'] && data['activities-elevation'].length > 0) {
+        // Convert elevation to estimated flights (roughly 3 meters per flight)
+        return data['activities-elevation'].map((item: any) => {
+          const elevationMeters = Number(item.value);
+          const estimatedFlights = Math.round(elevationMeters / 3);
+
+          return {
+            startDate: `${item.dateTime}T00:00:00.000Z`,
+            endDate: `${item.dateTime}T23:59:59.999Z`,
+            value: estimatedFlights || 0,  // use 0 if estimatedFlights is falsy
+            unit: METRIC_UNITS.COUNT,
+            sourceBundle: 'com.fitbit.api'
+          };
+        });
+      }
+
+      // If no data, generate placeholder entries
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+      return dateRange.map(date => ({
+        startDate: `${date}T00:00:00.000Z`,
+        endDate: `${date}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.COUNT,
+        sourceBundle: 'com.fitbit.api'
+      }));
+    } catch (error) {
+      logger.warn(LogCategory.Health, '[FitbitHealthProvider] Error fetching flights climbed:', 
+        error instanceof Error ? error.message : 'Unknown error');
+
+      // Generate placeholder entries for the date range
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+      return dateRange.map(date => ({
+        startDate: `${date}T00:00:00.000Z`,
+        endDate: `${date}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.COUNT,
         sourceBundle: 'com.fitbit.api'
       }));
     }
-    return [];
   }
 
-  private async fetchDistanceRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/distance/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/distance/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-distance'] && data['activities-distance'].length > 0) {
-      return data['activities-distance'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: METRIC_UNITS.DISTANCE,
+  /**
+   * Fetch exercise minutes for a date range
+   */
+  private async fetchExerciseRawRange(startDateStr: string, endDateStr: string): Promise<RawHealthMetric[]> {
+    try {
+      // Fetch activities for each day in the range
+      const result: RawHealthMetric[] = [];
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+
+      for (const date of dateRange) {
+        // Endpoint: /activities/date/{date}.json
+        const url = `https://api.fitbit.com/1/user/-/activities/date/${date}.json`;
+
+        try {
+          const data = await this.fetchFromFitbit(url);
+
+          // Calculate total exercise minutes from activities
+          let totalMinutes = 0;
+
+          if (data && data.activities && Array.isArray(data.activities)) {
+            data.activities.forEach((activity: any) => {
+              if (activity.activityLevel &&
+                  ['moderate', 'vigorous', 'very vigorous'].includes(activity.activityLevel.toLowerCase())) {
+                totalMinutes += activity.duration / 60000; // Convert from ms to minutes
+              }
+            });
+          }
+
+          result.push({
+            startDate: `${date}T00:00:00.000Z`,
+            endDate: `${date}T23:59:59.999Z`,
+            value: totalMinutes ? Math.round(totalMinutes) : 0,
+            unit: METRIC_UNITS.EXERCISE,
+            sourceBundle: 'com.fitbit.api'
+          });
+        } catch (dayError) {
+          logger.warn(LogCategory.Health, `[FitbitHealthProvider] Error fetching exercise for date ${date}:`, 
+            dayError instanceof Error ? dayError.message : 'Unknown error');
+          result.push({
+            startDate: `${date}T00:00:00.000Z`,
+            endDate: `${date}T23:59:59.999Z`,
+            value: 0,
+            unit: METRIC_UNITS.EXERCISE,
+            sourceBundle: 'com.fitbit.api'
+          });
+        }
+      }
+
+      return result;
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error fetching exercise range:', (error as Error).message);
+      const dateRange = this.generateDayRange(new Date(startDateStr), new Date(endDateStr));
+      return dateRange.map(date => ({
+        startDate: `${date}T00:00:00.000Z`,
+        endDate: `${date}T23:59:59.999Z`,
+        value: 0,
+        unit: METRIC_UNITS.EXERCISE,
         sourceBundle: 'com.fitbit.api'
       }));
     }
-    return [];
-  }
-
-  private async fetchCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/calories/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/calories/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-calories'] && data['activities-calories'].length > 0) {
-      return data['activities-calories'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        value: Number(item.value),
-        unit: METRIC_UNITS.CALORIES,
-        sourceBundle: 'com.fitbit.api'
-      }));
-    }
-    return [];
-  }
-
-  private async fetchHeartRateRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Endpoint: /activities/heart/date/{date}/1d.json
-    const url = `https://api.fitbit.com/1/user/-/activities/heart/date/${dateStr}/1d.json`;
-    const data = await this.fetchFromFitbit(url);
-    if (data && data['activities-heart'] && data['activities-heart'].length > 0) {
-      return data['activities-heart'].map((item: any) => ({
-        startDate: `${item.dateTime}T00:00:00.000Z`,
-        endDate: `${item.dateTime}T23:59:59.999Z`,
-        // Here we use restingHeartRate if available; otherwise default to 0.
-        value: item.value.restingHeartRate ? Number(item.value.restingHeartRate) : 0,
-        unit: METRIC_UNITS.HEART_RATE,
-        sourceBundle: 'com.fitbit.api'
-      }));
-    }
-    return [];
-  }
-
-  private async fetchBasalCaloriesRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // Fitbit does not provide a direct endpoint for basal calories.
-    // Return a placeholder (zero value) for now.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.CALORIES,
-      sourceBundle: 'com.fitbit.api'
-    }];
-  }
-
-  private async fetchFlightsClimbedRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // There is no direct Fitbit endpoint for flights climbed.
-    // Return a placeholder (zero value) for now.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.COUNT,
-      sourceBundle: 'com.fitbit.api'
-    }];
-  }
-
-  private async fetchExerciseRaw(dateStr: string): Promise<RawHealthMetric[]> {
-    // For this example, we assume no dedicated exercise endpoint.
-    // You might consider using "active minutes" or another metric.
-    return [{
-      startDate: `${dateStr}T00:00:00.000Z`,
-      endDate: `${dateStr}T23:59:59.999Z`,
-      value: 0,
-      unit: METRIC_UNITS.EXERCISE,
-      sourceBundle: 'com.fitbit.api'
-    }];
   }
 
   /**
