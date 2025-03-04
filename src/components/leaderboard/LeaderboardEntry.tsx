@@ -164,6 +164,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 1.41,
     padding: 12,
+    overflow: 'hidden', // Add this to contain the shadow
   },
   highlighted: {
     backgroundColor: theme.colors.primaryContainer,

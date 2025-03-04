@@ -1,150 +1,83 @@
-import React, { useState, useEffect } from 'react';
-import {  View, Text, StyleSheet, ActivityIndicator, Platform } from 'react-native';
-import { theme } from '../../theme/theme';
-import { getCachedAvatarUrl } from '../../utils/imageUtils';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { theme } from '../../theme/theme';
+
 interface AvatarProps {
   url: string | null;
-  size?: number;
+  size: number;
   name?: string;
-  style?: any;
   borderColor?: string;
   borderWidth?: number;
+  style?: any;
 }
 
-export const Avatar = ({ 
-  url, 
-  size = 56, 
-  name, 
-  style,
-  borderColor,
-  borderWidth 
-}: AvatarProps) => {
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWidth = 2, style }: AvatarProps) {
   const [hasError, setHasError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const MAX_RETRIES = 2;
   
-  useEffect(() => {
-    if (url) {
-      const cachedUrl = getCachedAvatarUrl(url);
-      setAvatarUrl(cachedUrl);
-      setIsLoading(true);
-      setHasError(false);
-      setRetryCount(0);
-    } else {
-      setAvatarUrl(null);
-      setIsLoading(false);
-      setHasError(false);
-    }
-  }, [url]);
+  // Get the first letter of the name or use a fallback
+  const firstLetter = (name && name.length > 0) ? name.charAt(0).toUpperCase() : '?';
   
-  const handleRetry = () => {
-    if (url && retryCount < MAX_RETRIES) {
-      const cachedUrl = getCachedAvatarUrl(url);
-      setAvatarUrl(cachedUrl);
-      setIsLoading(true);
-      setHasError(false);
-      setRetryCount(prev => prev + 1);
+  // Generate a consistent background color based on the name
+  const getBackgroundColor = (name: string) => {
+    const colors = ['#4F46E5', '#7C3AED', '#0891B2', '#2563EB', '#9333EA', '#DB2777', '#DC2626'];
+    if (!name) return colors[0];
+    let sum = 0;
+    for (let i = 0; i < name.length; i++) {
+      sum += name.charCodeAt(i);
     }
+    return colors[sum % colors.length];
   };
   
-  if (!avatarUrl || hasError) {
-    return (
-      <View style={[
-        styles.placeholder,
+  const bgColor = getBackgroundColor(name);
+
+  // Only try to render the image if URL exists and no previous error
+  const shouldRenderImage = url && !hasError;
+
+  return (
+    <View 
+      style={[
+        styles.container, 
         { 
           width: size, 
           height: size, 
           borderRadius: size / 2,
           borderColor,
-          borderWidth
+          borderWidth,
+          backgroundColor: bgColor
         },
         style
-      ]}>
-        <Text style={[
-          styles.placeholderText,
-          { fontSize: Math.max(size * 0.4, 16) }
-        ]}>
-          {name ? name[0].toUpperCase() : '?'}
-        </Text>
-      </View>
-    );
-  }
-  
-  return (
-    <View style={[
-      { width: size, height: size },
-      style
-    ]}>
-      {isLoading && (
-        <ActivityIndicator 
-          size="small" 
-          color={theme.colors.primary}
-          style={styles.loader} 
-        />
-      )}
-      <Image
-        source={{
-          uri: avatarUrl,
-          width: size,
-          height: size,
-          cache: Platform.select({
-            ios: 'reload', // Force reload on iOS
-            android: 'default' // Use default caching on Android
-          })
-        }}
-        style={[
-          styles.image,
-          { 
-            width: size, 
-            height: size, 
-            borderRadius: size / 2,
-            borderColor,
-            borderWidth
-          },
-          isLoading && styles.loading
-        ]}
-        onLoad={() => {
-          console.log('[Avatar] Image loaded successfully:', avatarUrl);
-          setIsLoading(false);
-        }}
-        onError={(error) => {
-          console.log('[Avatar] Image load error:', error);
-          if (retryCount < MAX_RETRIES) {
-            handleRetry();
-          } else {
+      ]}
+    >
+      {shouldRenderImage ? (
+        <Image
+          source={{ uri: url }}
+          style={{ width: '100%', height: '100%', borderRadius: size / 2 }}
+          contentFit="cover"
+          transition={200}
+          cachePolicy="none"
+          onError={(error) => {
+            console.log('[Avatar] Image load error:', error);
             setHasError(true);
-            setIsLoading(false);
-          }
-        }}
-      />
+          }}
+        />
+      ) : (
+        <Text style={[styles.letter, { fontSize: size * 0.4 }]}>
+          {firstLetter}
+        </Text>
+      )}
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  image: {
-    backgroundColor: theme.colors.surfaceVariant,
-  },
-  loading: {
-    opacity: 0.3,
-  },
-  placeholder: {
-    backgroundColor: theme.colors.surfaceVariant,
-    alignItems: 'center',
+  container: {
     justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
   },
-  placeholderText: {
-    fontWeight: '600',
-    color: theme.colors.onSurfaceVariant,
-  },
-  loader: {
-    position: 'absolute',
-    zIndex: 2,
-    alignSelf: 'center',
-    top: '50%',
-    transform: [{ translateY: -12 }],
+  letter: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   }
-}); 
+});

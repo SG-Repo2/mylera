@@ -327,11 +327,12 @@ export const leaderboardService = {
               httpMethod: 'POST',
               uploadType: FileSystem.FileSystemUploadType.MULTIPART,
               fieldName: 'file',
-              mimeType: 'image/jpeg',
+              mimeType: 'image/jpeg', // Ensure this is set correctly
               headers: {
                 'Authorization': `Bearer ${token}`,
                 'x-upsert': 'true',
                 'Cache-Control': 'max-age=0, no-cache, no-store, must-revalidate',
+                'Content-Type': 'image/jpeg', // Add this explicit content type
                 'Pragma': 'no-cache',
                 'Expires': '0'
               }

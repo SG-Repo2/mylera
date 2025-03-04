@@ -34,7 +34,11 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
               rank === 3 && styles.thirdPlace,
             ]}
           >
-            <View style={styles.podiumEntryWrapper}>
+            <View style={[
+              styles.podiumEntryWrapper,
+              // Add solid background color to fix shadow issue
+              { backgroundColor: '#FFFFFF' }
+            ]}>
               <LeaderboardEntry
                 entry={entry}
                 highlight={entry.user_id === currentUserId}
@@ -55,6 +59,8 @@ const styles = StyleSheet.create({
     marginVertical: 20,
     backgroundColor: '#1E3A8A',
     borderRadius: theme.roundness * 2,
+    // Add overflow: 'hidden' to contain shadows
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -82,6 +88,8 @@ const styles = StyleSheet.create({
   },
   podiumEntryWrapper: {
     flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
