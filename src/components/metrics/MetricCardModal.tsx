@@ -360,6 +360,7 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                   userId={userId}
                   date={date}
                   provider={provider}
+                  measurementSystem={measurementSystem}
                 />
               )}
             </View>
