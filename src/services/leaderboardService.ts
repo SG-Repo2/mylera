@@ -84,7 +84,8 @@ export const leaderboardService = {
 
       if (profilesError) throw profilesError;
 
-      // Create leaderboard entries
+      // Create leaderboard entries with both total_points and points properties
+      // to ensure compatibility with components that might expect either
       const entries = Array.from(userPoints.entries())
         .map(([userId, points], index) => {
           const profile = profiles?.find(p => p.id === userId);
@@ -93,6 +94,7 @@ export const leaderboardService = {
             display_name: profile?.display_name || `User ${userId.slice(0, 8)}`,
             avatar_url: profile?.avatar_url || null,
             total_points: points.total,
+            points: points.total, // Add points as fallback for components that expect it
             metrics_completed: points.completed,
             rank: index + 1,
             show: profile?.show_profile !== false

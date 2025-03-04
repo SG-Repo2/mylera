@@ -1,11 +1,19 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Image, StyleSheet, Animated, Platform, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
 import { theme } from '../../theme/theme';
-import { Avatar } from '../shared/Avatar';
+import { supabase } from '@/src/services/supabaseClient';
 
 const ANIMATION_DURATION = 300;
+const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
+
+// Update the isValidImageUrl function to be more permissive for Supabase URLs
+const isValidImageUrl = (url: string | null): boolean => {
+  if (!url) return false;
+  // More permissive check for URLs - accepts any http/https URLs
+  return url.startsWith('http') || url.startsWith('https');
+};
 
 interface Props {
   entry: LeaderboardEntryType;
@@ -25,12 +33,35 @@ export function LeaderboardEntry({
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
   
+  // Initialize avatarUrl with a more permissive check
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    isValidImageUrl(avatar_url) ? avatar_url : null
+  );
+  const [avatarError, setAvatarError] = useState(false);
+  const [isAvatarLoading, setIsAvatarLoading] = useState(true);
+  
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
   const pointsAnim = useRef(new Animated.Value(total_points)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const prevRankRef = useRef(rank);
   const prevPointsRef = useRef(total_points);
+
+  // Use useEffect to update avatarUrl with cache busting when avatar_url changes
+  useEffect(() => {
+    if (avatar_url && isValidImageUrl(avatar_url)) {
+      // Always add cache busting query param with higher timestamp
+      const cacheBuster = Date.now() + 10000; // Future timestamp to force refresh
+      setAvatarUrl(avatar_url.includes('?') 
+        ? `${avatar_url}&_cb=${cacheBuster}` 
+        : `${avatar_url}?_cb=${cacheBuster}`);
+      setAvatarError(false);
+      setIsAvatarLoading(true);
+      console.log(`Setting avatar URL with cache busting: ${avatar_url}`);
+    } else {
+      setAvatarUrl(null);
+    }
+  }, [avatar_url]);
 
   // Animate when rank or points change
   useEffect(() => {
@@ -82,122 +113,325 @@ export function LeaderboardEntry({
     }
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
+  const renderAvatar = (isPodium = false) => {
+    // Remove problematic avatar check - trust the error handling instead
+    if (avatarUrl && !avatarError) {
+      return (
+        <View style={[
+          styles.avatarContainer,
+          isPodium && position === 1 && styles.firstPlaceAvatar,
+          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+        ]}>
+          {isAvatarLoading && (
+            <ActivityIndicator size="small" color="#1E3A8A" style={styles.loaderOverlay} />
+          )}
+          <Image 
+            source={{ 
+              uri: avatarUrl,
+              width: isPodium ? (position === 1 ? 88 : 72) : 56,
+              height: isPodium ? (position === 1 ? 88 : 72) : 56,
+              // Add cache: 'reload' to force refresh from network
+              cache: 'reload'
+            }}
+            defaultSource={DEFAULT_AVATAR}
+            style={[
+              styles.avatar,
+              isAvatarLoading && { opacity: 0.3 },
+              isPodium && position === 1 && styles.firstPlaceAvatar,
+              isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+            ]}
+            testID="avatar-image"
+            onError={(e) => {
+              console.log('Avatar load error:', e.nativeEvent.error);
+              setAvatarError(true);
+              setIsAvatarLoading(false);
+            }}
+            onLoad={() => {
+              console.log('Avatar loaded successfully:', avatarUrl);
+              setIsAvatarLoading(false);
+            }}
+            fadeDuration={300}
+            resizeMode="cover"
+          />
+        </View>
+      );
+    }
+    
+    // Fallback to placeholder with first letter of name
+    return (
+      <View 
+        style={[
+          styles.avatarPlaceholder,
+          isPodium && position === 1 && styles.firstPlaceAvatar,
+          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+        ]}
+        testID="avatar-placeholder"
+      >
+        <Text style={styles.avatarPlaceholderText}>
+          {display_name ? display_name[0].toUpperCase() : '?'}
+        </Text>
+      </View>
+    );
+  };
+
   if (variant === 'podium') {
     return (
-      <View style={styles.podiumContainer}>
-        <Avatar 
-          url={avatar_url}
-          size={position === 1 ? 88 : 72}
-          name={display_name}
-          borderColor={position === 1 ? '#FFD700' : '#E2E8F0'}
-          borderWidth={position === 1 ? 3 : 2}
-          style={styles.podiumAvatar}
-        />
-        <Text 
+      <View
+        style={[styles.podiumContainer, highlight && styles.highlightBackground]}
+        testID="leaderboard-entry-podium"
+      >
+        {position === 1 && (
+          <MaterialCommunityIcons
+            name="crown"
+            size={32}
+            color="#FFD700"
+            style={styles.crown}
+          />
+        )}
+        <Animated.View 
           style={[
-            styles.podiumDisplayName,
-            position === 1 && styles.firstPlaceText
-          ]}
-          numberOfLines={1}
-        >
-          {display_name || 'Anonymous'}
-        </Text>
-        <Text 
-          style={[
-            styles.podiumPoints,
-            position === 1 && styles.firstPlacePoints
+            styles.podiumContent,
+            { transform: [{ scale: scaleAnim }] }
           ]}
         >
-          {total_points} pts
-        </Text>
+          <View style={styles.podiumAvatarContainer}>
+            {renderAvatar(true)}
+          </View>
+          <Text 
+            style={[
+              styles.podiumDisplayName, 
+              highlight && styles.highlightText,
+              position === 1 && styles.firstPlaceText
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
+          >
+            {display_name}
+          </Text>
+          <Animated.Text 
+            style={[
+              styles.podiumPoints,
+              highlight && styles.highlightText,
+              position === 1 && styles.firstPlacePoints,
+              {
+                transform: [{
+                  translateY: pointsAnim.interpolate({
+                    inputRange: [total_points - 100, total_points, total_points + 100],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {total_points} pts
+          </Animated.Text>
+        </Animated.View>
       </View>
     );
   }
 
   return (
-    <Animated.View 
-      style={[
-        styles.container,
-        highlight && styles.highlighted,
-        { transform: [{ scale: scaleAnim }] }
-      ]}
+    <View 
+      style={[styles.container, highlight && styles.highlightBackground]}
+      accessibilityRole="text"
+      accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
+      accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
+      testID="leaderboard-entry"
     >
-      <View style={styles.rankContainer}>
-        <MaterialCommunityIcons 
-          name={rank <= 3 ? 'trophy' : 'medal-outline'} 
-          size={24} 
-          color={rank <= 3 ? '#FFD700' : '#94A3B8'}
-        />
-        <Text style={styles.rank}>#{rank}</Text>
-      </View>
-      
-      <Avatar 
-        url={avatar_url}
-        size={56}
-        name={display_name}
-        style={styles.avatar}
-      />
-      
-      <View style={styles.infoContainer}>
-        <Text style={styles.displayName} numberOfLines={1}>
-          {display_name || 'Anonymous'}
-        </Text>
-        <Text style={styles.points}>
-          {total_points} pts
-        </Text>
-      </View>
-    </Animated.View>
+      <Animated.View 
+        style={[
+          styles.mainContent,
+          { transform: [{ scale: scaleAnim }] }
+        ]}
+      >
+        {/* Rank */}
+        <View style={styles.rankContainer}>
+          <Animated.Text 
+            style={[
+              styles.rankText, 
+              highlight && styles.highlightText,
+              {
+                transform: [{
+                  translateY: rankAnim.interpolate({
+                    inputRange: [rank - 1, rank, rank + 1],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            testID="rank-text"
+          >
+            {rank}
+          </Animated.Text>
+        </View>
+
+        {/* Avatar */}
+        <View style={styles.avatarContainer}>
+          {renderAvatar()}
+        </View>
+
+        {/* User Info */}
+        <View style={styles.infoContainer}>
+          <Text 
+            style={[styles.displayName, highlight && styles.highlightText]}
+            testID="display-name"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
+          >
+            {display_name}
+          </Text>
+          <Animated.Text 
+            style={[
+              styles.pointsText, 
+              highlight && styles.highlightText,
+              {
+                transform: [{
+                  translateY: pointsAnim.interpolate({
+                    inputRange: [total_points - 100, total_points, total_points + 100],
+                    outputRange: [-20, 0, 20]
+                  })
+                }]
+              }
+            ]}
+            testID="points-text"
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {total_points} pts
+          </Animated.Text>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 12,
-    backgroundColor: theme.colors.surface,
+    marginBottom: 12,
+    borderRadius: theme.roundness * 1.5,
+    backgroundColor: '#FFFFFF',
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1.41,
-    padding: 12,
-    overflow: 'hidden', // Add this to contain the shadow
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
-  highlighted: {
-    backgroundColor: theme.colors.primaryContainer,
-  },
-  rankContainer: {
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  rank: {
-    ...theme.fonts.titleSmall,
-    color: theme.colors.onSurfaceVariant,
-    marginTop: 4,
-  },
-  infoContainer: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  displayName: {
-    ...theme.fonts.titleMedium,
-    color: theme.colors.onSurface,
-  },
-  points: {
-    ...theme.fonts.bodyMedium,
-    color: theme.colors.onSurfaceVariant,
-    marginTop: 2,
-  },
-  podiumContainer: {
+  mainContent: {
+    flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
   },
+  highlightBackground: {
+    backgroundColor: '#BFDBFE',
+  },
+  rankContainer: {
+    marginRight: 12,
+    width: 32,
+    alignItems: 'center',
+  },
+  rankText: {
+    ...theme.fonts.titleLarge,
+    color: '#1E293B',
+    fontWeight: '700',
+    fontSize: 24,
+  },
+  highlightText: {
+    color: '#1E3A8A',
+  },
+  avatarContainer: {
+    width: 56,
+    marginVertical: 8,
+  },
+  podiumAvatarContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  avatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholderText: {
+    ...theme.fonts.titleMedium,
+    color: '#64748B',
+  },
+  infoContainer: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  displayName: {
+    ...theme.fonts.titleMedium,
+    color: '#1E293B',
+    fontWeight: '600',
+    fontSize: 18,
+  },
+  pointsText: {
+    ...theme.fonts.bodyLarge,
+    color: '#64748B',
+    marginTop: 4,
+    fontSize: 16,
+  },
+  // Podium-specific styles
+  crown: {
+    position: 'absolute',
+    top: -16,
+    alignSelf: 'center',
+    zIndex: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  podiumContainer: {
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: theme.roundness * 1.5,
+    backgroundColor: '#FFFFFF',
+    height: '100%',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  podiumContent: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+    paddingBottom: 8,
+    width: '100%',
+  },
   podiumDisplayName: {
     ...theme.fonts.titleMedium,
-    color: theme.colors.onSurface,
+    color: '#1E293B',
     textAlign: 'center',
     fontWeight: '600',
     fontSize: 16,
@@ -206,29 +440,40 @@ const styles = StyleSheet.create({
   },
   firstPlaceText: {
     ...theme.fonts.titleLarge,
-    color: theme.colors.primary,
+    color: '#1E3A8A',
     fontWeight: '700',
     fontSize: 20,
   },
   podiumPoints: {
     ...theme.fonts.titleMedium,
-    color: theme.colors.onSurfaceVariant,
+    color: '#64748B',
     textAlign: 'center',
     fontSize: 14,
     marginTop: 4,
   },
   firstPlacePoints: {
     ...theme.fonts.titleLarge,
-    color: theme.colors.primary,
+    color: '#1E3A8A',
     fontWeight: '700',
     fontSize: 18,
   },
-  podiumAvatar: {
-    marginBottom: -16,
+  firstPlaceAvatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 3,
+    borderColor: '#FFD700',
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  podiumAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+  },
+  loaderOverlay: {
+    position: 'absolute',
+    zIndex: 2,
+    alignSelf: 'center',
   },
 });
