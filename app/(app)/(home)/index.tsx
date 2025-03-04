@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator, Text } from 'react-native';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderFactory } from '@/src/providers/health';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
@@ -28,17 +28,65 @@ const LoadingScreen = React.memo(() => {
 export default function HomeScreen() {
   const { user, loading: authLoading } = useAuth();
   const [providerReady, setProviderReady] = useState(false);
+  const [initError, setInitError] = useState<Error | null>(null);
+  
+  // Create the provider once
   const provider = useMemo(() => {
-    // Create the provider once
-    const healthProvider = HealthProviderFactory.getProvider();
-    
-    // Mark provider as ready after a short delay to prevent rapid re-renders
-    setTimeout(() => {
-      setProviderReady(true);
-    }, 100);
-    
-    return healthProvider;
+    try {
+      return HealthProviderFactory.getProvider();
+    } catch (err) {
+      console.error('Error creating health provider:', err);
+      setInitError(err instanceof Error ? err : new Error(String(err)));
+      return null;
+    }
   }, []);
+  
+  // Check actual initialization status
+  useEffect(() => {
+    let mounted = true;
+    let safetyTimeout: NodeJS.Timeout;
+    
+    const checkProviderStatus = async () => {
+      try {
+        if (!provider) {
+          throw new Error('Health provider not created');
+        }
+        
+        // If provider has initialize method, use it
+        if (typeof provider.initialize === 'function') {
+          await provider.initialize();
+        }
+        
+        if (mounted) {
+          setProviderReady(true);
+          setInitError(null);
+        }
+      } catch (err) {
+        console.error('Provider initialization error:', err);
+        if (mounted) {
+          setInitError(err instanceof Error ? err : new Error(String(err)));
+          // Still set ready to prevent infinite loading
+          setProviderReady(true);
+        }
+      }
+    };
+    
+    // Start initialization check
+    checkProviderStatus();
+    
+    // Safety timeout to prevent infinite loading
+    safetyTimeout = setTimeout(() => {
+      if (mounted && !providerReady) {
+        console.log('Safety timeout triggered - resolving provider ready state');
+        setProviderReady(true);
+      }
+    }, 5000); // 5 seconds max initialization time
+    
+    return () => {
+      mounted = false;
+      clearTimeout(safetyTimeout);
+    };
+  }, [provider]);
   
   const insets = useSafeAreaInsets();
   
@@ -59,6 +107,8 @@ export default function HomeScreen() {
     return <LoadingScreen />;
   }
 
+  // If we have an initialization error but provider is marked ready,
+  // still render the Dashboard which can handle partial functionality
   return (
     <Animated.View 
       style={[
@@ -69,11 +119,19 @@ export default function HomeScreen() {
         }
       ]}
     >
-      <Dashboard
-        provider={provider}
-        userId={user.id}
-        showAlerts={true}
-      />
+      {provider ? (
+        <Dashboard
+          provider={provider} 
+          userId={user.id}
+          showAlerts={true}
+        />
+      ) : (
+        <Surface style={styles.errorCard} elevation={3}>
+          <Text style={styles.errorText}>
+            Unable to initialize health provider. Please try again.
+          </Text>
+        </Surface>
+      )}
     </Animated.View>
   );
 }
@@ -107,4 +165,16 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  errorCard: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    textAlign: 'center',
+    color: theme.colors.error,
+    fontSize: 16,
+  }
 });

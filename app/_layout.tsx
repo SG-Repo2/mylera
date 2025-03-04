@@ -61,48 +61,71 @@ function ProtectedRoutes() {
     }).start();
   }, []);
   
-  // Create a debounced navigation function
+  // Create a debounced navigation function with critical path handling
   const navigateSafely = useCallback((path: string) => {
     const now = Date.now();
+    const nav = navigationRef.current;
     
-    // Check if we should prevent navigation due to throttling
-    if (now < navigationRef.current.preventRedirectUntil) {
+    // Identify critical navigation paths
+    const isCriticalNavigation = 
+      (path === '/(app)/(home)' && pathname.includes('register')) || // Post-registration
+      (path === '/(auth)/login' && !session) || // Logout to login
+      (path.includes('health-setup')); // Health setup flow
+    
+    // Don't throttle critical navigation paths
+    if (now < nav.preventRedirectUntil && !isCriticalNavigation) {
       console.log('[ProtectedRoutes] Navigation throttled, skipping redirect to', path);
       return;
     }
     
-    if (navigationRef.current.isRedirecting) {
+    if (nav.isRedirecting && !isCriticalNavigation) {
       console.log('[ProtectedRoutes] Navigation already in progress, skipping redirect to', path);
       return;
     }
     
     // Update ref before navigation to prevent loops
-    navigationRef.current.isRedirecting = true;
-    navigationRef.current.lastPathname = path;
-    // Add throttling - prevent any redirects for 2 seconds
-    navigationRef.current.preventRedirectUntil = now + 2000;
+    nav.isRedirecting = true;
+    nav.lastPathname = path;
     
-    console.log('[ProtectedRoutes] Navigating to:', path);
+    // Set different throttle times based on navigation importance
+    nav.preventRedirectUntil = isCriticalNavigation ? 
+      now + 500 : // shorter throttle for critical paths 
+      now + 2000; // normal throttle time
+    
+    console.log('[ProtectedRoutes] Navigating to:', path, { isCriticalNavigation });
     
     // Start with zero opacity for smooth transition
     fadeAnim.setValue(0);
     
     const handleNavigation = async () => {
-      await router.replace(path);
-      // Fade in the new screen
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-      // Allow future navigations after a delay to debounce
-      setTimeout(() => {
-        navigationRef.current.isRedirecting = false;
-      }, NavigationConfig.DEBOUNCE_DELAY);
+      try {
+        await router.replace(path);
+        
+        // Fade in the new screen
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: isCriticalNavigation ? 100 : 200, // Faster animation for critical paths
+          useNativeDriver: true,
+        }).start();
+        
+        console.log('[ProtectedRoutes] Navigation completed to:', path);
+      } catch (err) {
+        console.error('[ProtectedRoutes] Navigation error:', err);
+      } finally {
+        // Always reset navigation flags after a delay
+        setTimeout(() => {
+          if (navigationRef.current) {
+            navigationRef.current.isRedirecting = false;
+          }
+        }, isCriticalNavigation ? 100 : NavigationConfig.DEBOUNCE_DELAY);
+      }
     };
     
-    handleNavigation();
-  }, [router, fadeAnim]);
+    // Execute navigation with a small delay to let UI update
+    setTimeout(() => {
+      handleNavigation();
+    }, 50);
+  }, [router, fadeAnim, pathname, session]);
   
   // Improved navigation logic with better state tracking
   useEffect(() => {

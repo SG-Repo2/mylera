@@ -146,28 +146,62 @@ export class HealthProviderFactory {
    */
   static async getProviderAsync(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
     if (this.instance) {
+      logger.info(LogCategory.Health, '[HealthProviderFactory] Returning existing provider instance');
       return this.instance;
     }
 
-    if (this.isInitializing && this.initializationPromise) {
+    if (this.isInitializing) {
       logger.info(LogCategory.Health, '[HealthProviderFactory] Waiting for in-progress initialization...');
-      return this.initializationPromise;
+      if (this.initializationPromise) {
+        try {
+          return await this.initializationPromise;
+        } catch (error) {
+          // If the existing promise fails, we should try again
+          logger.error(
+            LogCategory.Health, 
+            '[HealthProviderFactory] Existing initialization failed, retrying',
+            error instanceof Error ? error.message : String(error)
+          );
+          // Continue to create a new promise below
+        }
+      }
     }
 
-    this.isInitializing = true;
-    this.initializationPromise = Promise.resolve().then(() => this.initializeProvider(deviceType));
+    logger.info(LogCategory.Health, '[HealthProviderFactory] Starting provider initialization');
     
-    try {
-      return await this.initializationPromise;
-    } catch (error) {
-      throw error instanceof HealthProviderError 
-        ? error 
-        : new HealthProviderError(
-            `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            'ASYNC_INITIALIZATION_FAILED',
-            error instanceof Error ? error : undefined
-          );
-    }
+    // Mark as initializing before creating the promise
+    this.isInitializing = true;
+    
+    // Create a fresh promise
+    this.initializationPromise = (async () => {
+      try {
+        // Clear previous errors
+        this.lastError = null;
+        
+        // Get the provider instance
+        const provider = this.initializeProvider(deviceType);
+        
+        // Return provider without waiting for initialization
+        // Individual components will handle waiting for initialize()
+        return provider;
+      } catch (error) {
+        // Record the error
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.lastError = new HealthProviderError(
+          `Failed to initialize health provider: ${err.message}`,
+          'provider_init_failed',
+          err
+        );
+        throw this.lastError;
+      } finally {
+        // Always reset the initializing flag so future attempts can proceed
+        setTimeout(() => {
+          this.isInitializing = false;
+        }, 100);
+      }
+    })();
+    
+    return this.initializationPromise;
   }
 
   /**

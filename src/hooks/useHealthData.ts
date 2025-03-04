@@ -56,6 +56,24 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const MAX_SYNC_ATTEMPTS = 3;
   const MIN_SYNC_INTERVAL = 3000; // Minimum time between syncs in ms
 
+  // Add safety timeout for loading state
+  useEffect(() => {
+    let mounted = true;
+    const safetyTimer = setTimeout(() => {
+      if (mounted && loading) {
+        console.log('[useHealthData] Safety timeout triggered - resolving loading state');
+        setLoading(false);
+        setIsInitialized(true);
+        isSyncInProgress.current = false;
+      }
+    }, 15000); // 15 seconds max loading time
+    
+    return () => {
+      mounted = false;
+      clearTimeout(safetyTimer);
+    };
+  }, [loading]);
+
   const syncHealthData = useCallback(async () => {
     // Prevent concurrent syncs, too frequent syncs, and handle unmounting
     const now = Date.now();
@@ -84,14 +102,25 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     try {
       console.log('[useHealthData] Starting health data sync for user:', userId);
       
-      // Use the atomic initialization with permissions
-      await provider.initializeWithPermissions(userId);
+      // Add try/catch for each step
+      try {
+        await provider.initializeWithPermissions(userId);
+      } catch (initError) {
+        console.warn('[useHealthData] Provider initialization error:', initError);
+        // Continue despite error - data might be partial but UI won't be stuck
+      }
       
       // Check mount state before continuing
       if (!isMounted.current) return;
       
-      // Check permission status
-      const permissionState = await provider.checkPermissionsStatus();
+      // Check permission status with error fallback
+      let permissionState;
+      try {
+        permissionState = await provider.checkPermissionsStatus();
+      } catch (permError) {
+        console.warn('[useHealthData] Permission check error:', permError);
+        permissionState = { status: 'not_determined', lastChecked: Date.now() };
+      }
       
       // Check mount state before continuing
       if (!isMounted.current) return;
@@ -99,22 +128,26 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       // If permissions aren't granted, request them
       if (permissionState.status !== 'granted') {
         console.log('[useHealthData] Requesting health permissions...');
-        const granted = await provider.requestPermissions();
-        
-        // Check mount state before continuing
-        if (!isMounted.current) return;
-        
-        // If user explicitly denied permissions, show useful error but don't block UI
-        if (granted !== 'granted') {
-          // Set error but still continue to show UI with limited functionality
-          throw new Error(
-            'Health permissions not granted. Some features may be limited.'
-          );
+        try {
+          const granted = await provider.requestPermissions();
+          
+          // Check mount state before continuing
+          if (!isMounted.current) return;
+          
+          // If user explicitly denied permissions, show useful error but don't block UI
+          if (granted !== 'granted') {
+            throw new Error(
+              'Health permissions not granted. Some features may be limited.'
+            );
+          }
+        } catch (permRequestError) {
+          console.warn('[useHealthData] Permission request error:', permRequestError);
+          // Continue with limited functionality
         }
       }
 
       // Fetch health data and update metrics
-      console.log('[useHealthData] Permissions granted, fetching health data...');
+      console.log('[useHealthData] Permissions checked, fetching health data...');
       const healthData = await provider.getMetrics();
       
       // Check mount state before continuing
@@ -199,6 +232,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         return;
       }
     } finally {
+      // CRITICAL: Always complete loading state
       if (isMounted.current) {
         setLoading(false);
         setIsInitialized(true);
@@ -222,7 +256,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     console.log('[useHealthData] Initializing health data for user:', userId);
     // Add a small delay to prevent rapid re-renders
     const timer = setTimeout(() => {
-      if (isMounted.current) {
+      if (isMounted.current && !isSyncInProgress.current) {
         syncHealthData();
       }
     }, 100);

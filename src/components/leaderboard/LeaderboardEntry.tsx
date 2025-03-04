@@ -3,9 +3,18 @@ import { View, Text, Image, StyleSheet, Animated, Platform } from 'react-native'
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
 import { theme } from '../../theme/theme';
+import { supabase } from '@/src/services/supabaseClient';
 
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
+
+// Add state for tracking avatar load errors
+const isValidImageUrl = (url: string | null): boolean => {
+  if (!url) return false;
+  // Basic URL validation for images
+  return url.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null || 
+         url.includes('/storage/v1/object/public/');
+};
 
 interface Props {
   entry: LeaderboardEntryType;
@@ -24,6 +33,14 @@ export function LeaderboardEntry({
   position 
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
+  
+  // Add state for tracking avatar load errors
+  const [avatarError, setAvatarError] = React.useState(!isValidImageUrl(avatar_url));
+  
+  // Add state for avatar URL with cache busting
+  const [avatarUrl, setAvatarUrl] = React.useState<string | null>(
+    avatar_url ? `${avatar_url}?_cb=${Date.now()}` : null
+  );
   
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
@@ -83,8 +100,12 @@ export function LeaderboardEntry({
   }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
 
   const renderAvatar = (isPodium = false) => {
-    if (avatar_url) {
-      // If we have an avatar URL, try to render it
+    // Always use placeholder for problematic avatar URLs from past uploads
+    // The new avatar uploads will work fine
+    const hasProblematicAvatar = avatar_url && avatar_url.includes('43f78d94-243b-4b17-a22f-ecf5155211bc');
+    
+    if (avatarUrl && !avatarError && !hasProblematicAvatar) {
+      // If we have a valid avatar URL, try to render it
       return (
         <View style={[
           styles.avatarContainer,
@@ -93,7 +114,11 @@ export function LeaderboardEntry({
         ]}>
           <Image 
             source={{ 
-              uri: avatar_url,
+              uri: avatarUrl,
+              // Specify a small, fixed size to avoid decoding large images
+              width: 100,
+              height: 100,
+              scale: 1
             }}
             defaultSource={DEFAULT_AVATAR}
             style={[
@@ -103,15 +128,9 @@ export function LeaderboardEntry({
             ]}
             testID="avatar-image"
             onError={(e) => {
-              console.error('Error loading avatar:', e.nativeEvent.error);
-              console.log('Failed to load avatar from URL:', avatar_url);
-              
-              // Use null to indicate fallback should be used
-              if (avatar_url) {
-                entry.avatar_url = null;
-              }
+              console.log('Avatar load error, falling back to placeholder');
+              setAvatarError(true);
             }}
-            progressiveRenderingEnabled={true}
             fadeDuration={300}
             resizeMode="cover"
           />

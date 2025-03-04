@@ -18,24 +18,6 @@ function getWeekStart(date: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-// Helper function to convert base64 to blob
-function base64ToBlob(base64: string, contentType: string): Blob {
-  const byteCharacters = atob(base64);
-  const byteArrays = [];
-  
-  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-    const slice = byteCharacters.slice(offset, offset + 512);
-    const byteNumbers = new Array(slice.length);
-    for (let i = 0; i < slice.length; i++) {
-      byteNumbers[i] = slice.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    byteArrays.push(byteArray);
-  }
-  
-  return new Blob(byteArrays, { type: contentType });
-}
-
 export const leaderboardService = {
   subscribeToLeaderboard(date: string, timeframe: LeaderboardTimeframe, onUpdate: (entries: LeaderboardEntry[]) => void) {
     console.log(`Setting up ${timeframe} leaderboard subscription for date:`, date);
@@ -302,8 +284,8 @@ export const leaderboardService = {
       
       // Create filename with consistent format
       const timestamp = Date.now();
-      const fileName = `${userId}-${timestamp}.jpeg`; // Always use jpeg extension
-      const contentType = 'image/jpeg'; // Always use JPEG content type for consistency
+      const fileName = `${userId}-${timestamp}.jpeg`;
+      const contentType = 'image/jpeg';
       
       // Check if we have a valid URI
       if (!imageUri || typeof imageUri !== 'string') {
@@ -322,7 +304,6 @@ export const leaderboardService = {
       
       // Define temp file paths
       const tempOriginal = `${tempDir}original-${timestamp}.jpg`;
-      const tempProcessed = `${tempDir}processed-${timestamp}.jpeg`;
       
       let publicUrl = null;
       
@@ -351,52 +332,59 @@ export const leaderboardService = {
           const manipResult = await ImageManipulator.manipulateAsync(
             tempOriginal,
             [
-              { resize: { width: 500, height: 500 } }
+              { resize: { width: 300, height: 300 } } // Smaller size to reduce upload issues
             ],
             { 
-              compress: 0.8, 
+              compress: 0.7, // Lower quality to reduce size
               format: ImageManipulator.SaveFormat.JPEG 
             }
           );
 
           console.log('[leaderboardService] Image processed successfully:', manipResult);
           
-          // Step 4: Copy processed image to our temp storage
-          await FileSystem.copyAsync({
-            from: manipResult.uri,
-            to: tempProcessed
-          });
+          // Step 4: Get authentication token for upload
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
           
-          // Step 5: Convert image to base64
-          const base64Image = await FileSystem.readAsStringAsync(tempProcessed, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          
-          console.log('[leaderboardService] Image encoded to base64, length:', base64Image.length);
-          
-          // Step 6: Upload to Supabase Storage
-          const { data, error } = await supabase.storage
-            .from('avatars')
-            .upload(`public/${fileName}`, base64ToBlob(base64Image, contentType), {
-              contentType,
-              upsert: true
-            });
-            
-          if (error) {
-            console.error('[leaderboardService] Storage upload error:', error);
-            throw error;
+          if (!token) {
+            throw new Error('Not authenticated');
           }
           
-          console.log('[leaderboardService] Image uploaded successfully:', data);
+          // Step 5: Use FileSystem.uploadAsync for more reliable uploads in React Native
+          const storageUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/public/${fileName}`;
           
-          // Step 7: Get the public URL
-          const { data: { publicUrl: url } } = supabase.storage
-            .from('avatars')
-            .getPublicUrl(`public/${fileName}`);
-            
-          publicUrl = url;
-          console.log('[leaderboardService] Public URL generated:', publicUrl);
+          console.log('[leaderboardService] Using FileSystem.uploadAsync for reliable upload');
+          console.log('[leaderboardService] Upload URL:', storageUrl);
           
+          const uploadResult = await FileSystem.uploadAsync(
+            storageUrl,
+            manipResult.uri,
+            {
+              httpMethod: 'POST',
+              uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+              fieldName: 'file',
+              mimeType: contentType,
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-upsert': 'true'
+              }
+            }
+          );
+          
+          console.log('[leaderboardService] Upload result status:', uploadResult.status);
+          
+          if (uploadResult.status >= 200 && uploadResult.status < 300) {
+            // Get the public URL
+            const { data: { publicUrl: url } } = supabase.storage
+              .from('avatars')
+              .getPublicUrl(fileName);
+              
+            publicUrl = url;
+            console.log('[leaderboardService] Public URL generated:', publicUrl);
+          } else {
+            console.error('[leaderboardService] Upload failed with status:', uploadResult.status);
+            throw new Error(`Upload failed with status ${uploadResult.status}: ${uploadResult.body}`);
+          }
         } catch (error) {
           console.error('[leaderboardService] Error processing or uploading image:', error);
           throw error;
@@ -405,20 +393,26 @@ export const leaderboardService = {
         console.error('[leaderboardService] Error in avatar upload process:', error);
         throw error;
       } finally {
-        // Step 8: Clean up temp files regardless of success or failure
+        // Clean up temp files
         try {
-          await FileSystem.deleteAsync(tempOriginal, { idempotent: true });
-          await FileSystem.deleteAsync(tempProcessed, { idempotent: true });
+          const fileInfo = await FileSystem.getInfoAsync(tempOriginal);
+          if (fileInfo.exists) {
+            await FileSystem.deleteAsync(tempOriginal);
+          }
           console.log('[leaderboardService] Temporary files cleaned up');
         } catch (cleanupError) {
           console.warn('[leaderboardService] Error cleaning up temp files:', cleanupError);
         }
       }
       
+      if (!publicUrl) {
+        throw new Error('Failed to generate public URL for avatar');
+      }
+      
       return publicUrl;
     } catch (error) {
       console.error('[leaderboardService] Avatar upload failed:', error);
-      return null; // Return null instead of throwing to prevent cascading failures
+      throw new Error('Upload failed. Please try again with a smaller image.');
     }
   },
 
