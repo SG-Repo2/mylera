@@ -324,6 +324,8 @@ export const leaderboardService = {
       const tempOriginal = `${tempDir}original-${timestamp}.jpg`;
       const tempProcessed = `${tempDir}processed-${timestamp}.jpeg`;
       
+      let publicUrl = null;
+      
       try {
         // Step 1: Get the source image and save locally
         if (imageUri.startsWith('file://')) {
@@ -344,104 +346,79 @@ export const leaderboardService = {
         const originalInfo = await FileSystem.getInfoAsync(tempOriginal);
         console.log('[leaderboardService] Original file info:', originalInfo);
         
-        // Step 3: Process image - resize and convert using expo-image-manipulator
-        const manipResult = await ImageManipulator.manipulateAsync(
-          tempOriginal,
-          [
-            { resize: { width: 500, height: 500 } } // Fixed size for avatar
-          ],
-          {
-            compress: 0.8, // Good quality but smaller size
-            format: ImageManipulator.SaveFormat.JPEG
-          }
-        );
-        
-        // Copy the manipulated image to our temp location
-        await FileSystem.copyAsync({
-          from: manipResult.uri,
-          to: tempProcessed
-        });
-        
-        console.log('[leaderboardService] Image processed successfully');
-        
-        // Step 4: Read the processed file as base64
-        const base64Data = await FileSystem.readAsStringAsync(tempProcessed, {
-          encoding: FileSystem.EncodingType.Base64
-        });
-        
-        if (!base64Data || base64Data.length === 0) {
-          throw new Error('Failed to read image as base64');
-        }
-        
-        console.log('[leaderboardService] Read processed image as base64, length:', base64Data.length);
-        
-        // Step 5: Upload to Supabase
-        console.log('[leaderboardService] Uploading to Supabase storage...');
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, base64Data, {
-            contentType: contentType,
-            upsert: true,
-            cacheControl: '3600'
-          });
-        
-        if (uploadError) {
-          console.error('[leaderboardService] Upload error:', uploadError);
-          return null;
-        }
-        
-        console.log('[leaderboardService] Upload successful:', uploadData);
-        
-        // Step 6: Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
-        
-        // Use a cache-busting URL to prevent stale images
-        const publicUrlWithCache = `${publicUrl}?t=${timestamp}`;
-        console.log('[leaderboardService] Got public URL:', publicUrlWithCache);
-        
-        // Step 7: Update user profile
-        const { error: updateError } = await supabase
-          .from('user_profiles')
-          .update({ 
-            avatar_url: publicUrlWithCache,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', userId);
-        
-        if (updateError) {
-          console.error('[leaderboardService] Profile update error:', updateError);
-          return null;
-        }
-        
-        // Step 8: Update auth metadata (optional)
         try {
-          await supabase.auth.updateUser({
-            data: { 
-              avatarUrl: publicUrlWithCache 
+          // Step 3: Process image - resize and convert using expo-image-manipulator
+          const manipResult = await ImageManipulator.manipulateAsync(
+            tempOriginal,
+            [
+              { resize: { width: 500, height: 500 } }
+            ],
+            { 
+              compress: 0.8, 
+              format: ImageManipulator.SaveFormat.JPEG 
             }
+          );
+
+          console.log('[leaderboardService] Image processed successfully:', manipResult);
+          
+          // Step 4: Copy processed image to our temp storage
+          await FileSystem.copyAsync({
+            from: manipResult.uri,
+            to: tempProcessed
           });
-        } catch (authError) {
-          console.warn('[leaderboardService] Auth update error:', authError);
+          
+          // Step 5: Convert image to base64
+          const base64Image = await FileSystem.readAsStringAsync(tempProcessed, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          console.log('[leaderboardService] Image encoded to base64, length:', base64Image.length);
+          
+          // Step 6: Upload to Supabase Storage
+          const { data, error } = await supabase.storage
+            .from('avatars')
+            .upload(`public/${fileName}`, base64ToBlob(base64Image, contentType), {
+              contentType,
+              upsert: true
+            });
+            
+          if (error) {
+            console.error('[leaderboardService] Storage upload error:', error);
+            throw error;
+          }
+          
+          console.log('[leaderboardService] Image uploaded successfully:', data);
+          
+          // Step 7: Get the public URL
+          const { data: { publicUrl: url } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(`public/${fileName}`);
+            
+          publicUrl = url;
+          console.log('[leaderboardService] Public URL generated:', publicUrl);
+          
+        } catch (error) {
+          console.error('[leaderboardService] Error processing or uploading image:', error);
+          throw error;
         }
-        
-        // Step 9: Clean up temp files
+      } catch (error) {
+        console.error('[leaderboardService] Error in avatar upload process:', error);
+        throw error;
+      } finally {
+        // Step 8: Clean up temp files regardless of success or failure
         try {
           await FileSystem.deleteAsync(tempOriginal, { idempotent: true });
           await FileSystem.deleteAsync(tempProcessed, { idempotent: true });
+          console.log('[leaderboardService] Temporary files cleaned up');
         } catch (cleanupError) {
-          console.warn('[leaderboardService] Cleanup error:', cleanupError);
+          console.warn('[leaderboardService] Error cleaning up temp files:', cleanupError);
         }
-        
-        return publicUrlWithCache;
-      } catch (fileError) {
-        console.error('[leaderboardService] Error processing file:', fileError);
-        return null;
       }
+      
+      return publicUrl;
     } catch (error) {
-      console.error('[leaderboardService] Avatar upload error:', error);
-      return null;
+      console.error('[leaderboardService] Avatar upload failed:', error);
+      return null; // Return null instead of throwing to prevent cascading failures
     }
   },
 

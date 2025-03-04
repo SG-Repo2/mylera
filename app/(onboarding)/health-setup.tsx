@@ -11,11 +11,23 @@ export default function HealthSetupScreen() {
     const [status, setStatus] = useState<string>('Awaiting user action...');
     const [retryCount, setRetryCount] = useState(0);
     const [initError, setInitError] = useState<string | null>(null);
+    const [navigating, setNavigating] = useState(false);
 
     // Effect to handle initial health permission status
     useEffect(() => {
+        // Prevent navigation loop if we're already navigating
+        if (navigating) {
+            return;
+        }
+        
         if (healthPermissionStatus === 'granted') {
-            router.replace('/(app)/(home)');
+            console.log('[HealthSetup] Permissions already granted, navigating to home');
+            setNavigating(true);
+            
+            // Add a small delay to prevent rapid transitions
+            setTimeout(() => {
+                router.replace('/(app)/(home)');
+            }, 500);
         } else if (healthPermissionStatus === 'denied' && retryCount > 2) {
             if (Platform.OS === 'android') {
                 setStatus('Health permissions have been denied. Please check Health Connect settings.');
@@ -23,9 +35,14 @@ export default function HealthSetupScreen() {
                 setStatus('Health permissions have been denied. Please enable them in your device settings.');
             }
         }
-    }, [healthPermissionStatus, retryCount, router]);
+    }, [healthPermissionStatus, retryCount, router, navigating]);
 
     const handleSetupHealth = async () => {
+        // Prevent multiple setup attempts if already navigating
+        if (navigating) {
+            return;
+        }
+        
         try {
             setInitError(null);
             setStatus('Initializing health services...');
@@ -48,7 +65,12 @@ export default function HealthSetupScreen() {
             if (result === 'granted') {
                 console.log('[HealthSetup] Health permissions granted');
                 setStatus('Health access granted');
-                router.replace('/(app)/(home)');
+                setNavigating(true);
+                
+                // Add a delay before navigation to prevent loops
+                setTimeout(() => {
+                    router.replace('/(app)/(home)');
+                }, 500);
             } else if (result === 'denied') {
                 console.log('[HealthSetup] Health permissions denied');
                 setRetryCount(prev => prev + 1);
@@ -77,6 +99,11 @@ export default function HealthSetupScreen() {
     };
 
     const handleSkip = () => {
+        // Prevent navigation if already navigating
+        if (navigating) {
+            return;
+        }
+        
         // Show warning before skipping
         Alert.alert(
             'Skip Health Integration?',
@@ -89,7 +116,10 @@ export default function HealthSetupScreen() {
                 {
                     text: 'Skip',
                     style: 'destructive',
-                    onPress: () => router.replace('/(app)/(home)')
+                    onPress: () => {
+                        setNavigating(true);
+                        router.replace('/(app)/(home)');
+                    }
                 }
             ]
         );

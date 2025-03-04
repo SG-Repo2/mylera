@@ -52,23 +52,38 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const isMounted = useRef(true);
   const isSyncInProgress = useRef(false);
   const syncAttempts = useRef(0);
+  const lastSyncTimeRef = useRef(0);
   const MAX_SYNC_ATTEMPTS = 3;
+  const MIN_SYNC_INTERVAL = 3000; // Minimum time between syncs in ms
 
   const syncHealthData = useCallback(async () => {
-    // Prevent concurrent syncs and handle unmounting
-    if (!isMounted.current || isSyncInProgress.current) return;
+    // Prevent concurrent syncs, too frequent syncs, and handle unmounting
+    const now = Date.now();
+    if (!isMounted.current || isSyncInProgress.current) {
+      console.log('[useHealthData] Sync already in progress or component unmounted, skipping');
+      return;
+    }
+    
+    if (now - lastSyncTimeRef.current < MIN_SYNC_INTERVAL) {
+      console.log('[useHealthData] Sync requested too soon after previous sync, skipping');
+      return;
+    }
+    
     if (!userId) {
       setError(new Error('User ID is required to sync health data'));
       setLoading(false);
       return;
     }
     
+    lastSyncTimeRef.current = now;
     isSyncInProgress.current = true;
     setLoading(true);
     setError(null);
     syncAttempts.current += 1;
 
     try {
+      console.log('[useHealthData] Starting health data sync for user:', userId);
+      
       // Use the atomic initialization with permissions
       await provider.initializeWithPermissions(userId);
       
@@ -146,6 +161,8 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
       // Reset sync attempts on success
       syncAttempts.current = 0;
+      
+      console.log('[useHealthData] Health data sync completed successfully');
 
     } catch (err) {
       // Return early if component is unmounted
@@ -170,12 +187,15 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       
       // If we should retry, do so after a delay
       if (shouldRetry) {
+        const retryDelay = Math.min(1000 * Math.pow(2, syncAttempts.current - 1), 8000);
+        console.log(`[useHealthData] Will retry in ${retryDelay}ms (attempt ${syncAttempts.current})`);
+        
         setTimeout(() => {
           if (isMounted.current) {
             isSyncInProgress.current = false;
             syncHealthData();
           }
-        }, 1000);
+        }, retryDelay);
         return;
       }
     } finally {
@@ -193,18 +213,27 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     isSyncInProgress.current = false;
     
     if (!userId) {
-      console.warn('useHealthData: No userId available - skipping sync');
+      console.warn('[useHealthData] No userId available - skipping sync');
       setLoading(false);
       setIsInitialized(true);
       return;
     }
     
-    syncHealthData();
+    console.log('[useHealthData] Initializing health data for user:', userId);
+    // Add a small delay to prevent rapid re-renders
+    const timer = setTimeout(() => {
+      if (isMounted.current) {
+        syncHealthData();
+      }
+    }, 100);
     
     return () => {
+      clearTimeout(timer);
       isMounted.current = false;
       if (provider.cleanup) {
-        provider.cleanup();
+        provider.cleanup().catch(err => {
+          console.warn('[useHealthData] Error during cleanup:', err);
+        });
       }
     };
   }, [syncHealthData, userId]);

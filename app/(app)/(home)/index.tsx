@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderFactory } from '@/src/providers/health';
@@ -26,16 +26,37 @@ const LoadingScreen = React.memo(() => {
 });
 
 export default function HomeScreen() {
-  const { user, loading } = useAuth();
-  const provider = useMemo(() => HealthProviderFactory.getProvider(), []);
+  const { user, loading: authLoading } = useAuth();
+  const [providerReady, setProviderReady] = useState(false);
+  const provider = useMemo(() => {
+    // Create the provider once
+    const healthProvider = HealthProviderFactory.getProvider();
+    
+    // Mark provider as ready after a short delay to prevent rapid re-renders
+    setTimeout(() => {
+      setProviderReady(true);
+    }, 100);
+    
+    return healthProvider;
+  }, []);
+  
   const insets = useSafeAreaInsets();
-
-  if (loading) {
+  
+  // Only show loading state during auth loading, not during health data loading
+  if (authLoading) {
+    console.log('HomeScreen: Auth loading...');
     return <LoadingScreen />;
   }
 
   if (!user) {
+    console.log('HomeScreen: No user found');
     return null;
+  }
+  
+  // Wait for provider to be ready before rendering Dashboard
+  if (!providerReady) {
+    console.log('HomeScreen: Waiting for provider to initialize...');
+    return <LoadingScreen />;
   }
 
   return (

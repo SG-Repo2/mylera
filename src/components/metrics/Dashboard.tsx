@@ -186,6 +186,9 @@ export const Dashboard = React.memo(function Dashboard({
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
+  // Add a timestamp ref to prevent frequent refetches
+  const lastFetchTimeRef = useRef(0);
+  
   useEffect(() => {
     if (dailyTotal) {
       Animated.parallel([
@@ -256,12 +259,37 @@ export const Dashboard = React.memo(function Dashboard({
 
   useEffect(() => {
     // Increment fetch ID in the ref without triggering re-renders
+    const now = Date.now();
+    // Skip if we fetched recently (within 2 seconds) to prevent loops
+    if (now - lastFetchTimeRef.current < 2000) {
+      console.log('Dashboard: Skipping fetch, too soon since last fetch');
+      return;
+    }
+    
+    lastFetchTimeRef.current = now;
     fetchIdRef.current += 1;
     const currentFetchId = fetchIdRef.current;
     
-    // Call fetchData with current request ID
-    fetchData(currentFetchId);
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+    // Only fetch if initialized and not already fetching
+    if (isInitialized && !isFetchingRef.current) {
+      console.log('Dashboard: Starting data fetch, ID:', currentFetchId);
+      fetchData(currentFetchId);
+    }
+  }, [fetchData, isInitialized]);
+  
+  // Add a separate effect to handle measurement system changes that's more controlled
+  useEffect(() => {
+    if (user?.user_metadata?.measurementSystem && isInitialized) {
+      const now = Date.now();
+      // Ensure we don't trigger too many fetches when measurement system changes
+      if (now - lastFetchTimeRef.current > 5000) {
+        console.log('Dashboard: Measurement system changed, triggering fetch');
+        lastFetchTimeRef.current = now;
+        fetchIdRef.current += 1;
+        fetchData(fetchIdRef.current);
+      }
+    }
+  }, [user?.user_metadata?.measurementSystem, isInitialized, fetchData]);
 
   // Add AppState change listener to refresh data when app comes to foreground
   useEffect(() => {

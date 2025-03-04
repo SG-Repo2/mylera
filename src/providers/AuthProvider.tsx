@@ -181,28 +181,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               avatar_url: avatarUrl
             });
             console.log('[AuthProvider] Avatar uploaded and profile updated');
+          } else {
+            console.warn('[AuthProvider] Avatar upload completed but no URL returned');
           }
         } catch (uploadError) {
           console.error('[AuthProvider] Avatar upload failed:', uploadError);
-          // Continue even if avatar upload fails
-        } finally {
-          setLoading(false); // Ensure loading state is reset
+          // Continue even if avatar upload fails - don't throw here
         }
       }
+
+      // Add a short delay to ensure state is stable before continuing
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Initialize health provider for new user
       try {
         console.log('[AuthProvider] Attempting auto-login...');
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
         
-        if (signInError) {
-          throw signInError;
+        // Only attempt auto-login if user isn't already logged in
+        if (!session) {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password
+          });
+          
+          if (signInError) {
+            console.warn('[AuthProvider] Auto-login error:', signInError);
+            // Don't throw here, just log the warning
+          } else {
+            console.log('[AuthProvider] Auto-login successful');
+          }
+        } else {
+          console.log('[AuthProvider] User already logged in, skipping auto-login');
         }
         
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
+        console.log('[AuthProvider] Initializing health provider');
         
         // Initialize health provider based on device type
         const provider = HealthProviderFactory.getProvider(profile.deviceType);

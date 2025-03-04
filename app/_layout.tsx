@@ -45,7 +45,8 @@ function ProtectedRoutes() {
   const navigationRef = useRef({
     isRedirecting: false,
     lastPathname: '',
-    lastAuthState: { loading: true, hasSession: false }
+    lastAuthState: { loading: true, hasSession: false },
+    preventRedirectUntil: 0 // Add timestamp to prevent redirects for a period
   });
   
   // Add animation for smooth transitions
@@ -62,6 +63,14 @@ function ProtectedRoutes() {
   
   // Create a debounced navigation function
   const navigateSafely = useCallback((path: string) => {
+    const now = Date.now();
+    
+    // Check if we should prevent navigation due to throttling
+    if (now < navigationRef.current.preventRedirectUntil) {
+      console.log('[ProtectedRoutes] Navigation throttled, skipping redirect to', path);
+      return;
+    }
+    
     if (navigationRef.current.isRedirecting) {
       console.log('[ProtectedRoutes] Navigation already in progress, skipping redirect to', path);
       return;
@@ -70,6 +79,8 @@ function ProtectedRoutes() {
     // Update ref before navigation to prevent loops
     navigationRef.current.isRedirecting = true;
     navigationRef.current.lastPathname = path;
+    // Add throttling - prevent any redirects for 2 seconds
+    navigationRef.current.preventRedirectUntil = now + 2000;
     
     console.log('[ProtectedRoutes] Navigating to:', path);
     
@@ -97,12 +108,14 @@ function ProtectedRoutes() {
   useEffect(() => {
     const nav = navigationRef.current;
     const hasSession = !!session;
+    const now = Date.now();
     
-    // Skip during loading or active redirects
-    if (loading || nav.isRedirecting) {
+    // Skip during loading, active redirects, or during throttle period
+    if (loading || nav.isRedirecting || now < nav.preventRedirectUntil) {
       console.log('[ProtectedRoutes] Skip navigation check:', {
         loading,
-        isRedirecting: nav.isRedirecting
+        isRedirecting: nav.isRedirecting,
+        throttled: now < nav.preventRedirectUntil
       });
       return;
     }
@@ -121,6 +134,12 @@ function ProtectedRoutes() {
       hasSession,
       pathname
     });
+
+    // Special case for registration flow - if we're in a registration flow, let it complete
+    if (pathname.includes('register') && hasSession) {
+      console.log('[ProtectedRoutes] Registration flow in progress, allowing it to complete');
+      return;
+    }
 
     if (!hasSession) {
       if (pathname === '/' || isProtectedRoute(pathname)) {

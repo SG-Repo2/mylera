@@ -72,24 +72,41 @@ export default function RegisterScreen() {
 
   const handleAvatarPick = async () => {
     try {
+      // Clear any existing error
+      setLocalError({ ...localError, avatar: '' });
+      
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        setLocalError({ avatar: 'Permission to access media library was denied' });
+        console.log("[Register] Permission denied for media library");
+        setLocalError({ ...localError, avatar: 'Permission to access media library was denied' });
         return;
       }
 
+      console.log("[Register] Launching image picker");
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
+        // Add explicit format option to avoid HEIC/HEIF issues
+        exif: false
       });
 
-      if (!result.canceled && result.assets[0].uri) {
-        setAvatar(result.assets[0].uri);
-        setLocalError({ ...localError, avatar: '' });
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        console.log("[Register] User canceled image selection");
+        return;
       }
+      
+      const imageUri = result.assets[0].uri;
+      if (!imageUri) {
+        throw new Error('No image URI available');
+      }
+
+      console.log("[Register] Selected image URI:", imageUri);
+      // Set the avatar state with the selected image
+      setAvatar(imageUri);
     } catch (err) {
+      console.error("[Register] Avatar selection error:", err);
       setLocalError({ ...localError, avatar: 'Failed to select avatar image' });
     }
   };
@@ -159,6 +176,11 @@ export default function RegisterScreen() {
         return;
       }
       
+      // Start loading state
+      setLocalError({});
+      
+      console.log("[Register] Starting registration with avatar:", avatar ? 'Selected' : 'None');
+      
       await register(email, password, {
         displayName: trimmedDisplayName,
         deviceType: deviceType as 'os' | 'fitbit',
@@ -168,9 +190,10 @@ export default function RegisterScreen() {
       });
 
       // If successful, AuthProvider will handle the navigation
+      console.log("[Register] Registration successful");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('[Register] Registration error:', err);
       if (err instanceof Error) {
         // Handle specific error cases
         if (err.message.includes('duplicate key')) {
