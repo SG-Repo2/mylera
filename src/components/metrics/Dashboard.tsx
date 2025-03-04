@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Animated, Platform, AppState, AppStateStatus } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Animated, Platform, AppState, AppStateStatus, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
@@ -305,19 +305,40 @@ export const Dashboard = React.memo(function Dashboard({
 
         setFetchError(null);
       }
+
+      // Ensure daily total exists for new users
+      if (!dailyTotal) {
+        console.log('[Dashboard] No daily total found, creating default');
+        const dailyTotalData = await metricsService.ensureDailyTotalExists(userId, date);
+        setDailyTotal(dailyTotalData);
+      }
     } catch (err: unknown) {
       if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
-        console.log('[Dashboard] Fetch aborted due to component unmount or new request');
+        console.log('[Dashboard] Fetch aborted');
         return;
       }
-      if (mountedRef.current) {
-        console.error('[Dashboard] Error fetching data:', err);
-        setFetchError(err instanceof Error ? err : new Error(String(err)));
-        
-        // Set empty metrics to prevent eternal loading
-        if (!healthMetrics) {
-          setHealthMetrics(createEmptyHealthMetrics(userId, date));
-        }
+      
+      console.error('[Dashboard] Error fetching data:', err);
+      setFetchError(err instanceof Error ? err : new Error('Unknown error fetching data'));
+      setIsRefreshing(false);
+      isFetchingRef.current = false;
+      
+      // Ensure we have fallback data even on errors
+      if (!dailyTotal) {
+        setDailyTotal({
+          id: `error-${userId}-${date}`,
+          user_id: userId,
+          date,
+          total_points: 0,
+          metrics_completed: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+      
+      // Set empty metrics to prevent eternal loading
+      if (!healthMetrics) {
+        setHealthMetrics(createEmptyHealthMetrics(userId, date));
       }
     } finally {
       if (mountedRef.current) {
@@ -425,11 +446,39 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
 
+  // Add fallback mechanism for new users with no data
+  useEffect(() => {
+    // Create a default dailyTotal if we have metrics but no totals
+    if (healthMetrics && !dailyTotal && !loading) {
+      console.log('[Dashboard] Creating default dailyTotal for new user');
+      setDailyTotal({
+        id: `default-${userId}-${date}`,
+        user_id: userId,
+        date: date,
+        total_points: 0,
+        metrics_completed: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    }
+  }, [healthMetrics, dailyTotal, loading, userId, date]);
+
   // Modified loading state behavior
-  if (loading && !dailyTotal) {
-    // Only show loading if we don't have any data yet
+  if (loading && !dailyTotal && !healthMetrics) {
+    // Only show loading if we have no data at all
     return <LoadingView />;
   }
+
+  // Use a default dailyTotal if none exists
+  const effectiveDailyTotal = dailyTotal || {
+    id: `default-${userId}-${date}`,
+    user_id: userId,
+    date: date,
+    total_points: 0,
+    metrics_completed: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
 
   // Show error view only if we have a critical error and no data to display
   if ((error && error.name !== 'HealthProviderPermissionError') && 
@@ -448,40 +497,38 @@ export const Dashboard = React.memo(function Dashboard({
         }
       ]}
     >
-      {dailyTotal && (
-        <Animated.View 
-          style={[
-            styles.headerWrapper,
-            {
-              opacity: headerOpacity,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          <Header dailyTotal={dailyTotal} />
-        </Animated.View>
+      {error ? (
+        <ErrorView error={error} onRetry={fetchData} />
+      ) : (
+        <View style={{ flex: 1 }}>
+          {healthMetrics && (
+            <>
+              <Animated.View style={[styles.headerWrapper, { transform: [{ translateY: slideAnim }] }]}>
+                <Header dailyTotal={effectiveDailyTotal} />
+              </Animated.View>
+              
+              <ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={styles.scrollContent}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={isRefreshing}
+                    onRefresh={handleRefresh}
+                    colors={[theme.colors.primary]}
+                    progressBackgroundColor={theme.colors.surface}
+                  />
+                }
+              >
+                <MetricCardList 
+                  metrics={healthMetrics} 
+                  showAlerts={showAlerts}
+                  provider={provider}
+                />
+              </ScrollView>
+            </>
+          )}
+        </View>
       )}
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            progressBackgroundColor={theme.colors.surface}
-          />
-        }
-      >
-        {healthMetrics && (
-          <MetricCardList 
-            metrics={healthMetrics} 
-            showAlerts={showAlerts}
-            provider={provider}
-          />
-        )}
-      </ScrollView>
 
       <Portal>
         <Dialog 
@@ -534,4 +581,14 @@ export const Dashboard = React.memo(function Dashboard({
       </Portal>
     </SafeAreaView>
   );
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+  },
+  // ... other existing styles ...
 });

@@ -635,5 +635,65 @@ export const metricsService = {
       }
       throw new Error(`Failed to get metric streaks: ${error}`);
     }
+  },
+
+  /**
+   * Ensures a daily total record exists for a user on a specific date
+   * Creates a default entry if none exists
+   * @param userId - The user's ID
+   * @param date - The date in YYYY-MM-DD format
+   * @returns The daily total record
+   */
+  async ensureDailyTotalExists(userId: string, date: string) {
+    try {
+      logger.debug(LogCategory.Metrics, 'Ensuring daily total exists', undefined, undefined, { userId, date });
+      
+      // Check if daily total exists
+      const { data, error } = await supabase
+        .from('daily_totals')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .single();
+        
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned" error
+        throw new MetricsDatabaseError(
+          `Failed to check daily total: ${error.message}`,
+          error.code
+        );
+      }
+      
+      // If no data exists, create default entry
+      if (!data) {
+        logger.debug(LogCategory.Metrics, 'Creating default daily total', undefined, undefined, { userId, date });
+        
+        const { data: newTotal, error: insertError } = await supabase
+          .from('daily_totals')
+          .insert({
+            user_id: userId,
+            date,
+            total_points: 0,
+            metrics_completed: 0,
+            updated_at: new Date().toISOString(),
+            is_test_data: false
+          })
+          .select()
+          .single();
+          
+        if (insertError) {
+          throw new MetricsDatabaseError(
+            `Failed to create daily total: ${insertError.message}`,
+            insertError.code
+          );
+        }
+        
+        return newTotal;
+      }
+      
+      return data;
+    } catch (err) {
+      logger.error(LogCategory.Metrics, 'Error ensuring daily total exists', err as string);
+      throw err;
+    }
   }
 };
