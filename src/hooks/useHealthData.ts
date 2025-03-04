@@ -87,6 +87,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       return;
     }
     
+    // Add this delay to avoid race conditions with other initialization
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    if (!isMounted.current) return;
+    
     if (!userId) {
       setError(new Error('User ID is required to sync health data'));
       setLoading(false);

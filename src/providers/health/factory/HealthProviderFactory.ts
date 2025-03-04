@@ -153,6 +153,10 @@ export class HealthProviderFactory {
   static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     if (this.instance) {
       logger.info(LogCategory.Health, '[HealthProviderFactory] Returning existing provider instance');
+      // ADD THIS CHECK to verify initialization
+      if (this.isInitializing) {
+        logger.info(LogCategory.Health, '[HealthProviderFactory] Warning: Provider still initializing');
+      }
       return this.instance;
     }
 

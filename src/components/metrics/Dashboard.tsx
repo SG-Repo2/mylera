@@ -258,6 +258,11 @@ export const Dashboard = React.memo(function Dashboard({
     isFetchingRef.current = true;
     
     try {
+      // Add a debounce to reduce chances of race conditions
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!mountedRef.current) return;
+      
       // Use Promise.all with AbortController signal
       const [dailyMetrics, dailyTotals] = await Promise.all([
         fetchWithTimeout(
@@ -271,6 +276,11 @@ export const Dashboard = React.memo(function Dashboard({
           signal
         )
       ]);
+      
+      // Add critical check here to verify both results before processing
+      if (!dailyMetrics || !dailyTotals) {
+        throw new Error('Failed to fetch required data');
+      }
       
       // Process metrics data
       if (mountedRef.current) {
@@ -306,7 +316,23 @@ export const Dashboard = React.memo(function Dashboard({
         setFetchError(null);
       }
 
-      // Ensure daily total exists for new users
+      // Add this condition to prevent creating a daily total if it exists
+      if (!dailyTotal && Array.isArray(dailyTotals) && dailyTotals.length > 0) {
+        console.log('[Dashboard] Setting daily total from fetch result');
+        setDailyTotal({
+          id: dailyTotals[0].id,
+          user_id: dailyTotals[0].user_id,
+          date: dailyTotals[0].date,
+          total_points: dailyTotals[0].total_points,
+          metrics_completed: dailyTotals[0].metrics_completed,
+          created_at: dailyTotals[0].created_at,
+          updated_at: dailyTotals[0].updated_at
+        });
+        // Skip the ensureDailyTotalExists call if we already have data
+        return;
+      }
+
+      // Only attempt to create daily total if we still don't have one
       if (!dailyTotal) {
         console.log('[Dashboard] No daily total found, creating default');
         const dailyTotalData = await metricsService.ensureDailyTotalExists(userId, date);

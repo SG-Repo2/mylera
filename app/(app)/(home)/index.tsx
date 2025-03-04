@@ -52,8 +52,9 @@ export default function HomeScreen() {
           throw new Error('Health provider not created');
         }
         
-        // If provider has initialize method, use it
-        if (typeof provider.initialize === 'function') {
+        // Check if provider is already initialized before calling initialize
+        if (typeof provider.initialize === 'function' && 
+            !(provider as any).initialized) {
           await provider.initialize();
         }
         
@@ -71,19 +72,24 @@ export default function HomeScreen() {
       }
     };
     
-    // Start initialization check
-    checkProviderStatus();
+    // Wait a small delay to avoid initialization race conditions
+    const initTimer = setTimeout(() => {
+      if (mounted) {
+        checkProviderStatus();
+      }
+    }, 300);
     
-    // Safety timeout to prevent infinite loading
+    // Shorter safety timeout
     safetyTimeout = setTimeout(() => {
       if (mounted && !providerReady) {
         console.log('Safety timeout triggered - resolving provider ready state');
         setProviderReady(true);
       }
-    }, 5000); // 5 seconds max initialization time
+    }, 3000); // 3 seconds max initialization time
     
     return () => {
       mounted = false;
+      clearTimeout(initTimer);
       clearTimeout(safetyTimeout);
     };
   }, [provider]);

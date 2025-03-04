@@ -62,7 +62,7 @@ function ProtectedRoutes() {
     }).start();
   }, []);
 
-  // Add debounced navigation
+  // Modified debouncedNavigate implementation
   const debouncedNavigate = useCallback(
     debounce((path: string, options = {}) => {
       const { isCriticalNavigation = false } = options;
@@ -70,6 +70,12 @@ function ProtectedRoutes() {
       
       if (nav.isRedirecting && !isCriticalNavigation) {
         console.log('[ProtectedRoutes] Navigation already in progress, skipping redirect to', path);
+        return;
+      }
+      
+      // Add protection against navigating to the same path
+      if (path === nav.lastPathname && !isCriticalNavigation) {
+        console.log('[ProtectedRoutes] Already on path:', path);
         return;
       }
       
@@ -100,15 +106,15 @@ function ProtectedRoutes() {
         } catch (err) {
           console.error('[ProtectedRoutes] Navigation error:', err);
         } finally {
-          // Reset navigation flags after a delay
+          // Reset navigation flags after a longer delay
           setTimeout(() => {
             if (navigationRef.current) {
               navigationRef.current.isRedirecting = false;
             }
-          }, 500);
+          }, 800); // Longer cooldown period
         }
       }, 50);
-    }, 300),
+    }, 500), // Increase debounce time to 500ms
     [router, fadeAnim]
   );
   
