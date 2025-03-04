@@ -192,11 +192,11 @@ export function Profile() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5, // Reduce quality to prevent memory issues
+        quality: 0.7,
+        // Add explicit format option to avoid HEIC/HEIF issues
+        exif: false
       });
 
-      console.log("[Profile] Image picker result:", result.canceled ? "canceled" : "success");
-      
       if (result.canceled || !result.assets || result.assets.length === 0) {
         console.log("[Profile] User canceled image selection");
         setLoading(false);
@@ -205,11 +205,14 @@ export function Profile() {
       
       const imageUri = result.assets[0].uri;
       if (!imageUri) {
-        console.log("[Profile] No image URI available");
         throw new Error('No image URI available');
       }
 
       console.log("[Profile] Selected image URI:", imageUri);
+      console.log("[Profile] Image type:", result.assets[0].type);
+      
+      // Show extended loading state message
+      setLoading(true);
       
       const publicUrl = await leaderboardService.uploadAvatar(user.id, imageUri);
       
@@ -217,19 +220,17 @@ export function Profile() {
         throw new Error('Upload failed. Please try again with a smaller image.');
       }
 
+      // Force a delay before reloading profile to ensure storage consistency
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       // Reload profile to show new avatar
       await loadProfile();
-      
-      // Force refresh leaderboard data
-      const today = new Date().toISOString().split('T')[0];
-      await leaderboardService.getDailyLeaderboard(today);
       
     } catch (err) {
       console.error('[Profile] Error updating avatar:', err);
       setError(err instanceof Error ? err : new Error('Failed to update avatar'));
     } finally {
       setLoading(false);
-      console.log("[Profile] Avatar update process completed");
     }
   };
 

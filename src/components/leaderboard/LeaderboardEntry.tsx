@@ -94,11 +94,6 @@ export function LeaderboardEntry({
           <Image 
             source={{ 
               uri: avatar_url,
-              cache: 'reload',
-              headers: {
-                Accept: 'image/jpeg,image/png,image/*',
-                'Cache-Control': 'no-cache'
-              }
             }}
             defaultSource={DEFAULT_AVATAR}
             style={[
@@ -111,13 +106,13 @@ export function LeaderboardEntry({
               console.error('Error loading avatar:', e.nativeEvent.error);
               console.log('Failed to load avatar from URL:', avatar_url);
               
-              // Force the component to use the placeholder
+              // Use null to indicate fallback should be used
               if (avatar_url) {
-                // We'll use a ref to record that this URL failed
                 entry.avatar_url = null;
               }
             }}
-            fadeDuration={0}
+            progressiveRenderingEnabled={true}
+            fadeDuration={300}
             resizeMode="cover"
           />
         </View>
