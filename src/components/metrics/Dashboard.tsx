@@ -163,18 +163,21 @@ export const Dashboard = React.memo(function Dashboard({
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
+  const { healthPermissionStatus, requestHealthPermissions, user, updateUserMetadata } = useAuth();
   const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
   const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [permissionDialogVisible, setPermissionDialogVisible] = useState(false);
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
   
   // Replace fetchId state with a ref to avoid infinite update loops
   const fetchIdRef = useRef(0);
   const isFetchingRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const {
     loading,
@@ -185,6 +188,67 @@ export const Dashboard = React.memo(function Dashboard({
 
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
+
+  // Add timeout to handle potential deadlocks in loading state
+  useEffect(() => {
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    // If loading, set a timeout to prevent indefinite loading state
+    if (loading) {
+      console.log('[Dashboard] Setting loading timeout safety check');
+      timeoutRef.current = setTimeout(() => {
+        console.log('[Dashboard] Loading timeout triggered - forcing state update');
+        setIsTimeoutError(true);
+        
+        // Try to recover by requesting permissions
+        if (healthPermissionStatus !== 'granted') {
+          setPermissionDialogVisible(true);
+        }
+      }, 15000); // 15 seconds timeout
+    }
+    
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [loading, healthPermissionStatus]);
+
+  // Handle health permissions on mount since we no longer have a dedicated Health-Setup screen
+  useEffect(() => {
+    const requestPermissionsIfNeeded = async () => {
+      if (healthPermissionStatus !== 'granted' && user?.user_metadata?.needsHealthSetup === true) {
+        console.log('[Dashboard] Requesting health permissions on mount');
+        try {
+          const status = await requestHealthPermissions();
+          console.log('[Dashboard] Permission request result:', status);
+          
+          if (status === 'granted') {
+            // Update user metadata to remove the needsHealthSetup flag
+            try {
+              await updateUserMetadata({ needsHealthSetup: false });
+              console.log('[Dashboard] Updated user metadata, health setup complete');
+            } catch (metadataError) {
+              console.error('[Dashboard] Error updating user metadata:', metadataError);
+            }
+            
+            // Trigger a health data sync
+            syncHealthData();
+          }
+        } catch (err) {
+          console.error('[Dashboard] Error requesting health permissions:', err);
+          // Show permission dialog on error
+          setPermissionDialogVisible(true);
+        }
+      }
+    };
+    
+    requestPermissionsIfNeeded();
+  }, [healthPermissionStatus, requestHealthPermissions, user, updateUserMetadata, syncHealthData]);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -385,12 +449,19 @@ export const Dashboard = React.memo(function Dashboard({
                 letterSpacing: 0.25,
               }}
             >
-              Failed to fetch health metrics. Please try again.
+              {isTimeoutError 
+                ? 'Health data loading timed out. Your health permissions may need to be updated.'
+                : 'Failed to fetch health metrics. Please try again.'}
             </Text>
           </Dialog.Content>
           <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 8 }}>
             <Text 
-              onPress={() => setErrorDialogVisible(false)} 
+              onPress={() => {
+                setErrorDialogVisible(false);
+                if (isTimeoutError) {
+                  setPermissionDialogVisible(true);
+                }
+              }} 
               style={{ 
                 color: theme.colors.primary,
                 padding: 12,
@@ -400,6 +471,79 @@ export const Dashboard = React.memo(function Dashboard({
               }}
             >
               OK
+            </Text>
+          </Dialog.Actions>
+        </Dialog>
+        
+        <Dialog 
+          visible={permissionDialogVisible} 
+          onDismiss={() => setPermissionDialogVisible(false)}
+          style={{
+            borderRadius: 24,
+            backgroundColor: theme.colors.surface,
+          }}
+        >
+          <Dialog.Title 
+            style={{ 
+              textAlign: 'center',
+              color: theme.colors.primary,
+              fontSize: 20,
+              fontWeight: '600',
+              letterSpacing: 0.5,
+            }}
+          >
+            Health Permissions
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text 
+              style={{ 
+                textAlign: 'center',
+                color: theme.colors.onSurface,
+                fontSize: 16,
+                lineHeight: 24,
+                letterSpacing: 0.25,
+                marginBottom: 12,
+              }}
+            >
+              MyLera needs access to your health data to track your fitness metrics. Would you like to grant permission now?
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions style={{ justifyContent: 'space-between', paddingHorizontal: 12, paddingBottom: 8 }}>
+            <Text 
+              onPress={() => {
+                setPermissionDialogVisible(false);
+              }} 
+              style={{ 
+                color: theme.colors.onSurfaceVariant,
+                padding: 12,
+                fontSize: 16,
+                fontWeight: '500',
+                letterSpacing: 0.5,
+              }}
+            >
+              Not Now
+            </Text>
+            <Text 
+              onPress={async () => {
+                setPermissionDialogVisible(false);
+                setIsTimeoutError(false);
+                const status = await requestHealthPermissions();
+                if (status === 'granted') {
+                  // Reset the states and trigger data fetch
+                  syncHealthData();
+                  fetchIdRef.current += 1;
+                  fetchData(fetchIdRef.current);
+                }
+              }} 
+              style={{ 
+                color: theme.colors.primary,
+                padding: 12,
+                fontSize: 16,
+                fontWeight: '600',
+                letterSpacing: 0.5,
+              }}
+            >
+              Grant Access
             </Text>
           </Dialog.Actions>
         </Dialog>

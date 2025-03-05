@@ -21,7 +21,7 @@ export default function LoginScreen() {
   const router = useRouter();
   const theme = useTheme();
   const scrollViewRef = useRef(null);
-  const { login, error: authError, loading, needsHealthSetup, healthPermissionStatus } = useAuth();
+  const { login, error: authError, loading } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,20 +53,10 @@ export default function LoginScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await login(email, password);
 
-      // If login is successful (no error from context), check health permissions
+      // If login is successful (no error from context), navigate directly to home
       if (!authError) {
-        if (needsHealthSetup()) {
-          // User needs to set up health permissions
-          router.replace('/(onboarding)/health-setup');
-        } else if (healthPermissionStatus === 'denied') {
-          // User has explicitly denied health permissions
-          setLocalError('Health permissions are required to use this app. Please enable them in your device settings.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        } else {
-          // Health permissions are granted, proceed to main app
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          router.replace('/(app)/(home)');
-        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace('/(app)/(home)');
       }
     } catch (err) {
       console.error('Login error:', err);

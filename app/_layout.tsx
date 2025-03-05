@@ -35,7 +35,7 @@ function LoadingView() {
 }
 
 function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.MutableRefObject<boolean> }) {
-  const { session, loading } = useAuth();
+  const { session, loading, needsHealthSetup } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   
@@ -44,7 +44,8 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
     isRedirecting: false,
     lastPathname: '',
     lastAuthState: { loading: true, hasSession: false },
-    navigationAttempts: 0
+    navigationAttempts: 0,
+    lastNavigationTime: 0
   });
   
   // Add animation for smooth transitions
@@ -77,15 +78,24 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
         console.warn('[ProtectedRoutes] Too many navigation attempts, forcing navigation');
       } else {
         // Retry after a delay
-        setTimeout(() => navigateSafely(path), 300);
+        setTimeout(() => navigateSafely(path), 500);
         return;
       }
+    }
+    
+    // Add throttling to prevent multiple navigations within a short period
+    const now = Date.now();
+    if (now - navigationRef.current.lastNavigationTime < NavigationConfig.DEBOUNCE_DELAY) {
+      console.log('[ProtectedRoutes] Navigation throttled, too soon after previous navigation');
+      setTimeout(() => navigateSafely(path), NavigationConfig.DEBOUNCE_DELAY);
+      return;
     }
     
     // Update ref before navigation to prevent loops
     navigationRef.current.isRedirecting = true;
     navigationRef.current.lastPathname = path;
     navigationRef.current.navigationAttempts = 0;
+    navigationRef.current.lastNavigationTime = now;
     
     console.log('[ProtectedRoutes] Navigating to:', path);
     
@@ -116,49 +126,66 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
   
   // Improved navigation logic with better state tracking and mount checking
   useEffect(() => {
-    const nav = navigationRef.current;
-    const hasSession = !!session;
-    
-    // Skip during loading or active redirects
-    if (loading || nav.isRedirecting) {
-      console.log('[ProtectedRoutes] Skip navigation check:', {
-        loading,
-        isRedirecting: nav.isRedirecting
+    // Skip navigation attempts until a short timeout has passed to let component mount fully
+    const initialDelay = setTimeout(() => {
+      const nav = navigationRef.current;
+      const hasSession = !!session;
+      
+      // Skip during loading or active redirects
+      if (loading || nav.isRedirecting) {
+        console.log('[ProtectedRoutes] Skip navigation check:', {
+          loading,
+          isRedirecting: nav.isRedirecting
+        });
+        return;
+      }
+      
+      // Check if auth state or path has changed
+      const authChanged = nav.lastAuthState.loading !== loading || 
+                          nav.lastAuthState.hasSession !== hasSession;
+      const pathChanged = nav.lastPathname !== pathname;
+      
+      // Update state tracking
+      nav.lastAuthState = { loading, hasSession };
+      
+      console.log('[ProtectedRoutes] Navigation check:', {
+        authChanged,
+        pathChanged,
+        hasSession,
+        pathname,
+        navigatorMounted: isNavigatorMounted.current,
+        needsHealthSetup: needsHealthSetup?.()
       });
-      return;
-    }
-    
-    // Check if auth state or path has changed
-    const authChanged = nav.lastAuthState.loading !== loading || 
-                        nav.lastAuthState.hasSession !== hasSession;
-    const pathChanged = nav.lastPathname !== pathname;
-    
-    // Update state tracking
-    nav.lastAuthState = { loading, hasSession };
-    
-    console.log('[ProtectedRoutes] Navigation check:', {
-      authChanged,
-      pathChanged,
-      hasSession,
-      pathname,
-      navigatorMounted: isNavigatorMounted.current
-    });
-
-    // Only navigate if something changed to avoid unnecessary navigation
-    if (authChanged || pathChanged) {
-      if (!hasSession) {
-        if (pathname === '/' || isProtectedRoute(pathname)) {
-          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
-          navigateSafely('/(auth)/login');
-        }
-      } else {
-        if (pathname === '/' || isAuthRoute(pathname)) {
-          console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home');
-          navigateSafely('/(app)/(home)');
+  
+      // Only navigate if something changed to avoid unnecessary navigation
+      if (authChanged || pathChanged) {
+        if (!hasSession) {
+          if (pathname === '/' || isProtectedRoute(pathname)) {
+            console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
+            navigateSafely('/(auth)/login');
+          }
+        } else {
+          // Check if user needs health setup - important after removing the Health-Setup screen
+          if (needsHealthSetup?.()) {
+            // If this path is already requesting permissions, don't redirect again
+            const isRequestingPermissions = pathname.includes('/(app)');
+            if (!isRequestingPermissions) {
+              console.log('[ProtectedRoutes] User needs health setup, navigating to home for permission prompt');
+              navigateSafely('/(app)/(home)');
+              return;
+            }
+          }
+          
+          if (pathname === '/' || isAuthRoute(pathname)) {
+            console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home');
+            navigateSafely('/(app)/(home)');
+          }
         }
       }
-    }
-  }, [loading, session, pathname, navigateSafely, isNavigatorMounted]);
+    }, 800); // Longer delay to ensure auth state is settled
+    
+    return () => clearTimeout(initialDelay);
+  }, [loading, session, pathname, navigateSafely, isNavigatorMounted, needsHealthSetup]);
 
   if (loading) {
     return <LoadingView />;

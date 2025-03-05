@@ -53,6 +53,8 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const isSyncInProgress = useRef(false);
   const syncAttempts = useRef(0);
   const MAX_SYNC_ATTEMPTS = 3;
+  const initAttempts = useRef(0);
+  const MAX_INIT_ATTEMPTS = 3;
 
   const syncHealthData = useCallback(async () => {
     // Prevent concurrent syncs and handle unmounting

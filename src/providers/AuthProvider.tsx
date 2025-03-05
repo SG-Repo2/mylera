@@ -25,6 +25,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   requestHealthPermissions: () => Promise<PermissionStatus>;
   needsHealthSetup: () => boolean;
+  updateUserMetadata: (metadata: Record<string, any>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -114,7 +115,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         options: {
           data: {
             displayName: profile.displayName.trim(),
-            // Only include essential fields initially to reduce chance of DB errors
+            deviceType: profile.deviceType,
+            measurementSystem: profile.measurementSystem,
+            showProfile: profile.showProfile ?? true,
+            // Add a flag to indicate we need health setup
+            needsHealthSetup: true
           },
         },
       };
@@ -133,23 +138,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       console.log('[AuthProvider] User registered successfully with ID:', data.user.id);
-      
-      // Now update the user metadata with additional fields
-      try {
-        const { error: metadataError } = await supabase.auth.updateUser({
-          data: {
-            deviceType: profile.deviceType,
-            measurementSystem: profile.measurementSystem,
-            showProfile: profile.showProfile ?? true
-          }
-        });
-        
-        if (metadataError) {
-          console.warn('[AuthProvider] Failed to update user metadata:', metadataError);
-        }
-      } catch (metadataError) {
-        console.warn('[AuthProvider] Error updating user metadata:', metadataError);
-      }
       
       // Create profile separately through the API
       try {
@@ -184,7 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Initialize health provider for new user
+      // Auto-login after registration but DON'T initialize health provider yet
       try {
         console.log('[AuthProvider] Attempting auto-login...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -196,23 +184,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw signInError;
         }
         
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
+        console.log('[AuthProvider] Auto-login successful');
+        // Simply set the health permission status to not_determined
+        // We'll request permissions later in a safer way
+        setHealthPermissionStatus('not_determined');
         
-        // Initialize health provider based on device type
-        const provider = HealthProviderFactory.getProvider(profile.deviceType);
-        
-        if (profile.deviceType === 'fitbit') {
-          const status = await provider.requestPermissions();
-          if (status !== 'granted') {
-            console.warn('[AuthProvider] Fitbit permissions not granted');
-          }
-        }
-        
-        await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
-        console.log('[AuthProvider] Health provider initialized successfully');
-      } catch (healthError) {
-        console.error('[AuthProvider] Error initializing health provider:', healthError);
-        // Don't block registration on health provider errors
+      } catch (loginError) {
+        console.error('[AuthProvider] Error auto-logging in after registration:', loginError);
+        // Don't block registration on login error
       }
       
       console.log('[AuthProvider] Registration process completed successfully');
@@ -260,7 +239,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Check if the user needs to set up health permissions
    */
   const needsHealthSetup = (): boolean => {
-    return !healthPermissionStatus || healthPermissionStatus === 'not_determined';
+    // Check both the permission status AND the user metadata flag
+    const needsSetupFlag = user?.user_metadata?.needsHealthSetup === true;
+    return needsSetupFlag || !healthPermissionStatus || healthPermissionStatus === 'not_determined';
   };
 
   /**
@@ -354,6 +335,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateUserMetadata = async (metadata: Record<string, any>) => {
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.updateUser({
+        data: metadata
+      });
+      
+      if (error) throw error;
+      console.log('[AuthProvider] User metadata updated successfully:', metadata);
+    } catch (err) {
+      console.error('[AuthProvider] Error updating user metadata:', err);
+      setError(mapAuthError(err));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const value: AuthContextType = {
     session,
     user,
@@ -370,6 +369,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     requestHealthPermissions,
     needsHealthSetup,
+    updateUserMetadata
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

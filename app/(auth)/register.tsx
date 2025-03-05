@@ -167,8 +167,16 @@ export default function RegisterScreen() {
         showProfile: true
       });
 
-      // If successful, AuthProvider will handle the navigation
+      // Success notification
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Don't manually navigate here - let the auth state change in _layout handle navigation
+      // This prevents race conditions with the navigation system
+      console.log('[RegisterScreen] Registration successful, waiting for auth state to update');
+      
+      // Clear any existing errors
+      setLocalError({});
+
     } catch (err) {
       console.error('Registration error:', err);
       if (err instanceof Error) {
