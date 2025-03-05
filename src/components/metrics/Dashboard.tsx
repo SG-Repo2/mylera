@@ -158,6 +158,7 @@ const transformMetricsToHealthMetrics = (
   return result;
 };
 
+// Add a ref to track if refresh is manual
 export const Dashboard = React.memo(function Dashboard({
   provider,
   userId,
@@ -205,6 +206,9 @@ export const Dashboard = React.memo(function Dashboard({
   
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
+
+  // New ref to track if current refresh is manual
+  const isManualRefreshRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -333,21 +337,18 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Setup auto-refresh timer
   useEffect(() => {
-    // Only set up auto-refresh after initial data load
-    if (!hasCompletedInitialFetchRef.current || !isInitialized) {
-      return;
+    // Skip if component not mounted or initialized
+    if (!isMountedRef.current || !isInitialized || !hasCompletedInitialFetchRef.current) {
+      return undefined;
     }
     
     console.log('[Dashboard] Setting up auto-refresh timer');
     
-    // Clear any existing timer
-    if (autoRefreshTimerRef.current) {
-      clearInterval(autoRefreshTimerRef.current);
-    }
-    
-    // Set up a new timer
     autoRefreshTimerRef.current = setInterval(() => {
       if (isMountedRef.current && appStateRef.current === 'active') {
+        // Mark this as NOT a manual refresh
+        isManualRefreshRef.current = false;
+        
         console.log('[Dashboard] Auto-refresh triggered');
         const newFetchId = fetchIdRef.current + 1;
         fetchIdRef.current = newFetchId;
@@ -378,6 +379,9 @@ export const Dashboard = React.memo(function Dashboard({
       ) {
         console.log('[Dashboard] App has come to the foreground - refreshing dashboard data');
         
+        // Coming back to foreground is like a manual refresh
+        isManualRefreshRef.current = true;
+        
         // Use incremented request ID to track this specific fetch request
         const newFetchId = fetchIdRef.current + 1;
         fetchIdRef.current = newFetchId;
@@ -393,7 +397,7 @@ export const Dashboard = React.memo(function Dashboard({
         }, 1000);
       }
     });
-
+    
     return () => {
       subscription.remove();
     };
@@ -429,6 +433,9 @@ export const Dashboard = React.memo(function Dashboard({
   }, [error, requestHealthPermissions, syncHealthData]);
 
   const handleRefresh = React.useCallback(() => {
+    // Mark this as a manual refresh
+    isManualRefreshRef.current = true;
+    
     // Increment fetch ID in the ref
     fetchIdRef.current += 1;
     syncHealthData();
@@ -484,6 +491,7 @@ export const Dashboard = React.memo(function Dashboard({
             metrics={healthMetrics} 
             showAlerts={showAlerts}
             provider={provider}
+            isInitialLoad={!hasCompletedInitialFetchRef.current || isManualRefreshRef.current}
           />
         )}
       </ScrollView>
