@@ -24,6 +24,34 @@ import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 // Add auto-refresh interval constant
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 
+// Add a deep equality check function at the top of the file, outside the component
+const deepEqual = (obj1: any, obj2: any): boolean => {
+  // If either is null or undefined or they are of different types
+  if (obj1 === obj2) return true;
+  if (obj1 == null || obj2 == null) return false;
+  if (typeof obj1 !== typeof obj2) return false;
+
+  // For primitive types
+  if (typeof obj1 !== 'object') return obj1 === obj2;
+
+  // For arrays
+  if (Array.isArray(obj1) && Array.isArray(obj2)) {
+    if (obj1.length !== obj2.length) return false;
+    return obj1.every((item, index) => deepEqual(item, obj2[index]));
+  }
+
+  // For objects
+  const keys1 = Object.keys(obj1);
+  const keys2 = Object.keys(obj2);
+  
+  if (keys1.length !== keys2.length) return false;
+  
+  return keys1.every(key => 
+    Object.prototype.hasOwnProperty.call(obj2, key) && 
+    deepEqual(obj1[key], obj2[key])
+  );
+};
+
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
@@ -125,9 +153,13 @@ const transformMetricsToHealthMetrics = (
   metrics: DailyMetricScore[],
   dailyTotal: DailyTotal | null,
   userId: string,
-  date: string
+  date: string,
+  existingMetrics: HealthMetrics | null = null
 ): HealthMetrics => {
+  // Use existing timestamps if we have them, otherwise create new ones
   const now = new Date().toISOString();
+  const created_at = existingMetrics?.created_at || now;
+  // Only update the last_updated time, not created_at
   
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
@@ -144,7 +176,7 @@ const transformMetricsToHealthMetrics = (
     weekly_score: null,
     streak_days: null,
     last_updated: now,
-    created_at: now,
+    created_at: created_at,
     updated_at: now
   };
 
@@ -156,6 +188,18 @@ const transformMetricsToHealthMetrics = (
   });
 
   return result;
+};
+
+// Helper function to sanitize metrics for comparison by excluding changing timestamps
+const sanitizeMetricsForComparison = (metrics: HealthMetrics) => {
+  // Create a shallow copy to avoid modifying the original
+  const sanitized = { ...metrics } as { [key: string]: any };
+  
+  // Delete fields that may change but don't affect the display
+  delete sanitized.last_updated;
+  delete sanitized.updated_at;
+  
+  return sanitized as HealthMetrics;
 };
 
 // Add a ref to track if refresh is manual
@@ -301,15 +345,32 @@ export const Dashboard = React.memo(function Dashboard({
       };
       
       // Add a timestamp to force rerenders when data changes
-      const transformedMetrics = transformMetricsToHealthMetrics(metricScores, userTotal, userId, date);
+      const transformedMetrics = transformMetricsToHealthMetrics(metricScores, userTotal, userId, date, healthMetrics);
+      
+      // Sanitize metrics for meaningful comparison
+      const sanitizedNewMetrics = sanitizeMetricsForComparison(transformedMetrics);
+      const sanitizedOldMetrics = healthMetrics ? sanitizeMetricsForComparison(healthMetrics) : null;
       
       // Only update state if data has actually changed to prevent unnecessary rerenders
       const hasDataChanged = 
         !healthMetrics || 
         !dailyTotal || 
-        JSON.stringify(transformedMetrics) !== JSON.stringify(healthMetrics) ||
+        !deepEqual(sanitizedNewMetrics, sanitizedOldMetrics) ||
         userTotal.total_points !== dailyTotal.total_points ||
         rank !== userRank;
+      
+      // Log the specific changes for debugging
+      if (!deepEqual(sanitizedNewMetrics, sanitizedOldMetrics) && sanitizedOldMetrics) {
+        const metricKeys = Object.keys(sanitizedNewMetrics) as (keyof typeof sanitizedNewMetrics)[];
+        metricKeys.forEach(key => {
+          if (!deepEqual(sanitizedNewMetrics[key], sanitizedOldMetrics[key])) {
+            console.log(`[Dashboard] Change detected in metric: ${key}`, {
+              old: sanitizedOldMetrics[key],
+              new: sanitizedNewMetrics[key]
+            });
+          }
+        });
+      }
       
       if (hasDataChanged) {
         console.log('[Dashboard] Data has changed, updating state');

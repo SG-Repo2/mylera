@@ -23,35 +23,57 @@ type DisplayedMetricType = MetricType;
 
 // Add this utility function above the MetricCardList component
 const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
-  if (prev === next) return true;
-  if (!prev || !next) return false;
-  
-  // Only compare the actual metrics that affect what's displayed
-  const metricKeys: (keyof HealthMetrics)[] = [
-    'steps', 'distance', 'calories', 'heart_rate',
-    'exercise', 'basal_calories', 'flights_climbed'
-  ];
-  
-  // Return false if any key has changed - forces re-render
-  return metricKeys.every(key => prev[key] === next[key]);
+  // Compare only metric values that affect the display
+  return metricOrder.every(metricType => {
+    const prevValue = prev[metricType];
+    const nextValue = next[metricType];
+    
+    // Consider null and undefined equal for comparison
+    if (prevValue == null && nextValue == null) return true;
+    
+    // Compare numeric values directly
+    return prevValue === nextValue;
+  }) && prev.daily_score === next.daily_score; // Also compare the daily score
 };
 
-// Add function to log metric changes
+// Update the logMetricChanges function to only consider metric value changes
 const logMetricChanges = (metricOrder: DisplayedMetricType[], prev: HealthMetrics | null, next: HealthMetrics) => {
   if (!prev) {
-    console.log('[MetricCardList] Initial metrics load');
-    return;
+    console.log('[MetricCardList] Initial metrics load:', 
+      metricOrder.map(metric => `${metric}: ${next[metric]}`).join(', ')
+    );
+    return true; // Initial load is always a change
   }
   
-  let changed = false;
-  metricOrder.forEach(metric => {
-    if (prev[metric] !== next[metric]) {
-      console.log(`[MetricCardList] Metric ${metric} changed: ${prev[metric]} -> ${next[metric]}`);
-      changed = true;
+  // Check if any of the actual metric values have changed
+  let hasActualChanges = false;
+  const changedMetrics: string[] = [];
+  
+  metricOrder.forEach(metricType => {
+    const prevValue = prev[metricType];
+    const nextValue = next[metricType];
+    
+    // Skip non-numeric metrics and those that haven't changed
+    if (
+      typeof prevValue !== 'number' ||
+      typeof nextValue !== 'number' ||
+      prevValue === nextValue
+    ) {
+      return;
     }
+    
+    // Record changed metrics
+    hasActualChanges = true;
+    changedMetrics.push(`${metricType}: ${prevValue} → ${nextValue}`);
   });
   
-  return changed;
+  if (hasActualChanges) {
+    console.log('[MetricCardList] Metrics changed:', changedMetrics.join(', '));
+  } else {
+    console.log('[MetricCardList] No metric value changes detected');
+  }
+  
+  return hasActualChanges;
 };
 
 const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
