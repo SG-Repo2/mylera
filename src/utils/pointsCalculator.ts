@@ -61,6 +61,23 @@ export function calculateTotalPoints(
 }
 
 /**
+ * Safely extracts points from a metric or leaderboard entry
+ * Handles different property names and ensures a valid number is returned
+ * 
+ * @param item - The metric or leaderboard entry to extract points from
+ * @returns A valid points value (defaults to 0 if invalid)
+ */
+export function safeGetPoints(item: any): number {
+  if (!item) return 0;
+  
+  // Check for different property names that might contain points
+  const points = typeof item.points === 'number' ? item.points : 
+                (typeof item.total_points === 'number' ? item.total_points : 0);
+  
+  return points;
+}
+
+/**
  * Gets default goal for a metric type if not specified
  */
 function getDefaultGoalForMetric(metricType: MetricType): number {

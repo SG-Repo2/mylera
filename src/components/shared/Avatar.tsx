@@ -65,7 +65,6 @@ export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWi
           borderColor,
           borderWidth,
           backgroundColor: bgColor,
-          zIndex: 10 // Higher than PodiumView's z-indexes which go up to 3
         },
         style
       ]}
@@ -90,8 +89,8 @@ export function Avatar({ url, size, name = '', borderColor = '#E2E8F0', borderWi
             contentFit="cover"
             transition={200}
             cachePolicy="none"
-            onError={(error) => {
-              console.log('[Avatar] Image load error:', error);
+            onError={() => {
+              console.log('[Avatar] Image load error for:', name);
               setHasError(true);
               setIsLoading(false);
             }}
@@ -121,6 +120,5 @@ const styles = StyleSheet.create({
   },
   loader: {
     position: 'absolute',
-    zIndex: 11 // Higher than container's z-index
   }
 });

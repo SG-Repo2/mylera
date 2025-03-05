@@ -18,8 +18,28 @@ export function ToggleableLeaderboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Track app state for background/foreground transitions
   const appStateRef = useRef(AppState.currentState);
+  
+  // Cache leaderboard data to avoid unnecessary fetches
+  const leaderboardCache = useRef<{
+    daily: { date: string; data: LeaderboardEntryType[] } | null;
+    weekly: { date: string; data: LeaderboardEntryType[] } | null;
+  }>({
+    daily: null,
+    weekly: null
+  });
+  
+  // Subscription reference for cleanup
+  const subscriptionRef = useRef<any>(null);
 
+  // Get today's date once
+  const today = DateUtils.getLocalDateString();
+  
+  /**
+   * Load leaderboard data with error handling and caching
+   */
   const loadData = useCallback(async (showLoading = true) => {
     if (!user) {
       console.log('No user found in loadData');
@@ -30,25 +50,35 @@ export function ToggleableLeaderboard() {
     setError(null);
     
     try {
-      const today = DateUtils.getLocalDateString();
       console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
       
+      // Check cache first
+      const cache = leaderboardCache.current[timeframe];
+      if (cache && cache.date === today && cache.data.length > 0) {
+        console.log(`Using cached ${timeframe} leaderboard data`);
+        setLeaderboardData(cache.data);
+        if (showLoading) setLoading(false);
+        return;
+      }
+      
+      // Fetch new data
       const data = timeframe === 'daily' 
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
-      // Add detailed logging of point values
-      console.log('Fetched leaderboard data:', data.map(entry => ({
-        id: entry.user_id.slice(0, 8),
-        name: entry.display_name,
-        points: entry.total_points,
-        rank: entry.rank
-      })));
+      // Log data for debugging
+      console.log(`Fetched ${data.length} ${timeframe} leaderboard entries`);
+      
+      if (data.length > 0) {
+        // Update cache
+        leaderboardCache.current[timeframe] = { date: today, data };
+      }
       
       setLeaderboardData(data);
     } catch (err) {
       console.error('Error while fetching leaderboard:', err);
       
+      // Provide user-friendly error messages
       if (err instanceof Error) {
         if (err.message.includes('PGRST200')) {
           setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
@@ -61,15 +91,18 @@ export function ToggleableLeaderboard() {
         setError(new Error('Failed to load leaderboard'));
       }
       
-      // Ensure we always have valid leaderboard data even if fetch fails
-      if (!leaderboardData.length) {
-        setLeaderboardData([]);
+      // Use cached data if available
+      const cache = leaderboardCache.current[timeframe];
+      if (cache && cache.data.length > 0) {
+        console.log(`Using cached ${timeframe} leaderboard data after error`);
+        setLeaderboardData(cache.data);
       }
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [user, timeframe, leaderboardData.length]);
+  }, [user, timeframe, today]);
 
+  // Handle app state changes (background/foreground)
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     if (
       appStateRef.current.match(/inactive|background/) &&
@@ -81,31 +114,55 @@ export function ToggleableLeaderboard() {
     appStateRef.current = nextAppState;
   }, [loadData]);
 
+  // Pull-to-refresh handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // Clear cache to force fresh data
+    leaderboardCache.current[timeframe] = null;
     await loadData(false);
     setRefreshing(false);
-  }, [loadData]);
+  }, [loadData, timeframe]);
 
+  // Setup real-time subscription
   useEffect(() => {
     if (user) {
+      // Clean up previous subscription if it exists
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+      }
+      
+      // Set up new subscription for current timeframe
+      subscriptionRef.current = leaderboardService.subscribeToLeaderboard(
+        today,
+        timeframe,
+        (updatedEntries) => {
+          console.log(`Received leaderboard update with ${updatedEntries.length} entries`);
+          setLeaderboardData(updatedEntries);
+          // Update cache
+          leaderboardCache.current[timeframe] = { date: today, data: updatedEntries };
+        }
+      );
+      
+      // Initial data load
       loadData();
       
+      // Set up app state listener
       const subscription = AppState.addEventListener('change', handleAppStateChange);
       
       return () => {
+        // Clean up subscription and listener
+        if (subscriptionRef.current) {
+          subscriptionRef.current.unsubscribe();
+        }
         subscription.remove();
       };
     }
-  }, [user, loadData, handleAppStateChange, timeframe]);
+  }, [user, loadData, handleAppStateChange, timeframe, today]);
 
-  // Effect to ensure we have valid data even if there's an error
-  useEffect(() => {
-    if (error && !leaderboardData.length) {
-      // Set empty array as fallback
-      setLeaderboardData([]);
-    }
-  }, [error, leaderboardData.length]);
+  // Handle timeframe change
+  const handleTimeframeChange = (value: string) => {
+    setTimeframe(value as LeaderboardTimeframe);
+  };
 
   if (loading && !leaderboardData.length && !error) {
     return (

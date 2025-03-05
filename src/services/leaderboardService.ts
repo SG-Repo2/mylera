@@ -2,14 +2,47 @@ import { supabase } from './supabaseClient';
 import { 
   LeaderboardEntry, 
   UserProfile,
-  LeaderboardTimeframe
-} from '@/src/types/leaderboard';
-import type { DailyMetricScore } from '@/src/types/schemas';
-import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
+  LeaderboardTimeframe,
+  DailyTotal,
+  WeeklyTotal
+} from '../types/leaderboard';
+import type { DailyMetricScore } from '../types/schemas';
+import { calculateTotalPoints, safeGetPoints } from '../utils/pointsCalculator';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'expo-image';
+
+// Define types for Supabase response data
+interface SupabaseDailyTotalWithProfile {
+  id: string;
+  user_id: string;
+  date: string;
+  total_points: number;
+  metrics_completed: number;
+  user_profiles: UserProfile | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface SupabaseWeeklyTotalWithProfile {
+  id: string;
+  user_id: string;
+  week_start: string;
+  total_points: number;
+  metrics_completed: number;
+  user_profiles: UserProfile | null;
+  created_at?: string;
+  updated_at?: string;
+  is_test_data?: boolean;
+}
+
+interface SupabaseDailyTotalWithProfileJoin {
+  user_id: string;
+  total_points: number;
+  metrics_completed: number;
+  user_profiles: UserProfile | null;
+}
 
 // Helper function to get week start date
 function getWeekStart(date: Date): string {
@@ -54,9 +87,59 @@ export const leaderboardService = {
     console.log('Fetching daily leaderboard for date:', date);
     
     try {
+      // First try to get data directly from daily_totals table
+      // This is more efficient than recalculating from raw metrics
+      const { data: totalsData, error: totalsError } = await supabase
+        .from('daily_totals')
+        .select(`
+          id,
+          user_id,
+          date,
+          total_points,
+          metrics_completed,
+          user_profiles (
+            id,
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
+        .eq('date', date)
+        .eq('is_test_data', false)
+        .order('total_points', { ascending: false });
+
+      if (totalsError) {
+        console.warn('Error fetching from daily_totals, falling back to metrics calculation:', totalsError);
+      } else if (totalsData && totalsData.length > 0) {
+        console.log(`Found ${totalsData.length} entries in daily_totals`);
+        
+        // Process and transform the data into LeaderboardEntry format
+        const entries: LeaderboardEntry[] = (totalsData as unknown as SupabaseDailyTotalWithProfile[])
+          .filter(item => item.user_profiles && item.user_profiles.show_profile !== false)
+          .map((item, index) => ({
+            user_id: item.user_id,
+            display_name: item.user_profiles?.display_name || `User ${item.user_id.slice(0, 8)}`,
+            avatar_url: item.user_profiles?.avatar_url || null,
+            total_points: item.total_points || 0,
+            points: item.total_points || 0, // For backward compatibility
+            metrics_completed: item.metrics_completed || 0,
+            rank: index + 1,
+            show: true
+          }));
+
+        // Log the entries for debugging
+        console.log(`Processed ${entries.length} leaderboard entries with points:`, 
+          entries.slice(0, 3).map(e => ({ name: e.display_name, points: e.total_points })));
+
+        return entries;
+      }
+
+      // If we couldn't get data from daily_totals, fall back to metrics calculation
+      console.log('No data in daily_totals, calculating from metrics');
+      
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
-        .select('user_id, metric_type, value, points')
+        .select('user_id, metric_type, value, points, goal_reached')
         .eq('date', date);
 
       if (metricsError) throw metricsError;
@@ -71,9 +154,12 @@ export const leaderboardService = {
       // Calculate points using the same function as Dashboard
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
+        // Count completed metrics
+        const completedMetrics = metrics.filter(m => m.goal_reached).length;
+        
         userPoints.set(userId, {
           total: calculateTotalPoints(metrics, 'leaderboardService.getDailyLeaderboard'),
-          completed: metrics.length
+          completed: completedMetrics
         });
       });
 
@@ -84,10 +170,9 @@ export const leaderboardService = {
 
       if (profilesError) throw profilesError;
 
-      // Create leaderboard entries with both total_points and points properties
-      // to ensure compatibility with components that might expect either
+      // Create leaderboard entries
       const entries = Array.from(userPoints.entries())
-        .map(([userId, points], index) => {
+        .map(([userId, points]) => {
           const profile = profiles?.find(p => p.id === userId);
           return {
             user_id: userId,
@@ -96,13 +181,17 @@ export const leaderboardService = {
             total_points: points.total,
             points: points.total, // Add points as fallback for components that expect it
             metrics_completed: points.completed,
-            rank: index + 1,
+            rank: 0, // Will be assigned after sorting
             show: profile?.show_profile !== false
           };
         })
-        .sort((a, b) => b.total_points - a.total_points)
-        .map((entry, index) => ({ ...entry, rank: index + 1 }))
         .filter(entry => entry.show);
+
+      // Sort by points and assign ranks
+      entries.sort((a, b) => b.total_points - a.total_points);
+      entries.forEach((entry, index) => {
+        entry.rank = index + 1;
+      });
 
       return entries;
     } catch (error) {
@@ -395,54 +484,113 @@ export const leaderboardService = {
     const weekStart = getWeekStart(new Date(date));
     
     try {
-      const { data: metricsData, error: metricsError } = await supabase
-        .from('daily_metric_scores')
-        .select('user_id, metric_type, value, points, date')
+      // First try to get data from weekly_totals table
+      const { data: weeklyData, error: weeklyError } = await supabase
+        .from('weekly_totals')
+        .select(`
+          id,
+          user_id,
+          week_start,
+          total_points,
+          metrics_completed,
+          user_profiles (
+            id,
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
+        .eq('week_start', weekStart)
+        .eq('is_test_data', false)
+        .order('total_points', { ascending: false });
+
+      if (weeklyError) {
+        console.warn('Error fetching from weekly_totals, falling back to daily totals:', weeklyError);
+      } else if (weeklyData && weeklyData.length > 0) {
+        console.log(`Found ${weeklyData.length} entries in weekly_totals`);
+        
+        // Process and transform the data into LeaderboardEntry format
+        const entries: LeaderboardEntry[] = (weeklyData as unknown as SupabaseWeeklyTotalWithProfile[])
+          .filter(item => item.user_profiles && item.user_profiles.show_profile !== false)
+          .map((item, index) => ({
+            user_id: item.user_id,
+            display_name: item.user_profiles?.display_name || `User ${item.user_id.slice(0, 8)}`,
+            avatar_url: item.user_profiles?.avatar_url || null,
+            total_points: item.total_points || 0,
+            points: item.total_points || 0, // For backward compatibility
+            metrics_completed: item.metrics_completed || 0,
+            rank: index + 1,
+            show: true
+          }));
+
+        return entries;
+      }
+
+      // If we couldn't get data from weekly_totals, fall back to daily_totals
+      console.log('No data in weekly_totals, calculating from daily_totals');
+      
+      // Get daily totals for the week
+      const { data: dailyTotals, error: dailyError } = await supabase
+        .from('daily_totals')
+        .select(`
+          user_id,
+          total_points,
+          metrics_completed,
+          user_profiles (
+            id,
+            display_name,
+            avatar_url,
+            show_profile
+          )
+        `)
         .gte('date', weekStart)
-        .lte('date', date);
+        .lte('date', date)
+        .eq('is_test_data', false);
 
-      if (metricsError) throw metricsError;
+      if (dailyError) throw dailyError;
 
-      // Group metrics by user
-      const userMetrics = new Map<string, DailyMetricScore[]>();
-      metricsData?.forEach(metric => {
-        const metrics = userMetrics.get(metric.user_id) || [];
-        userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
+      // Group and aggregate by user
+      const userTotals = new Map<string, { 
+        totalPoints: number, 
+        metricsCompleted: number,
+        profile: UserProfile | null
+      }>();
+      
+      (dailyTotals as unknown as SupabaseDailyTotalWithProfileJoin[])?.forEach(item => {
+        const userId = item.user_id;
+        const existing = userTotals.get(userId) || { 
+          totalPoints: 0, 
+          metricsCompleted: 0,
+          profile: item.user_profiles
+        };
+        
+        existing.totalPoints += (item.total_points || 0);
+        existing.metricsCompleted += (item.metrics_completed || 0);
+        
+        userTotals.set(userId, existing);
       });
-
-      // Calculate points using the same function as Dashboard
-      const userPoints = new Map<string, { total: number, completed: number }>();
-      userMetrics.forEach((metrics, userId) => {
-        userPoints.set(userId, {
-          total: calculateTotalPoints(metrics, 'leaderboardService.getWeeklyLeaderboard'),
-          completed: metrics.length
-        });
-      });
-
-      // Get user profiles
-      const { data: profiles, error: profilesError } = await supabase
-        .from('user_profiles')
-        .select('id, display_name, avatar_url, show_profile');
-
-      if (profilesError) throw profilesError;
 
       // Create leaderboard entries
-      const entries = Array.from(userPoints.entries())
-        .map(([userId, points], index) => {
-          const profile = profiles?.find(p => p.id === userId);
+      const entries = Array.from(userTotals.entries())
+        .map(([userId, data]) => {
           return {
             user_id: userId,
-            display_name: profile?.display_name || `User ${userId.slice(0, 8)}`,
-            avatar_url: profile?.avatar_url || null,
-            total_points: points.total,
-            metrics_completed: points.completed,
-            rank: index + 1,
-            show: profile?.show_profile !== false
+            display_name: data.profile?.display_name || `User ${userId.slice(0, 8)}`,
+            avatar_url: data.profile?.avatar_url || null,
+            total_points: data.totalPoints,
+            points: data.totalPoints, // For backward compatibility
+            metrics_completed: data.metricsCompleted,
+            rank: 0, // Will be assigned after sorting
+            show: data.profile?.show_profile !== false
           };
         })
-        .sort((a, b) => b.total_points - a.total_points)
-        .map((entry, index) => ({ ...entry, rank: index + 1 }))
         .filter(entry => entry.show);
+
+      // Sort by points and assign ranks
+      entries.sort((a, b) => b.total_points - a.total_points);
+      entries.forEach((entry, index) => {
+        entry.rank = index + 1;
+      });
 
       return entries;
     } catch (error) {

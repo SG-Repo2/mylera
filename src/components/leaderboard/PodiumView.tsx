@@ -14,11 +14,21 @@ interface PodiumProps {
  * First place is centered and elevated, with second and third place on either side.
  */
 export function PodiumView({ topThree, currentUserId }: PodiumProps) {
+  // Make sure we have data before proceeding
+  if (!topThree || topThree.length === 0) {
+    return null;
+  }
+  
+  // Extract entries in podium order (2nd, 1st, 3rd)
+  const secondPlace = topThree.length > 1 ? topThree[1] : null;
+  const firstPlace = topThree.length > 0 ? topThree[0] : null;
+  const thirdPlace = topThree.length > 2 ? topThree[2] : null;
+  
   // Only include entries that actually exist
   const podiumEntries = [
-    topThree[1] ? { entry: topThree[1], rank: 2 } : null, // Second place
-    topThree[0] ? { entry: topThree[0], rank: 1 } : null, // First place
-    topThree[2] ? { entry: topThree[2], rank: 3 } : null  // Third place
+    secondPlace ? { entry: secondPlace, rank: 2 } : null,
+    firstPlace ? { entry: firstPlace, rank: 1 } : null,
+    thirdPlace ? { entry: thirdPlace, rank: 3 } : null
   ].filter(Boolean) as { entry: LeaderboardEntryType, rank: number }[];
   
   // If no entries, don't render the podium
@@ -39,11 +49,7 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
               rank === 3 && styles.thirdPlace,
             ]}
           >
-            <View style={[
-              styles.podiumEntryWrapper,
-              // Add solid background color to fix shadow issue
-              { backgroundColor: '#FFFFFF' }
-            ]}>
+            <View style={styles.podiumEntryWrapper}>
               <LeaderboardEntry
                 entry={entry}
                 highlight={entry.user_id === currentUserId}
@@ -64,9 +70,7 @@ const styles = StyleSheet.create({
     marginVertical: 20,
     backgroundColor: '#1E3A8A',
     borderRadius: theme.roundness * 2,
-    // Add overflow: 'hidden' to contain shadows
     overflow: 'hidden',
-    zIndex: 20, // Higher than Avatar's z-index of 10
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -96,6 +100,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -110,13 +115,13 @@ const styles = StyleSheet.create({
   },
   firstPlace: {
     transform: [{ translateY: -20 }],
-    zIndex: 23, // Higher than outerContainer
+    zIndex: 3,
   },
   secondPlace: {
     transform: [{ translateY: -10 }],
-    zIndex: 22, // Higher than outerContainer
+    zIndex: 2,
   },
   thirdPlace: {
-    zIndex: 21, // Higher than outerContainer
+    zIndex: 1,
   },
 });
