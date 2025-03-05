@@ -154,6 +154,8 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       await this.initializePermissions(userId);
       
       console.log('[GoogleHealthProvider] Provider and permission manager initialized successfully');
+      
+      // Don't verify permissions here - wait for explicit permission request
     } catch (error) {
       console.error('[GoogleHealthProvider] Failed to initialize with permissions:', error);
       throw error;
@@ -175,14 +177,19 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         return 'granted';
       }
 
-      // Request permissions through Health Connect
+      // Log that we're about to request permissions (user interaction required)
+      console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
+      
+      // Request permissions through Health Connect - this will show the permission dialog
       await requestPermission(HEALTH_PERMISSIONS);
       
-      // Verify permissions were granted
+      // After user interaction, verify if permissions were actually granted
       const verificationResult = await this.verifyPermissions();
       const status: PermissionStatus = verificationResult ? 'granted' : 'denied';
       
+      // Update permission state in cache
       await this.permissionManager.updatePermissionState(status);
+      console.log(`[GoogleHealthProvider] Permissions ${status === 'granted' ? 'granted' : 'denied'} by user`);
       return status;
     } catch (error) {
       const errorMessage = mapHealthProviderError(error, 'google');
@@ -209,6 +216,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
 
     try {
+      // Check if Health Connect is available
       if (!this.initialized) {
         const available = await initialize();
         if (!available) {
@@ -222,15 +230,14 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         }
       }
       
-      const hasPermissions = await this.verifyPermissions();
-      const status: PermissionStatus = hasPermissions ? 'granted' : 'not_determined';
-      
+      // Don't actively verify permissions unless we already have a cached state
+      // This prevents security exceptions during initialization
       const state: PermissionState = {
-        status,
+        status: 'not_determined',
         lastChecked: Date.now()
       };
-
-      await this.permissionManager.updatePermissionState(status);
+      
+      await this.permissionManager.updatePermissionState('not_determined');
       return state;
     } catch (error) {
       const state: PermissionState = {
@@ -341,6 +348,7 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     // Check permissions before fetching
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
+      console.log('[GoogleHealthProvider] Permissions not granted, cannot fetch health data');
       throw new HealthProviderPermissionError(
         'HealthConnect',
         'Permission not granted for health data access'

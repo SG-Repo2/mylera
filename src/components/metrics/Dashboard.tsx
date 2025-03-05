@@ -254,6 +254,36 @@ export const Dashboard = React.memo(function Dashboard({
   // New ref to track if current refresh is manual
   const isManualRefreshRef = useRef<boolean>(false);
 
+  // Define these functions directly, not in useCallback
+  const createDefaultHealthMetrics = (): HealthMetrics => ({
+    steps: 0,
+    distance: 0,
+    calories: 0,
+    heart_rate: 0,
+    basal_calories: 0,
+    flights_climbed: 0,
+    exercise: 0,
+    user_id: userId,
+    date: date,
+    daily_score: 0,
+    updated_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+    id: `${userId}-${date}`,
+    weekly_score: 0,
+    streak_days: 0,
+    last_updated: new Date().toISOString()
+  });
+
+  const createDefaultDailyTotal = (): DailyTotal => ({
+    id: `${userId}-${date}`,
+    user_id: userId,
+    date: date,
+    total_points: 0,
+    metrics_completed: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
   useEffect(() => {
     if (dailyTotal) {
       Animated.parallel([
@@ -292,9 +322,14 @@ export const Dashboard = React.memo(function Dashboard({
 
   const fetchData = useCallback(async (requestId: number) => {
     // Don't proceed if component isn't initialized, no user ID
-    if (!isInitialized || !userId) {
-      console.log('[Dashboard] Skipping fetch - component not initialized or missing userId');
+    if (!userId) {
+      console.log('[Dashboard] Skipping fetch - missing userId');
       return;
+    }
+    
+    // If health data isn't initialized yet, we'll still proceed but with a warning
+    if (!isInitialized) {
+      console.log('[Dashboard] Warning: Fetching without health initialization - some metrics may be incomplete');
     }
     
     // Skip if we've already done the global initialization
@@ -331,8 +366,8 @@ export const Dashboard = React.memo(function Dashboard({
       ]);
       
       // Check if this response is stale
-      if (requestId !== fetchIdRef.current) {
-        console.log('Stale data response, ignoring');
+      if (requestId !== fetchIdRef.current || !isMountedRef.current) {
+        console.log('[Dashboard] Stale data response or component unmounted, ignoring');
         return;
       }
       
@@ -347,60 +382,53 @@ export const Dashboard = React.memo(function Dashboard({
         updated_at: new Date().toISOString()
       };
       
-      // Add a timestamp to force rerenders when data changes
-      const transformedMetrics = transformMetricsToHealthMetrics(metricScores, userTotal, userId, date, healthMetrics);
+      // Transform metrics but don't update state yet
+      const transformedMetrics = transformMetricsToHealthMetrics(
+        metricScores, 
+        userTotal, 
+        userId, 
+        date, 
+        healthMetrics
+      );
       
-      // Sanitize metrics for meaningful comparison
-      const sanitizedNewMetrics = sanitizeMetricsForComparison(transformedMetrics);
-      const sanitizedOldMetrics = healthMetrics ? sanitizeMetricsForComparison(healthMetrics) : null;
+      // Simple check - if component has unmounted, abort
+      if (!isMountedRef.current) return;
       
-      // Only update state if data has actually changed to prevent unnecessary rerenders
-      const hasDataChanged = 
-        !healthMetrics || 
-        !dailyTotal || 
-        !deepEqual(sanitizedNewMetrics, sanitizedOldMetrics) ||
-        userTotal.total_points !== dailyTotal.total_points ||
-        rank !== userRank;
+      // Update state directly without complex comparisons
+      console.log('[Dashboard] Updating dashboard state...');
       
-      // Log the specific changes for debugging
-      if (!deepEqual(sanitizedNewMetrics, sanitizedOldMetrics) && sanitizedOldMetrics) {
-        const metricKeys = Object.keys(sanitizedNewMetrics) as (keyof typeof sanitizedNewMetrics)[];
-        metricKeys.forEach(key => {
-          if (!deepEqual(sanitizedNewMetrics[key], sanitizedOldMetrics[key])) {
-            console.log(`[Dashboard] Change detected in metric: ${key}`, {
-              old: sanitizedOldMetrics[key],
-              new: sanitizedNewMetrics[key]
-            });
-          }
-        });
-      }
-      
-      if (hasDataChanged) {
-        console.log('[Dashboard] Data has changed, updating state');
-        setDailyTotal(userTotal);
-        setHealthMetrics(transformedMetrics);
-        setUserRank(rank);
-      } else {
-        console.log('[Dashboard] No changes in data detected');
-      }
-      
+      // Clear any previous errors
       setFetchError(null);
+      
+      // Update all state at once to prevent partial updates
+      setUserRank(rank);
+      setDailyTotal(userTotal);
+      setHealthMetrics(transformedMetrics);
+      
+      console.log('[Dashboard] Dashboard state updated successfully');
+      
+      // Mark fetch as completed
+      hasCompletedInitialFetchRef.current = true;
+      
+      // Reset refreshing state
+      if (isManualRefreshRef.current) {
+        setIsRefreshing(false);
+        isManualRefreshRef.current = false;
+      }
     } catch (err) {
-      // Only handle errors from current request
-      if (requestId !== fetchIdRef.current) return;
-      console.error('Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
-    } finally {
-      if (requestId === fetchIdRef.current) {
-        // Only clear the refresh state if this was a manual refresh
+      console.error('[Dashboard] Error fetching dashboard data:', err);
+      
+      if (requestId === fetchIdRef.current && isMountedRef.current) {
+        setFetchError(err instanceof Error ? err : new Error('Failed to fetch dashboard data'));
+        
+        // Always finish the refresh even on error
         if (isManualRefreshRef.current) {
           setIsRefreshing(false);
+          isManualRefreshRef.current = false;
         }
-        isInitializedRef.current = false;
       }
     }
-  }, [userId, date, isInitialized]);
+  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints]);
 
   // Setup auto-refresh timer
   useEffect(() => {
@@ -521,6 +549,35 @@ export const Dashboard = React.memo(function Dashboard({
     syncHealthData();
     fetchData(fetchIdRef.current);
   }, [syncHealthData, fetchData]);
+
+  // Add error recovery mechanism
+  useEffect(() => {
+    // If we're stuck in a loading state for too long, reset
+    const recoveryTimer = setTimeout(() => {
+      if (isMountedRef.current && !healthMetrics) {
+        console.log('[Dashboard] Recovery mechanism triggered - resetting state');
+        
+        // Create default data
+        const defaultData = createDefaultHealthMetrics();
+        const defaultTotal = createDefaultDailyTotal();
+        
+        // Update state with default data
+        setDailyTotal(defaultTotal);
+        setHealthMetrics(defaultData);
+        setFetchError(new Error('Dashboard recovery mechanism triggered'));
+        
+        // Reset loading states
+        setIsRefreshing(false);
+        
+        // Force a fresh fetch
+        hasCompletedInitialFetchRef.current = false;
+        fetchIdRef.current += 1;
+        syncHealthData();
+      }
+    }, 5000);
+    
+    return () => clearTimeout(recoveryTimer);
+  }, [healthMetrics, syncHealthData, userId, date]);
 
   if (loading) {
     return <LoadingView />;

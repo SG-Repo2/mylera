@@ -64,6 +64,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   });
 
   const syncHealthData = useCallback(async () => {
+    // Set initialized immediately to ensure the UI is responsive
+    if (!isInitialized) {
+      setIsInitialized(true);
+    }
+    
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
@@ -93,8 +98,25 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     console.log(`[useHealthData] Starting health data sync (attempt ${syncAttempts.current})`);
 
     try {
-      // Use the atomic initialization with permissions
-      await provider.initializeWithPermissions(userId);
+      try {
+        // Use the atomic initialization with permissions with a more robust timeout handling
+        await Promise.race([
+          provider.initializeWithPermissions(userId),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Health provider initialization timeout')), 10000) // Increased timeout to 10s
+          )
+        ]);
+      } catch (initError) {
+        console.error('[useHealthData] Provider initialization error:', initError);
+        // Set initialized to true anyway to ensure the UI shows rather than getting stuck
+        setIsInitialized(true);
+        // Also set loading to false to prevent infinite loading
+        setLoading(false);
+        // For other issues, we'll continue and let the UI show without health data
+        setError(initError instanceof Error ? initError : new Error('Health provider initialization failed'));
+        isSyncInProgress.current = false;
+        return;
+      }
       
       // Check mount state before continuing
       if (!isMounted.current) return;
@@ -115,19 +137,42 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         
         // If user explicitly denied permissions, show useful error but don't block UI
         if (granted !== 'granted') {
+          // Set isInitialized to true anyway to ensure the UI shows
+          setIsInitialized(true);
+          // Also set loading to false to prevent infinite loading
+          setLoading(false);
           // Set error but still continue to show UI with limited functionality
-          throw new Error(
-            'Health permissions not granted. Some features may be limited.'
-          );
+          setError(new Error('Health permissions not granted. Some features may be limited.'));
+          isSyncInProgress.current = false;
+          return;
         }
       }
 
       // Fetch health data and update metrics
       console.log('[useHealthData] Permissions granted, fetching health data...');
-      const healthData = await provider.getMetrics();
+      let healthData;
+      try {
+        healthData = await provider.getMetrics();
+      } catch (metricError) {
+        console.error('[useHealthData] Error fetching metrics:', metricError);
+        // Still mark as initialized so UI can show
+        setIsInitialized(true);
+        // Also set loading to false
+        setLoading(false);
+        // Set error instead of throwing
+        setError(metricError instanceof Error ? metricError : new Error('Failed to fetch health metrics'));
+        isSyncInProgress.current = false;
+        return;
+      }
       
       // Check mount state before continuing
       if (!isMounted.current) return;
+      
+      // Mark as initialized after we've gotten health metrics
+      if (!isInitialized) {
+        console.log('[useHealthData] Provider successfully initialized');
+        setIsInitialized(true);
+      }
       
       // Only update specific health metrics
       const healthMetrics: MetricType[] = [
@@ -170,12 +215,6 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       // Log sync status
       console.log(`[useHealthData] Sync complete - Updated: ${successfulUpdates.join(', ')} - Failed: ${failedMetrics.length > 0 ? failedMetrics.join(', ') : 'none'}`);
       
-      // Only mark as initialized if we have at least one successful metric update
-      if (successfulUpdates.length > 0 && !isInitialized) {
-        console.log('[useHealthData] Provider initialization complete');
-        setIsInitialized(true);
-      }
-      
       // Reset error state on successful sync
       setError(null);
       syncAttempts.current = 0;
@@ -211,25 +250,57 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
+    // Always set these flags immediately
     isMounted.current = true;
     isSyncInProgress.current = false;
+    
+    // Set initialized immediately so UI can render
+    setIsInitialized(true);
     
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
       setLoading(false);
-      setIsInitialized(true);
       return;
     }
     
-    syncHealthData();
+    // Use a timeout to give the UI a chance to render first
+    const timer = setTimeout(() => {
+      if (isMounted.current) {
+        syncHealthData();
+      }
+    }, 100);
     
     return () => {
+      // Clear timer and cleanup
+      clearTimeout(timer);
       isMounted.current = false;
+      
       if (provider.cleanup) {
         provider.cleanup();
       }
     };
   }, [syncHealthData, userId]);
+
+  // Add a safety timeout to prevent infinite loading
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        if (isMounted.current && loading) {
+          console.warn('[useHealthData] Safety timeout triggered - forcing loading state to false');
+          setLoading(false);
+          setIsInitialized(true);
+          
+          if (!error) {
+            setError(new Error('Health initialization timed out'));
+          }
+          
+          isSyncInProgress.current = false;
+        }
+      }, 5000); // Force loading to end after 5 seconds
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading, error]);
 
   return { loading, error, syncHealthData, isInitialized };
 };
