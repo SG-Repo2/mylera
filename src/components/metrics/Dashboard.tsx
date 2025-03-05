@@ -189,14 +189,19 @@ export const Dashboard = React.memo(function Dashboard({
   // Add a flag to track the first fetch
   const hasCompletedInitialFetchRef = useRef(false);
   
+  // Add a static flag to track global initialization state - this persists beyond component unmount/remount
+  const dashboardInitRef = useRef({
+    globalInitialized: false
+  });
+  
   // Set mounted flag on component mount/unmount
   useEffect(() => {
     isMountedRef.current = true;
-    console.log('[Dashboard] Component mounted');
+    console.log('[Dashboard] Component mounted, global init state:', dashboardInitRef.current.globalInitialized);
     
     return () => {
       isMountedRef.current = false;
-      console.log('[Dashboard] Component unmounted');
+      console.log('[Dashboard] Component unmounted, preserving global init state');
     };
   }, []);
   
@@ -230,9 +235,15 @@ export const Dashboard = React.memo(function Dashboard({
   }, [dailyTotal, headerOpacity, slideAnim]);
 
   const fetchData = useCallback(async (requestId: number) => {
-    // Don't proceed if component isn't initialized, no user ID, or already fetching
+    // Don't proceed if component isn't initialized, no user ID
     if (!isInitialized || !userId) {
       console.log('[Dashboard] Skipping fetch - component not initialized or missing userId');
+      return;
+    }
+    
+    // Skip if we've already done the global initialization
+    if (dashboardInitRef.current.globalInitialized && requestId < 3) {
+      console.log('[Dashboard] Skipping redundant fetch - already initialized globally');
       return;
     }
     
@@ -250,6 +261,9 @@ export const Dashboard = React.memo(function Dashboard({
     console.log(`[Dashboard] Starting fetch for requestId: ${requestId}`);
     
     try {
+      // Once we've successfully completed a fetch, mark global init as done
+      dashboardInitRef.current.globalInitialized = true;
+      
       console.log('Dashboard fetching data for:', { userId, date, requestId });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),

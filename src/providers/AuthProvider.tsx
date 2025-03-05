@@ -13,6 +13,7 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
+import { Platform } from 'react-native';
 
 interface AuthContextType {
   session: Session | null;
@@ -146,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { error: metadataError } = await supabase.auth.updateUser({
           data: {
-            deviceType: profile.deviceType,
+            deviceType: profile.deviceType, // Keep original value in auth metadata
             measurementSystem: profile.measurementSystem,
             showProfile: profile.showProfile ?? true
           }

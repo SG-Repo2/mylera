@@ -47,13 +47,15 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
     navigationAttempts: number;
     lastNavigationTime: number;
     pendingNavigationTimeout: ReturnType<typeof setTimeout> | null;
+    lastAuthStateChangeTime: number;
   }>({
     isRedirecting: false,
     lastPathname: null,
     lastAuthState: { loading: true, hasSession: false },
     navigationAttempts: 0,
     lastNavigationTime: 0,
-    pendingNavigationTimeout: null
+    pendingNavigationTimeout: null,
+    lastAuthStateChangeTime: 0
   });
   
   // Add animation for smooth transitions
@@ -192,12 +194,23 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
       // This helps prevent the Dashboard loading twice
       if (hasSession && isAuthStateChange) {
         console.log('[ProtectedRoutes] Detected successful login, preparing navigation');
-        setTimeout(() => {
-          // Only navigate if not already navigating
-          if (!nav.isRedirecting) {
-            navigateSafely('/');
-          }
-        }, 150);
+        
+        // Set a flag to prevent multiple navigations from the same auth state change
+        const currentTime = Date.now();
+        const recentAuthChange = currentTime - nav.lastAuthStateChangeTime < 5000;
+        
+        if (!recentAuthChange) {
+          nav.lastAuthStateChangeTime = currentTime;
+          
+          setTimeout(() => {
+            // Only navigate if not already navigating and not recently navigated
+            if (!nav.isRedirecting) {
+              navigateSafely('/');
+            }
+          }, 150);
+        } else {
+          console.log('[ProtectedRoutes] Skipping navigation - recent auth state change');
+        }
         return;
       }
       
