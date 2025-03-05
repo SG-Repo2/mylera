@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { View, Animated, StyleSheet } from 'react-native';
 import { Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +20,7 @@ interface MetricCardProps {
   onPress: () => void;
   showAlert?: boolean;
   measurementSystem?: MeasurementSystem;
+  valueChangeAnim?: Animated.Value;
 }
 
 const calculateProgress = (value: number | null, goal: number): number => {
@@ -37,7 +38,8 @@ export const MetricCard = React.memo(function MetricCard({
   color,
   onPress,
   showAlert,
-  measurementSystem: propMeasurementSystem
+  measurementSystem: propMeasurementSystem,
+  valueChangeAnim
 }: MetricCardProps) {
   const styles = useMetricCardStyles();
   const theme = useTheme();
@@ -49,8 +51,33 @@ export const MetricCard = React.memo(function MetricCard({
   const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
   const percentage = Math.round(progress * 100);
   
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
-  const glowAnim = React.useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  const valueChangePulseAnim = useRef(new Animated.Value(0)).current;
+  const prevValueRef = useRef<number | null>(null);
+  
+  useEffect(() => {
+    if (prevValueRef.current !== null && prevValueRef.current !== value) {
+      console.log(`[MetricCard] ${metricType} value changed: ${prevValueRef.current} -> ${value}`);
+      
+      valueChangePulseAnim.setValue(0);
+      
+      Animated.sequence([
+        Animated.timing(valueChangePulseAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(valueChangePulseAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
+    }
+    
+    prevValueRef.current = value;
+  }, [value, valueChangePulseAnim, metricType]);
 
   const handlePressIn = React.useCallback(() => {
     Animated.parallel([
@@ -59,12 +86,12 @@ export const MetricCard = React.memo(function MetricCard({
         useNativeDriver: true,
         stiffness: 200,
         damping: 15,
-        mass: 0.8,
+        mass: 1
       }),
       Animated.timing(glowAnim, {
         toValue: 1,
         duration: 200,
-        useNativeDriver: true,
+        useNativeDriver: true
       })
     ]).start();
   }, [scaleAnim, glowAnim]);
@@ -76,16 +103,46 @@ export const MetricCard = React.memo(function MetricCard({
         useNativeDriver: true,
         stiffness: 200,
         damping: 15,
-        mass: 0.8,
+        mass: 1
       }),
       Animated.timing(glowAnim, {
         toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
+        duration: 200,
+        useNativeDriver: true
       })
     ]).start();
   }, [scaleAnim, glowAnim]);
 
+  const combinedValueChangeAnim = useMemo(() => {
+    const baseAnim = valueChangeAnim || valueChangePulseAnim;
+    
+    return baseAnim.interpolate({
+      inputRange: [0, 0.5, 1],
+      outputRange: [1, 1.1, 1]
+    });
+  }, [valueChangeAnim, valueChangePulseAnim]);
+  
+  const backgroundColorAnim = useMemo(() => {
+    const baseAnim = valueChangeAnim || valueChangePulseAnim;
+    
+    return baseAnim;
+  }, [valueChangeAnim, valueChangePulseAnim]);
+  
+  const cardBackgroundColorStyle = useMemo(() => {
+    const pulseColor = color || theme.colors.primary;
+    
+    return {
+      backgroundColor: backgroundColorAnim.interpolate({
+        inputRange: [0, 0.5, 1],
+        outputRange: [
+          theme.colors.surface, 
+          `${pulseColor}30`,
+          theme.colors.surface
+        ]
+      })
+    };
+  }, [backgroundColorAnim, color, theme.colors.surface, theme.colors.primary]);
+  
   const getPointsText = () => {
     if (metricType === 'heart_rate') {
       return '(zone)';
@@ -122,7 +179,7 @@ export const MetricCard = React.memo(function MetricCard({
       <Surface 
         style={[
           styles.cardShadowWrapper, 
-          { backgroundColor: theme.colors.surface }
+          cardBackgroundColorStyle
         ]} 
         elevation={2}
       >
@@ -145,9 +202,11 @@ export const MetricCard = React.memo(function MetricCard({
               </View>
               
               <View style={styles.valueContainer}>
-                <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
-                  {formattedValue}
-                </Text>
+                <Animated.View style={{ transform: [{ scale: combinedValueChangeAnim }] }}>
+                  <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                    {formattedValue}
+                  </Text>
+                </Animated.View>
                 <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
                   {displayUnit}
                 </Text>

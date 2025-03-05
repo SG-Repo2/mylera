@@ -21,7 +21,7 @@ import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
-// Add a constant for auto-refresh interval
+// Add auto-refresh interval constant
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 
 interface DashboardProps {

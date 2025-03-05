@@ -57,6 +57,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const MAX_INIT_ATTEMPTS = 3;
   const lastSyncTimeRef = useRef(0);
   const MIN_SYNC_INTERVAL = 3000; // Minimum 3 seconds between syncs
+  const syncResultsRef = useRef({
+    lastSuccessTime: 0,
+    metricUpdatesCount: 0,
+    failuresCount: 0
+  });
 
   const syncHealthData = useCallback(async () => {
     // Prevent concurrent syncs and handle unmounting
@@ -157,57 +162,48 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
 
       await Promise.all(updates);
       
-      // Check mount state before continuing
-      if (!isMounted.current) return;
-
-      // Log successful updates
-      if (successfulUpdates.length > 0) {
-        console.log(`[useHealthData] Successfully updated metrics: ${successfulUpdates.join(', ')}`);
+      // Update sync results stats
+      syncResultsRef.current.lastSuccessTime = Date.now();
+      syncResultsRef.current.metricUpdatesCount += successfulUpdates.length;
+      syncResultsRef.current.failuresCount += failedMetrics.length;
+      
+      // Log sync status
+      console.log(`[useHealthData] Sync complete - Updated: ${successfulUpdates.join(', ')} - Failed: ${failedMetrics.length > 0 ? failedMetrics.join(', ') : 'none'}`);
+      
+      // Only mark as initialized if we have at least one successful metric update
+      if (successfulUpdates.length > 0 && !isInitialized) {
+        console.log('[useHealthData] Provider initialization complete');
+        setIsInitialized(true);
       }
-
-      // If some metrics failed but not all, show a warning but don't fail completely
-      if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
-        console.warn(`[useHealthData] Some metrics failed to update: ${failedMetrics.join(', ')}`);
-      }
-
-      // Reset sync attempts on success
+      
+      // Reset error state on successful sync
+      setError(null);
       syncAttempts.current = 0;
-
     } catch (err) {
-      // Return early if component is unmounted
-      if (!isMounted.current) return;
+      // Preserve original error information
+      const originalError = err instanceof Error ? err : new Error('Unknown error during health sync');
       
-      // Determine if we should retry
-      const shouldRetry = syncAttempts.current < MAX_SYNC_ATTEMPTS &&
-                        !(err instanceof Error && err.message.includes('permissions not granted'));
+      // Create a user-friendly message
+      const userMessage = getUserFriendlyErrorMessage(originalError);
       
-      // Improved error handling with original error preservation
-      const originalError = err instanceof Error ? err : new Error(String(err));
-      const enhancedError = new Error(
-        getUserFriendlyErrorMessage(originalError)
-      );
-      enhancedError.name = originalError.name;
-      enhancedError.stack = originalError.stack;
-      // @ts-ignore - Add originalError for debugging
-      enhancedError.originalError = originalError;
+      console.error('[useHealthData] Sync error:', originalError.message);
       
-      setError(enhancedError);
-      console.error('[useHealthData] Health sync error:', err);
+      // Determine if we should retry based on error type
+      const isRetryableError = 
+        !originalError.message.includes('permission') && 
+        !originalError.name.includes('Auth') &&
+        syncAttempts.current < MAX_SYNC_ATTEMPTS;
       
-      // If we should retry, do so after a delay
-      if (shouldRetry) {
-        setTimeout(() => {
-          if (isMounted.current) {
-            isSyncInProgress.current = false;
-            syncHealthData();
-          }
-        }, 1000);
-        return;
+      if (isRetryableError) {
+        console.log(`[useHealthData] Retryable error, will attempt again later (attempt ${syncAttempts.current}/${MAX_SYNC_ATTEMPTS})`);
+      } else {
+        // Only set the error on the final attempt or for non-retryable errors
+        setError(Object.assign(originalError, { userMessage }));
+        syncResultsRef.current.failuresCount += 1;
       }
     } finally {
       if (isMounted.current) {
         setLoading(false);
-        setIsInitialized(true);
         isSyncInProgress.current = false;
       }
     }

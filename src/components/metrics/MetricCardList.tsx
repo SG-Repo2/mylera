@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Animated } from 'react-native';
 import GoalCelebration from './GoalCelebration';
 import { useTheme } from 'react-native-paper';
@@ -19,6 +19,39 @@ interface MetricCardListProps {
 }
 
 type DisplayedMetricType = MetricType;
+
+// Add this utility function above the MetricCardList component
+const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  
+  // Only compare the actual metrics that affect what's displayed
+  const metricKeys: (keyof HealthMetrics)[] = [
+    'steps', 'distance', 'calories', 'heart_rate',
+    'exercise', 'basal_calories', 'flights_climbed'
+  ];
+  
+  // Return false if any key has changed - forces re-render
+  return metricKeys.every(key => prev[key] === next[key]);
+};
+
+// Add function to log metric changes
+const logMetricChanges = (metricOrder: DisplayedMetricType[], prev: HealthMetrics | null, next: HealthMetrics) => {
+  if (!prev) {
+    console.log('[MetricCardList] Initial metrics load');
+    return;
+  }
+  
+  let changed = false;
+  metricOrder.forEach(metric => {
+    if (prev[metric] !== next[metric]) {
+      console.log(`[MetricCardList] Metric ${metric} changed: ${prev[metric]} -> ${next[metric]}`);
+      changed = true;
+    }
+  });
+  
+  return changed;
+};
 
 const calculateMetricPoints = (type: DisplayedMetricType, value: number | { systolic: number; diastolic: number }): number => {
   // Handle non-numeric values
@@ -54,21 +87,6 @@ const metricOrder: DisplayedMetricType[] = [
   'flights_climbed'
 ];
 
-// Add this utility function above the MetricCardList component
-const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
-  if (prev === next) return true;
-  if (!prev || !next) return false;
-  
-  // Only compare the actual metrics that affect what's displayed
-  const metricKeys: (keyof HealthMetrics)[] = [
-    'steps', 'distance', 'calories', 'heart_rate',
-    'exercise', 'basal_calories', 'flights_climbed'
-  ];
-  
-  // Return false if any key has changed - forces re-render
-  return metricKeys.every(key => prev[key] === next[key]);
-};
-
 export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
@@ -84,39 +102,61 @@ export const MetricCardList = React.memo(function MetricCardList({
   const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   
   // Add tracking to reset animations when metrics change
-  const prevMetricsIdRef = React.useRef<string | null>(null);
-  const animationsRun = React.useRef(false);
-  const prevMetricsRef = React.useRef<HealthMetrics | null>(null);
-
-  // Add a function to debug metrics changes
-  const logMetricChanges = React.useCallback((prev: HealthMetrics | null, next: HealthMetrics) => {
-    if (!prev) {
-      console.log('[MetricCardList] Initial metrics load');
-      return;
-    }
-    
-    metricOrder.forEach(metric => {
-      if (prev[metric] !== next[metric]) {
-        console.log(`[MetricCardList] Metric ${metric} changed: ${prev[metric]} -> ${next[metric]}`);
-      }
-    });
-  }, []);
+  const prevMetricsRef = useRef<HealthMetrics | null>(null);
+  const animationsRun = useRef(false);
+  
+  // Create refs for value change animations
+  const valueChangeAnims = useRef(
+    metricOrder.map(() => new Animated.Value(0))
+  ).current;
+  
+  // Create fade-in animations for each card
+  const fadeAnims = useRef(
+    metricOrder.map(() => new Animated.Value(0))
+  ).current;
 
   // Check if metrics have changed
-  React.useEffect(() => {
+  useEffect(() => {
     // Log metrics changes
     if (prevMetricsRef.current !== metrics) {
-      logMetricChanges(prevMetricsRef.current, metrics);
+      const hasChanged = logMetricChanges(metricOrder, prevMetricsRef.current, metrics);
       
-      // Force animation reset if any health metric value has changed
-      if (prevMetricsRef.current && !areMetricsEqual(prevMetricsRef.current, metrics)) {
-        console.log('[MetricCardList] Metrics values changed, resetting animations');
+      // If metrics have changed, trigger value change animations
+      if (prevMetricsRef.current && hasChanged) {
+        console.log('[MetricCardList] Metrics values changed, triggering animations');
+        
+        // Trigger value change animations for each metric
+        metricOrder.forEach((metric, index) => {
+          if (prevMetricsRef.current && prevMetricsRef.current[metric] !== metrics[metric]) {
+            // Reset animation value
+            valueChangeAnims[index].setValue(0);
+            
+            // Play pulsing animation
+            Animated.sequence([
+              Animated.timing(valueChangeAnims[index], {
+                toValue: 1,
+                duration: 150,
+                useNativeDriver: true,
+              }),
+              Animated.timing(valueChangeAnims[index], {
+                toValue: 0,
+                duration: 250, 
+                useNativeDriver: true,
+              })
+            ]).start();
+          }
+        });
+      }
+      
+      // If this is the first time seeing metrics or metrics have significantly changed,
+      // reset fade-in animations
+      if (!prevMetricsRef.current || !areMetricsEqual(prevMetricsRef.current, metrics)) {
         animationsRun.current = false;
       }
       
       prevMetricsRef.current = metrics;
     }
-  }, [metrics, logMetricChanges]);
+  }, [metrics, valueChangeAnims]);
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
@@ -128,18 +168,11 @@ export const MetricCardList = React.memo(function MetricCardList({
       config: healthMetrics[metricType]
     }));
   }, [metrics]);
-  
-  // Create fade-in animations for each card
-  const fadeAnims = React.useRef(
-    metricOrder.map(() => new Animated.Value(0))
-  ).current;
 
+  // Run fade-in animations
   React.useEffect(() => {
-    // Only run animations on initial render or if metrics ID changes
-    const shouldRunAnimations = !animationsRun.current || metrics.id !== prevMetricsIdRef.current;
-    prevMetricsIdRef.current = metrics.id;
-    
-    if (!shouldRunAnimations) return;
+    // Only run animations on initial render or if animations need to be reset
+    if (animationsRun.current) return;
     
     // Reset animations first
     fadeAnims.forEach(anim => anim.setValue(0));
@@ -147,27 +180,21 @@ export const MetricCardList = React.memo(function MetricCardList({
     // Enhanced stagger animation sequence
     const animations = fadeAnims.map((anim, index) =>
       Animated.sequence([
-        Animated.delay(index * 80), // Slightly faster stagger for better flow
+        Animated.delay(index * 80), // Stagger delay
         Animated.spring(anim, {
           toValue: 1,
           useNativeDriver: true,
+          damping: 12,
           stiffness: 100,
-          damping: 15,
-          mass: 0.8,
         })
       ])
     );
-
-    const animationController = Animated.stagger(50, animations);
-    animationController.start(() => {
+    
+    // Start all animations and mark as complete
+    Animated.parallel(animations).start(() => {
       animationsRun.current = true;
     });
-    
-    // Cleanup animation when component unmounts
-    return () => {
-      animationController.stop();
-    };
-  }, [fadeAnims, metrics.id]); // Add metrics.id as dependency
+  }, [fadeAnims, metrics]);
 
   // Memoize modal handlers
   const handleModalClose = useCallback(() => {
@@ -190,75 +217,69 @@ export const MetricCardList = React.memo(function MetricCardList({
   }, [memoizedMetrics]);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {showCelebration && (
-        <GoalCelebration
-          visible={showCelebration}
-          onClose={() => setShowCelebration(false)}
-          bonusPoints={celebrationPoints}
-        />
-      )}
-      {selectedMetric && (
-          <MetricModal
-            visible={modalVisible}
-            onClose={handleModalClose}
-            title={healthMetrics[selectedMetric].title}
-            value={metrics[selectedMetric] || 0}
-            metricType={selectedMetric}
-            userId={metrics.user_id}
-            date={metrics.date}
-            provider={provider}
-            additionalInfo={[
-            {
-              label: 'Daily Goal',
-              value: `${healthMetrics[selectedMetric].defaultGoal} ${DISPLAY_UNITS[selectedMetric][measurementSystem]}`
-            },
-            {
-              label: 'Progress',
-              value: `${Math.round((metrics[selectedMetric] as number || 0) / healthMetrics[selectedMetric].defaultGoal * 100)}%`
-            }
-          ]}
-        />
-      )}
+    <View style={styles.container}>
       <View style={styles.grid}>
-        {memoizedMetrics.map(({ type: metricType, value, points, config }, index) => (
-          <Animated.View 
-            key={metricType} 
-            style={[
-              styles.cell,
-              {
-              opacity: fadeAnims[index],
-              transform: [{
-                translateY: fadeAnims[index].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [30, 0], // Increased range for more noticeable motion
-                }),
-              }, {
-                scale: fadeAnims[index].interpolate({
-                  inputRange: [0, 0.5, 1],
-                  outputRange: [0.8, 1.02, 1], // Add slight overshoot
-                }),
-              }],
-              },
-              index === metricOrder.length - 1 && styles.lastCell
-            ]}
-          >
-            <MetricCard
-              title={config.title}
-              value={value}
-              points={points}
-              goal={config.defaultGoal as number}
-              unit={DISPLAY_UNITS[metricType][measurementSystem]}
-              icon={config.icon}
-              color={metricColors[metricType]}
-              showAlert={showAlerts}
-              metricType={metricType}
-              measurementSystem={measurementSystem}
-              onPress={() => handleMetricPress(metricType)}
-            />
-          </Animated.View>
-        ))}
+        {memoizedMetrics.map((metric, index) => {
+          const metricType = metric.type as MetricType;
+          const fadeAnim = fadeAnims[index]; // Get the fade animation for this card
+          const valueAnim = valueChangeAnims[index]; // Get the value change animation for this card
+          
+          return (
+            <Animated.View
+              key={metricType}
+              style={[
+                styles.cell,
+                {
+                  opacity: fadeAnim,
+                  transform: [
+                    {
+                      translateY: fadeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    },
+                  ],
+                },
+                index === metricOrder.length - 1 && styles.lastCell
+              ]}
+            >
+              <MetricCard
+                title={healthMetrics[metricType].title}
+                value={metric.value}
+                goal={healthMetrics[metricType].defaultGoal}
+                points={metric.points}
+                icon={healthMetrics[metricType].icon}
+                unit={healthMetrics[metricType].unit}
+                metricType={metricType}
+                color={metricColors[metricType]}
+                onPress={() => handleMetricPress(metricType)}
+                showAlert={showAlerts}
+                measurementSystem={measurementSystem}
+                valueChangeAnim={valueAnim}
+              />
+            </Animated.View>
+          );
+        })}
       </View>
+      
+      {selectedMetric && (
+        <MetricModal
+          visible={modalVisible}
+          onClose={() => setModalVisible(false)}
+          title={healthMetrics[selectedMetric].title}
+          value={metrics[selectedMetric] as number || 0}
+          metricType={selectedMetric}
+          userId={metrics.user_id}
+          date={metrics.date}
+          provider={provider}
+        />
+      )}
+
+      <GoalCelebration
+        visible={showCelebration}
+        bonusPoints={celebrationPoints}
+        onClose={() => setShowCelebration(false)}
+      />
     </View>
   );
 }, (prevProps, nextProps) => {
