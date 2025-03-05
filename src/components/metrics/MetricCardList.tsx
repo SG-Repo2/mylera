@@ -17,6 +17,7 @@ interface MetricCardListProps {
   showAlerts?: boolean;
   provider: HealthProvider;
   isInitialLoad?: boolean;
+  isManualRefresh?: boolean;
 }
 
 type DisplayedMetricType = MetricType;
@@ -114,7 +115,8 @@ export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
   provider,
-  isInitialLoad = false
+  isInitialLoad = false,
+  isManualRefresh = false
 }: MetricCardListProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -172,15 +174,15 @@ export const MetricCardList = React.memo(function MetricCardList({
         });
       }
       
-      // Only reset fade-in animations on initial load or explicit manual refresh (isInitialLoad=true)
+      // Only reset fade-in animations on initial load or explicit manual refresh
       // Not during automatic background refreshes
-      if (!prevMetricsRef.current || (isInitialLoad && !areMetricsEqual(prevMetricsRef.current, metrics))) {
+      if (!prevMetricsRef.current || (isManualRefresh && !areMetricsEqual(prevMetricsRef.current, metrics))) {
         animationsRun.current = false;
       }
       
       prevMetricsRef.current = metrics;
     }
-  }, [metrics, valueChangeAnims, isInitialLoad]);
+  }, [metrics, valueChangeAnims, isManualRefresh]);
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {

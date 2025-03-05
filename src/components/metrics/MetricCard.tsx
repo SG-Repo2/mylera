@@ -60,24 +60,26 @@ export const MetricCard = React.memo(function MetricCard({
     if (prevValueRef.current !== null && prevValueRef.current !== value) {
       console.log(`[MetricCard] ${metricType} value changed: ${prevValueRef.current} -> ${value}`);
       
-      valueChangePulseAnim.setValue(0);
-      
-      Animated.sequence([
-        Animated.timing(valueChangePulseAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(valueChangePulseAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        })
-      ]).start();
+      if (!valueChangeAnim) {
+        valueChangePulseAnim.setValue(0);
+        
+        Animated.sequence([
+          Animated.timing(valueChangePulseAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(valueChangePulseAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          })
+        ]).start();
+      }
     }
     
     prevValueRef.current = value;
-  }, [value, valueChangePulseAnim, metricType]);
+  }, [value, valueChangePulseAnim, metricType, valueChangeAnim]);
 
   const handlePressIn = React.useCallback(() => {
     Animated.parallel([

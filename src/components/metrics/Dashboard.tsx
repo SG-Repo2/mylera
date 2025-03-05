@@ -311,8 +311,11 @@ export const Dashboard = React.memo(function Dashboard({
       return;
     }
     
-    // Set loading state and update fetch tracking
-    setIsRefreshing(true);
+    // Set loading state only for manual refreshes
+    if (isManualRefreshRef.current) {
+      setIsRefreshing(true);
+    }
+    
     lastFetchTimeRef.current = now;
     console.log(`[Dashboard] Starting fetch for requestId: ${requestId}`);
     
@@ -390,11 +393,14 @@ export const Dashboard = React.memo(function Dashboard({
       setErrorDialogVisible(true);
     } finally {
       if (requestId === fetchIdRef.current) {
-        setIsRefreshing(false);
+        // Only clear the refresh state if this was a manual refresh
+        if (isManualRefreshRef.current) {
+          setIsRefreshing(false);
+        }
         isInitializedRef.current = false;
       }
     }
-  }, [userId, date, isInitialized]); // Remove fetchId from dependencies
+  }, [userId, date, isInitialized]);
 
   // Setup auto-refresh timer
   useEffect(() => {
@@ -407,12 +413,15 @@ export const Dashboard = React.memo(function Dashboard({
     
     autoRefreshTimerRef.current = setInterval(() => {
       if (isMountedRef.current && appStateRef.current === 'active') {
-        // Mark this as NOT a manual refresh
+        // Explicitly mark this as NOT a manual refresh
         isManualRefreshRef.current = false;
         
         console.log('[Dashboard] Auto-refresh triggered');
         const newFetchId = fetchIdRef.current + 1;
         fetchIdRef.current = newFetchId;
+        
+        // Don't set isRefreshing state for automatic refreshes
+        // This prevents the pull-to-refresh indicator from showing
         fetchData(newFetchId);
       }
     }, AUTO_REFRESH_INTERVAL);
@@ -440,8 +449,8 @@ export const Dashboard = React.memo(function Dashboard({
       ) {
         console.log('[Dashboard] App has come to the foreground - refreshing dashboard data');
         
-        // Coming back to foreground is like a manual refresh
-        isManualRefreshRef.current = true;
+        // Coming back to foreground is NOT a manual refresh
+        isManualRefreshRef.current = false;
         
         // Use incremented request ID to track this specific fetch request
         const newFetchId = fetchIdRef.current + 1;
@@ -468,6 +477,9 @@ export const Dashboard = React.memo(function Dashboard({
     // Increment fetch ID in the ref without triggering re-renders
     fetchIdRef.current += 1;
     const currentFetchId = fetchIdRef.current;
+    
+    // Explicitly mark initial load as not a manual refresh
+    isManualRefreshRef.current = false;
     
     // Call fetchData with current request ID
     fetchData(currentFetchId);
@@ -497,8 +509,15 @@ export const Dashboard = React.memo(function Dashboard({
     // Mark this as a manual refresh
     isManualRefreshRef.current = true;
     
+    console.log('[Dashboard] Manual refresh triggered');
+    
     // Increment fetch ID in the ref
     fetchIdRef.current += 1;
+    
+    // Explicitly set refreshing state for UI feedback
+    setIsRefreshing(true);
+    
+    // Sync health data and fetch dashboard data
     syncHealthData();
     fetchData(fetchIdRef.current);
   }, [syncHealthData, fetchData]);
@@ -552,7 +571,8 @@ export const Dashboard = React.memo(function Dashboard({
             metrics={healthMetrics} 
             showAlerts={showAlerts}
             provider={provider}
-            isInitialLoad={!hasCompletedInitialFetchRef.current || isManualRefreshRef.current}
+            isInitialLoad={!dashboardInitRef.current.globalInitialized}
+            isManualRefresh={isManualRefreshRef.current}
           />
         )}
       </ScrollView>
