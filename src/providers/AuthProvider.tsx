@@ -25,7 +25,6 @@ interface AuthContextType {
   logout: () => Promise<void>;
   requestHealthPermissions: () => Promise<PermissionStatus>;
   needsHealthSetup: () => boolean;
-  updateUserMetadata: (metadata: Record<string, any>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
+  const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(false);
 
   useEffect(() => {
     // Check initial session
@@ -97,10 +97,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       showProfile?: boolean;
     }
   ) => {
+    // Prevent multiple parallel auth operations
+    if (isAuthNavigationLocked) {
+      console.log('[AuthProvider] Auth operation already in progress, ignoring new register request');
+      return;
+    }
+
     try {
       console.log('[AuthProvider] Starting registration process...');
       setError(null);
       setLoading(true);
+      setIsAuthNavigationLocked(true); // Lock navigation
       
       // Validate display name first
       if (!profile.displayName?.trim()) {
@@ -115,11 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         options: {
           data: {
             displayName: profile.displayName.trim(),
-            deviceType: profile.deviceType,
-            measurementSystem: profile.measurementSystem,
-            showProfile: profile.showProfile ?? true,
-            // Add a flag to indicate we need health setup
-            needsHealthSetup: true
+            // Only include essential fields initially to reduce chance of DB errors
           },
         },
       };
@@ -138,6 +141,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       console.log('[AuthProvider] User registered successfully with ID:', data.user.id);
+      
+      // Now update the user metadata with additional fields
+      try {
+        const { error: metadataError } = await supabase.auth.updateUser({
+          data: {
+            deviceType: profile.deviceType,
+            measurementSystem: profile.measurementSystem,
+            showProfile: profile.showProfile ?? true
+          }
+        });
+        
+        if (metadataError) {
+          console.warn('[AuthProvider] Failed to update user metadata:', metadataError);
+        }
+      } catch (metadataError) {
+        console.warn('[AuthProvider] Error updating user metadata:', metadataError);
+      }
       
       // Create profile separately through the API
       try {
@@ -172,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Auto-login after registration but DON'T initialize health provider yet
+      // Initialize health provider for new user
       try {
         console.log('[AuthProvider] Attempting auto-login...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -184,14 +204,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw signInError;
         }
         
-        console.log('[AuthProvider] Auto-login successful');
-        // Simply set the health permission status to not_determined
-        // We'll request permissions later in a safer way
-        setHealthPermissionStatus('not_determined');
+        console.log('[AuthProvider] Auto-login successful, initializing health provider');
         
-      } catch (loginError) {
-        console.error('[AuthProvider] Error auto-logging in after registration:', loginError);
-        // Don't block registration on login error
+        // Initialize health provider based on device type
+        const provider = HealthProviderFactory.getProvider(profile.deviceType);
+        
+        // Auto-request permissions during registration instead of waiting for health-setup
+        try {
+          const permissionStatus = await Promise.race([
+            provider.requestPermissions(),
+            new Promise<PermissionStatus>((resolve) => setTimeout(() => resolve('not_determined'), 5000))
+          ]);
+          
+          console.log('[AuthProvider] Health permissions requested during registration:', permissionStatus);
+          setHealthPermissionStatus(permissionStatus); // Update state immediately
+          
+          // Continue initializing even if permission request times out
+          await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
+          console.log('[AuthProvider] Health provider initialized successfully');
+        } catch (healthPermissionError) {
+          console.error('[AuthProvider] Error requesting health permissions:', healthPermissionError);
+          // Don't block registration on health provider errors
+        }
+        
+        console.log('[AuthProvider] Registration process completed successfully');
+      } catch (healthError) {
+        console.error('[AuthProvider] Error initializing health provider:', healthError);
+        // Don't block registration on health provider errors
       }
       
       console.log('[AuthProvider] Registration process completed successfully');
@@ -202,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw err; // Re-throw to allow caller to handle
     } finally {
       setLoading(false);
+      setIsAuthNavigationLocked(false); // Unlock navigation
       console.log('[AuthProvider] Registration process complete. Setting loading to false');
     }
   };
@@ -210,10 +250,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Handle user login
    */
   const login = async (email: string, password: string) => {
+    // Prevent multiple parallel auth operations
+    if (isAuthNavigationLocked) {
+      console.log('[AuthProvider] Auth operation already in progress, ignoring new login request');
+      return;
+    }
+
     try {
       setError(null);
       setLoading(true);
+      setIsAuthNavigationLocked(true); // Lock navigation
 
+      console.log('[AuthProvider] Starting login attempt...');
+      
       // Attempt login
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
@@ -221,17 +270,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (signInError) throw signInError;
 
-      // After successful login, check health permissions
+      console.log('[AuthProvider] Login successful, checking health permissions...');
+      
+      // After successful login, check health permissions - but don't wait for this
+      // to complete before allowing navigation. This prevents delays in UI feedback.
       const provider = HealthProviderFactory.getProvider();
-      const permissionState = await provider.checkPermissionsStatus();
-      setHealthPermissionStatus(permissionState.status);
+      try {
+        const permissionState = await Promise.race([
+          provider.checkPermissionsStatus(),
+          // Add a timeout to prevent blocking navigation if health check is slow
+          new Promise<PermissionState>((_, reject) => 
+            setTimeout(() => reject(new Error('Health permission check timeout')), 2000)
+          )
+        ]);
+        
+        // Fix: Access the status property from PermissionState correctly
+        const status = typeof permissionState === 'string' 
+          ? permissionState 
+          : permissionState.status;
+        
+        // Safely convert to string before comparison
+        const statusStr = String(status);
+        const validStatus = (statusStr === 'prompt' ? 'not_determined' : statusStr) as PermissionStatus;
+        
+        setHealthPermissionStatus(validStatus);
+        console.log('[AuthProvider] Health permission status updated:', validStatus);
+      } catch (healthErr) {
+        // Don't block login if health permissions check fails
+        console.warn('[AuthProvider] Non-critical error checking health permissions:', healthErr);
+      }
 
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('[AuthProvider] Login error:', err);
       setError(mapAuthError(err));
     } finally {
-      setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in login');
+      // Use a short delay before unlocking navigation to prevent immediate re-navigation
+      setTimeout(() => {
+        setLoading(false);
+        setIsAuthNavigationLocked(false); // Unlock navigation
+        console.log('[AuthProvider] Login process complete. Navigation unlocked.');
+      }, 100);
     }
   };
 
@@ -239,9 +317,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    * Check if the user needs to set up health permissions
    */
   const needsHealthSetup = (): boolean => {
-    // Check both the permission status AND the user metadata flag
-    const needsSetupFlag = user?.user_metadata?.needsHealthSetup === true;
-    return needsSetupFlag || !healthPermissionStatus || healthPermissionStatus === 'not_determined';
+    return !healthPermissionStatus || healthPermissionStatus === 'not_determined';
   };
 
   /**
@@ -335,24 +411,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateUserMetadata = async (metadata: Record<string, any>) => {
-    try {
-      setLoading(true);
-      const { error } = await supabase.auth.updateUser({
-        data: metadata
-      });
-      
-      if (error) throw error;
-      console.log('[AuthProvider] User metadata updated successfully:', metadata);
-    } catch (err) {
-      console.error('[AuthProvider] Error updating user metadata:', err);
-      setError(mapAuthError(err));
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const value: AuthContextType = {
     session,
     user,
@@ -369,7 +427,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     requestHealthPermissions,
     needsHealthSetup,
-    updateUserMetadata
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

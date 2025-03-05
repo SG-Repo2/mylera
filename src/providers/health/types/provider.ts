@@ -140,6 +140,12 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /** Flag indicating whether the provider has been initialized */
   protected initialized: boolean = false;
 
+  /** Flag to track initialization status */
+  protected initializationInProgress: boolean = false;
+
+  /** Track last successful initialization timestamp */
+  protected lastInitializationTime: number = 0;
+
   /** Timestamp of the last successful data sync */
   protected lastSyncTime: Date | null = null;
 
@@ -187,28 +193,49 @@ export abstract class BaseHealthProvider implements HealthProvider {
   }
 
   /**
-   * Initialize both the provider and its permission management.
-   * @param userId - The unique identifier of the user
-   * @throws {Error} If initialization fails
+   * Initialize both the provider and its permission management with enhanced safeguards.
    */
   async initializeWithPermissions(userId: string): Promise<void> {
+    // Prevent multiple simultaneous initializations
+    if (this.initializationInProgress) {
+      console.log('[BaseHealthProvider] Initialization already in progress, waiting for completion...');
+      // Wait for current initialization to complete
+      let attempts = 0;
+      while (this.initializationInProgress && attempts < 10) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        attempts++;
+      }
+      
+      if (this.initializationInProgress) {
+        console.error('[BaseHealthProvider] Initialization timeout after waiting 2 seconds');
+        throw new Error('Health provider initialization timeout');
+      }
+      
+      // If we're already initialized and not in progress, just return
+      if (this.initialized) {
+        console.log('[BaseHealthProvider] Already initialized, skipping duplicate initialization');
+        return;
+      }
+    }
+    
     try {
-      logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing provider and permissions for user: ${userId}`);
+      this.initializationInProgress = true;
+      
+      // Main initialization logic
       await this.initialize();
       await this.initializePermissions(userId);
       
-      // Double-check that permissions were properly initialized
-      if (!this.permissionManager) {
-        logger.error(LogCategory.Health, '[BaseHealthProvider] Permission manager is still null after initialization');
-        throw new Error('Permission manager failed to initialize properly');
-      }
+      // Set initialization flags
+      this.initialized = true;
+      this.lastInitializationTime = Date.now();
       
-      logger.info(LogCategory.Health, '[BaseHealthProvider] Provider and permissions initialized successfully');
     } catch (error) {
-      logger.error(LogCategory.Health, '[BaseHealthProvider] Failed to initialize with permissions:');
-      throw error instanceof Error 
-        ? error 
-        : new Error(`Failed to initialize with permissions: ${error}`);
+      // Reset initialization state on error
+      this.initialized = false;
+      console.error('[BaseHealthProvider] Initialization failed:', error);
+      throw error;
+    } finally {
+      this.initializationInProgress = false;
     }
   }
 
@@ -293,14 +320,17 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
   /**
    * Ensure the provider is initialized before operations.
-   * @throws {Error} If initialization fails
    */
   protected async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
-
-      logger.info(LogCategory.Health, '[BaseHealthProvider] Provider not initialized, initializing...');
-      await this.initialize();
-      logger.info(LogCategory.Health, '[BaseHealthProvider] Provider initialized successfully');
+      console.warn('[BaseHealthProvider] Provider accessed before initialization, forcing initialize');
+      try {
+        await this.initialize();
+        this.initialized = true;
+      } catch (error) {
+        console.error('[BaseHealthProvider] Forced initialization failed:', error);
+        throw new Error('Health provider must be initialized before use');
+      }
     }
   }
 

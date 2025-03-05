@@ -40,12 +40,20 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
   const pathname = usePathname();
   
   // Track navigation state to prevent loops
-  const navigationRef = useRef({
+  const navigationRef = useRef<{
+    isRedirecting: boolean;
+    lastPathname: string | null;
+    lastAuthState: { loading: boolean; hasSession: boolean };
+    navigationAttempts: number;
+    lastNavigationTime: number;
+    pendingNavigationTimeout: ReturnType<typeof setTimeout> | null;
+  }>({
     isRedirecting: false,
-    lastPathname: '',
+    lastPathname: null,
     lastAuthState: { loading: true, hasSession: false },
     navigationAttempts: 0,
-    lastNavigationTime: 0
+    lastNavigationTime: 0,
+    pendingNavigationTimeout: null
   });
   
   // Add animation for smooth transitions
@@ -61,14 +69,25 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
   }, []);
   
   // Create a debounced navigation function with navigator mount check
-  const navigateSafely = useCallback((path: string) => {
-    // Skip if already navigating
+  const navigateSafely = (path: string) => {
+    // Clean up any pending navigation timeouts first
+    if (navigationRef.current.pendingNavigationTimeout) {
+      clearTimeout(navigationRef.current.pendingNavigationTimeout);
+      navigationRef.current.pendingNavigationTimeout = null;
+    }
+
+    // Prevent navigation during active navigation
     if (navigationRef.current.isRedirecting) {
-      console.log('[ProtectedRoutes] Navigation already in progress, skipping redirect to', path);
+      console.log('[ProtectedRoutes] Navigation already in progress, ignoring call to', path);
       return;
     }
-    
-    // Check if navigator is ready - if not, delay navigation
+
+    // Check if we're already on this path to prevent unnecessary navigation
+    if (navigationRef.current.lastPathname === path) {
+      console.log('[ProtectedRoutes] Already at path, ignoring navigation to', path);
+      return;
+    }
+
     if (!isNavigatorMounted.current) {
       console.log('[ProtectedRoutes] Navigator not yet mounted, delaying navigation to', path);
       navigationRef.current.navigationAttempts++;
@@ -87,7 +106,17 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
     const now = Date.now();
     if (now - navigationRef.current.lastNavigationTime < NavigationConfig.DEBOUNCE_DELAY) {
       console.log('[ProtectedRoutes] Navigation throttled, too soon after previous navigation');
-      setTimeout(() => navigateSafely(path), NavigationConfig.DEBOUNCE_DELAY);
+      
+      // Instead of recursively calling navigateSafely, use a cleaner approach
+      const timeoutId = setTimeout(() => {
+        // Check again if we're already navigating when the timeout fires
+        if (!navigationRef.current.isRedirecting) {
+          navigateSafely(path);
+        }
+      }, NavigationConfig.DEBOUNCE_DELAY);
+      
+      // Store the timeout ID to potentially cancel it
+      navigationRef.current.pendingNavigationTimeout = timeoutId;
       return;
     }
     
@@ -122,14 +151,30 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
     };
     
     handleNavigation();
-  }, [router, fadeAnim, isNavigatorMounted]);
+  };
   
   // Improved navigation logic with better state tracking and mount checking
   useEffect(() => {
-    // Skip navigation attempts until a short timeout has passed to let component mount fully
+    // Skip navigation attempts until a short timeout has passed
     const initialDelay = setTimeout(() => {
       const nav = navigationRef.current;
       const hasSession = !!session;
+      
+      // Track significant auth state changes
+      const isAuthStateChange = 
+        nav.lastAuthState.loading !== loading || 
+        nav.lastAuthState.hasSession !== hasSession;
+      
+      // Update last auth state
+      nav.lastAuthState = { loading, hasSession };
+      
+      // Add a navigation throttle - don't navigate if we just did recently
+      const now = Date.now();
+      const timeSinceLastNav = now - nav.lastNavigationTime;
+      if (timeSinceLastNav < 2000) { // 2 seconds minimum between navigations
+        console.log('[ProtectedRoutes] Throttling navigation - too frequent');
+        return;
+      }
       
       // Skip during loading or active redirects
       if (loading || nav.isRedirecting) {
@@ -140,13 +185,26 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
         return;
       }
       
+      // Extra logging for debug
+      console.log('[ProtectedRoutes] Auth state check:', { hasSession, isAuthStateChange });
+
+      // After login, add a small delay to ensure the session is fully loaded
+      // This helps prevent the Dashboard loading twice
+      if (hasSession && isAuthStateChange) {
+        console.log('[ProtectedRoutes] Detected successful login, preparing navigation');
+        setTimeout(() => {
+          // Only navigate if not already navigating
+          if (!nav.isRedirecting) {
+            navigateSafely('/');
+          }
+        }, 150);
+        return;
+      }
+      
       // Check if auth state or path has changed
       const authChanged = nav.lastAuthState.loading !== loading || 
                           nav.lastAuthState.hasSession !== hasSession;
       const pathChanged = nav.lastPathname !== pathname;
-      
-      // Update state tracking
-      nav.lastAuthState = { loading, hasSession };
       
       console.log('[ProtectedRoutes] Navigation check:', {
         authChanged,
@@ -182,10 +240,10 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
           }
         }
       }
-    }, 800); // Longer delay to ensure auth state is settled
+    }, 100);
     
     return () => clearTimeout(initialDelay);
-  }, [loading, session, pathname, navigateSafely, isNavigatorMounted, needsHealthSetup]);
+  }, [session, loading, router, pathname, navigateSafely, isNavigatorMounted, needsHealthSetup]);
 
   if (loading) {
     return <LoadingView />;

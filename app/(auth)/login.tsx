@@ -29,6 +29,12 @@ export default function LoginScreen() {
   const [localError, setLocalError] = useState('');
 
   const handleLogin = async () => {
+    // Prevent multiple submissions
+    if (loading) {
+      console.log('[LoginScreen] Login already in progress, ignoring duplicate submit');
+      return;
+    }
+    
     Keyboard.dismiss();
     setLocalError('');
     

@@ -143,6 +143,12 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    // Prevent double-submission
+    if (loading) {
+      console.log('[RegisterScreen] Registration already in progress, ignoring duplicate submit');
+      return;
+    }
+    
     Keyboard.dismiss();
     
     if (!validateForm()) {
