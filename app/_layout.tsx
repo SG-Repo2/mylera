@@ -1,3 +1,4 @@
+// Modified _layout.tsx root component with navigation guard
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
@@ -7,14 +8,12 @@ import {
   SafeAreaView,
   Platform,
   StatusBar,
-  Dimensions,
-  useWindowDimensions,
   Animated
 } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
-import { isProtectedRoute, isAuthRoute, isPublicRoute, NavigationConfig } from '@/src/utils/NavigationUtils';
+import { isProtectedRoute, isAuthRoute, NavigationConfig } from '@/src/utils/NavigationUtils';
 
 // Get status bar height for proper spacing
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;
@@ -35,17 +34,17 @@ function LoadingView() {
   );
 }
 
-function ProtectedRoutes() {
+function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.MutableRefObject<boolean> }) {
   const { session, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const { height, width } = useWindowDimensions();
   
   // Track navigation state to prevent loops
   const navigationRef = useRef({
     isRedirecting: false,
     lastPathname: '',
-    lastAuthState: { loading: true, hasSession: false }
+    lastAuthState: { loading: true, hasSession: false },
+    navigationAttempts: 0
   });
   
   // Add animation for smooth transitions
@@ -60,16 +59,33 @@ function ProtectedRoutes() {
     }).start();
   }, []);
   
-  // Create a debounced navigation function
+  // Create a debounced navigation function with navigator mount check
   const navigateSafely = useCallback((path: string) => {
+    // Skip if already navigating
     if (navigationRef.current.isRedirecting) {
       console.log('[ProtectedRoutes] Navigation already in progress, skipping redirect to', path);
       return;
     }
     
+    // Check if navigator is ready - if not, delay navigation
+    if (!isNavigatorMounted.current) {
+      console.log('[ProtectedRoutes] Navigator not yet mounted, delaying navigation to', path);
+      navigationRef.current.navigationAttempts++;
+      
+      // Prevent infinite retry loops
+      if (navigationRef.current.navigationAttempts > 5) {
+        console.warn('[ProtectedRoutes] Too many navigation attempts, forcing navigation');
+      } else {
+        // Retry after a delay
+        setTimeout(() => navigateSafely(path), 300);
+        return;
+      }
+    }
+    
     // Update ref before navigation to prevent loops
     navigationRef.current.isRedirecting = true;
     navigationRef.current.lastPathname = path;
+    navigationRef.current.navigationAttempts = 0;
     
     console.log('[ProtectedRoutes] Navigating to:', path);
     
@@ -77,23 +93,28 @@ function ProtectedRoutes() {
     fadeAnim.setValue(0);
     
     const handleNavigation = async () => {
-      await router.replace(path);
-      // Fade in the new screen
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-      // Allow future navigations after a delay to debounce
-      setTimeout(() => {
-        navigationRef.current.isRedirecting = false;
-      }, NavigationConfig.DEBOUNCE_DELAY);
+      try {
+        await router.replace(path);
+        // Fade in the new screen
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+      } catch (error) {
+        console.error('[ProtectedRoutes] Navigation error:', error);
+      } finally {
+        // Allow future navigations after a delay to debounce
+        setTimeout(() => {
+          navigationRef.current.isRedirecting = false;
+        }, NavigationConfig.DEBOUNCE_DELAY);
+      }
     };
     
     handleNavigation();
-  }, [router, fadeAnim]);
+  }, [router, fadeAnim, isNavigatorMounted]);
   
-  // Improved navigation logic with better state tracking
+  // Improved navigation logic with better state tracking and mount checking
   useEffect(() => {
     const nav = navigationRef.current;
     const hasSession = !!session;
@@ -119,21 +140,25 @@ function ProtectedRoutes() {
       authChanged,
       pathChanged,
       hasSession,
-      pathname
+      pathname,
+      navigatorMounted: isNavigatorMounted.current
     });
 
-    if (!hasSession) {
-      if (pathname === '/' || isProtectedRoute(pathname)) {
-        console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
-        navigateSafely('/(auth)/login');
-      }
-    } else {
-      if (pathname === '/' || isAuthRoute(pathname)) {
-        console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home');
-        navigateSafely('/(app)/(home)');
+    // Only navigate if something changed to avoid unnecessary navigation
+    if (authChanged || pathChanged) {
+      if (!hasSession) {
+        if (pathname === '/' || isProtectedRoute(pathname)) {
+          console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
+          navigateSafely('/(auth)/login');
+        }
+      } else {
+        if (pathname === '/' || isAuthRoute(pathname)) {
+          console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home');
+          navigateSafely('/(app)/(home)');
+        }
       }
     }
-  }, [loading, session, pathname, navigateSafely]);
+  }, [loading, session, pathname, navigateSafely, isNavigatorMounted]);
 
   if (loading) {
     return <LoadingView />;
@@ -147,6 +172,19 @@ function ProtectedRoutes() {
 }
 
 export default function RootLayout() {
+  // Track when the navigator is fully mounted
+  const isNavigatorMounted = useRef(false);
+  
+  // Set navigator as mounted after a delay
+  useEffect(() => {
+    const mountTimer = setTimeout(() => {
+      isNavigatorMounted.current = true;
+      console.log('[RootLayout] Navigator marked as mounted');
+    }, 300);
+    
+    return () => clearTimeout(mountTimer);
+  }, []);
+  
   return (
     <AuthProvider>
       <PaperProvider theme={theme}>
@@ -163,7 +201,7 @@ export default function RootLayout() {
             }
           ]}
         >
-          <ProtectedRoutes />
+          <ProtectedRoutes isNavigatorMounted={isNavigatorMounted} />
         </SafeAreaView>
       </PaperProvider>
     </AuthProvider>
