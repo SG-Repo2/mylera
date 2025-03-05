@@ -21,6 +21,9 @@ import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
+// Add a constant for auto-refresh interval
+const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
+
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
@@ -193,25 +196,13 @@ export const Dashboard = React.memo(function Dashboard({
   const dashboardInitRef = useRef({
     globalInitialized: false
   });
-  
-  // Set mounted flag on component mount/unmount
-  useEffect(() => {
-    isMountedRef.current = true;
-    console.log('[Dashboard] Component mounted, global init state:', dashboardInitRef.current.globalInitialized);
-    
-    return () => {
-      isMountedRef.current = false;
-      console.log('[Dashboard] Component unmounted, preserving global init state');
-    };
-  }, []);
-  
-  const {
-    loading,
-    error,
-    syncHealthData,
-    isInitialized
-  } = useHealthData(provider, userId);
 
+  // Add a timer ref for auto-refresh
+  const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Get the health data from the provider
+  const { loading, error, syncHealthData, isInitialized } = useHealthData(provider, userId);
+  
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
@@ -233,6 +224,23 @@ export const Dashboard = React.memo(function Dashboard({
       ]).start();
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
+
+  // Set mounted flag on component mount/unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    console.log('[Dashboard] Component mounted, global init state:', dashboardInitRef.current.globalInitialized);
+    
+    return () => {
+      isMountedRef.current = false;
+      console.log('[Dashboard] Component unmounting');
+      
+      // Clear auto-refresh timer on unmount
+      if (autoRefreshTimerRef.current) {
+        clearInterval(autoRefreshTimerRef.current);
+        autoRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchData = useCallback(async (requestId: number) => {
     // Don't proceed if component isn't initialized, no user ID
@@ -288,9 +296,26 @@ export const Dashboard = React.memo(function Dashboard({
         updated_at: new Date().toISOString()
       };
       
-      setDailyTotal(userTotal);
-      setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
-      setUserRank(rank);
+      // Add a timestamp to force rerenders when data changes
+      const transformedMetrics = transformMetricsToHealthMetrics(metricScores, userTotal, userId, date);
+      
+      // Only update state if data has actually changed to prevent unnecessary rerenders
+      const hasDataChanged = 
+        !healthMetrics || 
+        !dailyTotal || 
+        JSON.stringify(transformedMetrics) !== JSON.stringify(healthMetrics) ||
+        userTotal.total_points !== dailyTotal.total_points ||
+        rank !== userRank;
+      
+      if (hasDataChanged) {
+        console.log('[Dashboard] Data has changed, updating state');
+        setDailyTotal(userTotal);
+        setHealthMetrics(transformedMetrics);
+        setUserRank(rank);
+      } else {
+        console.log('[Dashboard] No changes in data detected');
+      }
+      
       setFetchError(null);
     } catch (err) {
       // Only handle errors from current request
@@ -306,21 +331,48 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [userId, date, isInitialized]); // Remove fetchId from dependencies
 
+  // Setup auto-refresh timer
   useEffect(() => {
-    // Increment fetch ID in the ref without triggering re-renders
-    fetchIdRef.current += 1;
-    const currentFetchId = fetchIdRef.current;
+    // Only set up auto-refresh after initial data load
+    if (!hasCompletedInitialFetchRef.current || !isInitialized) {
+      return;
+    }
     
-    // Call fetchData with current request ID
-    fetchData(currentFetchId);
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+    console.log('[Dashboard] Setting up auto-refresh timer');
+    
+    // Clear any existing timer
+    if (autoRefreshTimerRef.current) {
+      clearInterval(autoRefreshTimerRef.current);
+    }
+    
+    // Set up a new timer
+    autoRefreshTimerRef.current = setInterval(() => {
+      if (isMountedRef.current && appStateRef.current === 'active') {
+        console.log('[Dashboard] Auto-refresh triggered');
+        const newFetchId = fetchIdRef.current + 1;
+        fetchIdRef.current = newFetchId;
+        fetchData(newFetchId);
+      }
+    }, AUTO_REFRESH_INTERVAL);
+    
+    return () => {
+      if (autoRefreshTimerRef.current) {
+        clearInterval(autoRefreshTimerRef.current);
+        autoRefreshTimerRef.current = null;
+      }
+    };
+  }, [fetchData, isInitialized, hasCompletedInitialFetchRef.current]);
 
   // Fix AppState listener effect to prevent multiple fetches
   useEffect(() => {
     // Register for app state changes
     const subscription = AppState.addEventListener('change', nextAppState => {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextAppState;
+      
+      // Only refresh when coming from background to active
       if (
-        appStateRef.current.match(/inactive|background/) && 
+        prevState.match(/inactive|background/) && 
         nextAppState === 'active' &&
         hasCompletedInitialFetchRef.current // Only refresh on resume after initial fetch
       ) {
@@ -329,15 +381,32 @@ export const Dashboard = React.memo(function Dashboard({
         // Use incremented request ID to track this specific fetch request
         const newFetchId = fetchIdRef.current + 1;
         fetchIdRef.current = newFetchId;
-        fetchData(newFetchId);
+        
+        // First sync health data to get latest from device
+        syncHealthData();
+        
+        // Then fetch dashboard data after a short delay to allow sync to complete
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            fetchData(newFetchId);
+          }
+        }, 1000);
       }
-      appStateRef.current = nextAppState;
     });
 
     return () => {
       subscription.remove();
     };
-  }, [fetchData]);
+  }, [fetchData, syncHealthData]);
+
+  useEffect(() => {
+    // Increment fetch ID in the ref without triggering re-renders
+    fetchIdRef.current += 1;
+    const currentFetchId = fetchIdRef.current;
+    
+    // Call fetchData with current request ID
+    fetchData(currentFetchId);
+  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
 
   // Mark the completion of initial fetch
   useEffect(() => {

@@ -55,10 +55,24 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
   const MAX_SYNC_ATTEMPTS = 3;
   const initAttempts = useRef(0);
   const MAX_INIT_ATTEMPTS = 3;
+  const lastSyncTimeRef = useRef(0);
+  const MIN_SYNC_INTERVAL = 3000; // Minimum 3 seconds between syncs
 
   const syncHealthData = useCallback(async () => {
     // Prevent concurrent syncs and handle unmounting
-    if (!isMounted.current || isSyncInProgress.current) return;
+    if (!isMounted.current || isSyncInProgress.current) {
+      console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
+      return;
+    }
+    
+    // Check for minimum time between syncs to prevent unnecessary operations
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncTimeRef.current;
+    if (timeSinceLastSync < MIN_SYNC_INTERVAL && isInitialized) {
+      console.log(`[useHealthData] Sync skipped - too soon (${timeSinceLastSync}ms since last sync)`);
+      return;
+    }
+    
     if (!userId) {
       setError(new Error('User ID is required to sync health data'));
       setLoading(false);
@@ -69,6 +83,9 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     setLoading(true);
     setError(null);
     syncAttempts.current += 1;
+    lastSyncTimeRef.current = now;
+    
+    console.log(`[useHealthData] Starting health data sync (attempt ${syncAttempts.current})`);
 
     try {
       // Use the atomic initialization with permissions
@@ -115,6 +132,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       
       // Update each health metric that has a value
       const failedMetrics: string[] = [];
+      const successfulUpdates: string[] = [];
       const updates = healthMetrics.map(async metric => {
         if (!isMounted.current) return;
         
@@ -122,6 +140,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         if (typeof value === 'number' && isValidMetricValue(value, metric)) {
           try {
             await metricsService.updateMetric(userId, metric, value);
+            successfulUpdates.push(metric);
           } catch (err) {
             // If it's an auth error, stop processing immediately
             if (err instanceof Error && err.name === 'MetricsAuthError') {
@@ -140,6 +159,11 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
       
       // Check mount state before continuing
       if (!isMounted.current) return;
+
+      // Log successful updates
+      if (successfulUpdates.length > 0) {
+        console.log(`[useHealthData] Successfully updated metrics: ${successfulUpdates.join(', ')}`);
+      }
 
       // If some metrics failed but not all, show a warning but don't fail completely
       if (failedMetrics.length > 0 && failedMetrics.length < healthMetrics.length) {
@@ -187,7 +211,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         isSyncInProgress.current = false;
       }
     }
-  }, [provider, userId]);
+  }, [provider, userId, isInitialized]);
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {

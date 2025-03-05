@@ -65,6 +65,7 @@ const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
     'exercise', 'basal_calories', 'flights_climbed'
   ];
   
+  // Return false if any key has changed - forces re-render
   return metricKeys.every(key => prev[key] === next[key]);
 };
 
@@ -85,9 +86,41 @@ export const MetricCardList = React.memo(function MetricCardList({
   // Add tracking to reset animations when metrics change
   const prevMetricsIdRef = React.useRef<string | null>(null);
   const animationsRun = React.useRef(false);
+  const prevMetricsRef = React.useRef<HealthMetrics | null>(null);
+
+  // Add a function to debug metrics changes
+  const logMetricChanges = React.useCallback((prev: HealthMetrics | null, next: HealthMetrics) => {
+    if (!prev) {
+      console.log('[MetricCardList] Initial metrics load');
+      return;
+    }
+    
+    metricOrder.forEach(metric => {
+      if (prev[metric] !== next[metric]) {
+        console.log(`[MetricCardList] Metric ${metric} changed: ${prev[metric]} -> ${next[metric]}`);
+      }
+    });
+  }, []);
+
+  // Check if metrics have changed
+  React.useEffect(() => {
+    // Log metrics changes
+    if (prevMetricsRef.current !== metrics) {
+      logMetricChanges(prevMetricsRef.current, metrics);
+      
+      // Force animation reset if any health metric value has changed
+      if (prevMetricsRef.current && !areMetricsEqual(prevMetricsRef.current, metrics)) {
+        console.log('[MetricCardList] Metrics values changed, resetting animations');
+        animationsRun.current = false;
+      }
+      
+      prevMetricsRef.current = metrics;
+    }
+  }, [metrics, logMetricChanges]);
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
+    console.log('[MetricCardList] Recalculating memoized metrics');
     return metricOrder.map(metricType => ({
       type: metricType,
       value: metrics[metricType] as number,

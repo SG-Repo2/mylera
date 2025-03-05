@@ -1,5 +1,5 @@
 // Modified _layout.tsx root component with navigation guard
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
   ActivityIndicator, 
@@ -14,30 +14,46 @@ import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
 import { isProtectedRoute, isAuthRoute, NavigationConfig } from '@/src/utils/NavigationUtils';
+import { NavigationReadyProvider, useNavigationReady } from '@/src/contexts/NavigationReadyContext';
+import { navigationQueue } from '@/src/utils/NavigationUtils';
+
+// Declare the global type with our custom property
+declare global {
+  var appStartTime: number;
+}
+
+// Initialize app start time for timeout calculations
+global.appStartTime = Date.now();
 
 // Get status bar height for proper spacing
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;
+
+// Add debug logs
+console.log('[_layout.tsx] Initializing RootLayout component');
 
 function LoadingView() {
   return (
     <SafeAreaView 
       style={[
         styles.loaderContainer, 
-        { backgroundColor: theme.colors.background }
+        { paddingTop: STATUSBAR_HEIGHT }
       ]}
     >
-      <ActivityIndicator 
-        size={Platform.OS === 'ios' ? 'large' : 48} 
-        color={theme.colors.primary} 
-      />
+      <ActivityIndicator size="large" color={theme.colors.primary} />
     </SafeAreaView>
   );
 }
 
-function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.MutableRefObject<boolean> }) {
+function ProtectedRoutes() {
   const { session, loading, needsHealthSetup } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const navigatorMounted = useNavigationReady();
+  
+  // Debug log when component mounts
+  useEffect(() => {
+    console.log('[ProtectedRoutes] Component mounted, navigatorMounted=', navigatorMounted);
+  }, []);
   
   // Track navigation state to prevent loops
   const navigationRef = useRef<{
@@ -71,89 +87,55 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
   }, []);
   
   // Create a debounced navigation function with navigator mount check
-  const navigateSafely = (path: string) => {
-    // Clean up any pending navigation timeouts first
-    if (navigationRef.current.pendingNavigationTimeout) {
-      clearTimeout(navigationRef.current.pendingNavigationTimeout);
-      navigationRef.current.pendingNavigationTimeout = null;
-    }
-
-    // Prevent navigation during active navigation
-    if (navigationRef.current.isRedirecting) {
-      console.log('[ProtectedRoutes] Navigation already in progress, ignoring call to', path);
-      return;
-    }
-
-    // Check if we're already on this path to prevent unnecessary navigation
+  const navigateSafely = useCallback((path: string, priority = 0) => {
+    // Skip navigation if already at this path
     if (navigationRef.current.lastPathname === path) {
       console.log('[ProtectedRoutes] Already at path, ignoring navigation to', path);
       return;
     }
-
-    if (!isNavigatorMounted.current) {
-      console.log('[ProtectedRoutes] Navigator not yet mounted, delaying navigation to', path);
-      navigationRef.current.navigationAttempts++;
+    
+    // Track and limit retries
+    const MAX_RETRIES = 5;
+    
+    // Debug log with navigator mounted state
+    console.log(`[ProtectedRoutes] Navigation attempt to ${path}, navigatorMounted=${navigatorMounted}`);
+    
+    // Force navigation after 5 seconds regardless of navigator state
+    // This prevents app from getting stuck if the navigator mount detection fails
+    const timeSinceAppStart = Date.now() - global.appStartTime;
+    const forceNavigationAfterTimeout = timeSinceAppStart > 5000;
+    
+    // Wait for navigator to be mounted, unless we're forcing navigation
+    if (!navigatorMounted && !forceNavigationAfterTimeout) {
+      console.log('[ProtectedRoutes] Navigator not mounted, queueing navigation to', path);
       
-      // Prevent infinite retry loops
-      if (navigationRef.current.navigationAttempts > 5) {
-        console.warn('[ProtectedRoutes] Too many navigation attempts, forcing navigation');
-      } else {
-        // Retry after a delay
-        setTimeout(() => navigateSafely(path), 500);
+      // Increment attempts counter
+      navigationRef.current.navigationAttempts += 1;
+      
+      // Stop retrying after MAX_RETRIES
+      if (navigationRef.current.navigationAttempts > MAX_RETRIES) {
+        console.warn(`[ProtectedRoutes] Exceeded max retries (${MAX_RETRIES}) for navigation to ${path}`);
+        navigationRef.current.navigationAttempts = 0;
         return;
       }
-    }
-    
-    // Add throttling to prevent multiple navigations within a short period
-    const now = Date.now();
-    if (now - navigationRef.current.lastNavigationTime < NavigationConfig.DEBOUNCE_DELAY) {
-      console.log('[ProtectedRoutes] Navigation throttled, too soon after previous navigation');
       
-      // Instead of recursively calling navigateSafely, use a cleaner approach
-      const timeoutId = setTimeout(() => {
-        // Check again if we're already navigating when the timeout fires
-        if (!navigationRef.current.isRedirecting) {
-          navigateSafely(path);
-        }
-      }, NavigationConfig.DEBOUNCE_DELAY);
-      
-      // Store the timeout ID to potentially cancel it
-      navigationRef.current.pendingNavigationTimeout = timeoutId;
+      // More aggressive exponential backoff for retries (base 300ms * 2^attempts)
+      const delay = 300 * Math.pow(2, navigationRef.current.navigationAttempts - 1);
+      setTimeout(() => navigateSafely(path, priority + 1), delay);
       return;
     }
     
-    // Update ref before navigation to prevent loops
-    navigationRef.current.isRedirecting = true;
-    navigationRef.current.lastPathname = path;
+    if (forceNavigationAfterTimeout && !navigatorMounted) {
+      console.warn('[ProtectedRoutes] Forcing navigation despite navigator not being mounted - timeout reached');
+    }
+    
+    // Reset navigation attempts counter when navigator is mounted
     navigationRef.current.navigationAttempts = 0;
-    navigationRef.current.lastNavigationTime = now;
     
-    console.log('[ProtectedRoutes] Navigating to:', path);
-    
-    // Start with zero opacity for smooth transition
-    fadeAnim.setValue(0);
-    
-    const handleNavigation = async () => {
-      try {
-        await router.replace(path);
-        // Fade in the new screen
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
-      } catch (error) {
-        console.error('[ProtectedRoutes] Navigation error:', error);
-      } finally {
-        // Allow future navigations after a delay to debounce
-        setTimeout(() => {
-          navigationRef.current.isRedirecting = false;
-        }, NavigationConfig.DEBOUNCE_DELAY);
-      }
-    };
-    
-    handleNavigation();
-  };
+    // Use the navigation queue to handle the actual navigation
+    navigationQueue.enqueue(path, priority);
+    navigationRef.current.lastPathname = path;
+  }, [navigatorMounted]);
   
   // Improved navigation logic with better state tracking and mount checking
   useEffect(() => {
@@ -188,7 +170,7 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
       }
       
       // Extra logging for debug
-      console.log('[ProtectedRoutes] Auth state check:', { hasSession, isAuthStateChange });
+      console.log('[ProtectedRoutes] Auth state check:', { hasSession, isAuthStateChange, navigatorMounted });
 
       // After login, add a small delay to ensure the session is fully loaded
       // This helps prevent the Dashboard loading twice
@@ -224,7 +206,7 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
         pathChanged,
         hasSession,
         pathname,
-        navigatorMounted: isNavigatorMounted.current,
+        navigatorMounted,
         needsHealthSetup: needsHealthSetup?.()
       });
   
@@ -256,7 +238,7 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
     }, 100);
     
     return () => clearTimeout(initialDelay);
-  }, [session, loading, router, pathname, navigateSafely, isNavigatorMounted, needsHealthSetup]);
+  }, [session, loading, router, pathname, navigateSafely, navigatorMounted, needsHealthSetup]);
 
   if (loading) {
     return <LoadingView />;
@@ -270,38 +252,43 @@ function ProtectedRoutes({ isNavigatorMounted }: { isNavigatorMounted: React.Mut
 }
 
 export default function RootLayout() {
-  // Track when the navigator is fully mounted
-  const isNavigatorMounted = useRef(false);
+  // Use state for navigator mounted status
+  const [navigatorMounted, setNavigatorMounted] = useState(false);
   
-  // Set navigator as mounted after a delay
+  // Set navigator as mounted after a shorter delay (100ms instead of 300ms)
   useEffect(() => {
+    console.log('[RootLayout] Starting navigator mount timer');
+    
+    // Use a shorter delay to ensure the navigator is marked as mounted quickly
     const mountTimer = setTimeout(() => {
-      isNavigatorMounted.current = true;
+      setNavigatorMounted(true);
       console.log('[RootLayout] Navigator marked as mounted');
-    }, 300);
+    }, 100);
     
     return () => clearTimeout(mountTimer);
   }, []);
   
   return (
     <AuthProvider>
-      <PaperProvider theme={theme}>
-        <StatusBar
-          barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
-          backgroundColor={theme.colors.background}
-        />
-        <SafeAreaView 
-          style={[
-            styles.container, 
-            { 
-              backgroundColor: theme.colors.background,
-              paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0
-            }
-          ]}
-        >
-          <ProtectedRoutes isNavigatorMounted={isNavigatorMounted} />
-        </SafeAreaView>
-      </PaperProvider>
+      <NavigationReadyProvider value={navigatorMounted}>
+        <PaperProvider theme={theme}>
+          <StatusBar
+            barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
+            backgroundColor={theme.colors.background}
+          />
+          <SafeAreaView 
+            style={[
+              styles.container, 
+              { 
+                backgroundColor: theme.colors.background,
+                paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0
+              }
+            ]}
+          >
+            <ProtectedRoutes />
+          </SafeAreaView>
+        </PaperProvider>
+      </NavigationReadyProvider>
     </AuthProvider>
   );
 }
