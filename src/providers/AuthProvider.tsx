@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
   const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(false);
-  const navigationReady = useNavigationReady();
+  const navigatorMounted = useNavigationReady();
 
   useEffect(() => {
     // Check initial session
@@ -245,7 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await new Promise(resolve => setTimeout(resolve, 200));
       
       // Use the navigation queue or direct navigation based on navigator mount state
-      if (navigationReady) {
+      if (navigatorMounted) {
         console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
         router.replace('/(app)/(home)');
       } else {
@@ -324,7 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await new Promise(resolve => setTimeout(resolve, 200));
       
       // Use the navigation queue or direct navigation based on navigator mount state
-      if (navigationReady) {
+      if (navigatorMounted) {
         console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
         router.replace('/(app)/(home)');
       } else {
@@ -379,6 +379,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setUser(null);
       setHealthPermissionStatus(null);
+      
+      // Add delay before navigation to ensure navigator is mounted
+      console.log('[AuthProvider] Adding delay before navigation after logout');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Use the navigation queue or direct navigation based on navigator mount state
+      if (navigatorMounted) {
+        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
+        router.replace('/(auth)/login');
+      } else {
+        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
+        navigationQueue.enqueue('/(auth)/login', 10);
+      }
       
     } catch (err) {
       console.error('Logout error:', err);
