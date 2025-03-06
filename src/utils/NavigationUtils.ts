@@ -9,7 +9,9 @@ export const NavigationConfig = {
   // Time to wait before allowing another navigation (ms)
   DEBOUNCE_DELAY: 300,
   // Animation duration for transitions (ms)
-  ANIMATION_DURATION: 200
+  ANIMATION_DURATION: 200,
+  // Maximum queue size to prevent unbounded memory growth
+  MAX_QUEUE_SIZE: 20
 };
 
 /**
@@ -62,8 +64,17 @@ export function isPublicRoute(pathname: string): boolean {
   return publicPaths.some(path => pathname === path || pathname.startsWith(path));
 }
 
+/**
+ * Helper function to create a promise-based delay
+ * @param ms Delay time in milliseconds
+ * @returns Promise that resolves after the specified delay
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class NavigationQueue {
-  private queue: Array<{ path: string, priority: number }> = [];
+  private queue: Array<{ path: string, priority: number, timestamp: number }> = [];
   private processing = false;
   private lastNavTime = 0;
   private navigatorMounted = false;
@@ -75,7 +86,7 @@ export class NavigationQueue {
     
     // Process queue immediately if navigator is now mounted and there are items in queue
     if (mounted && this.queue.length > 0 && !this.processing) {
-      this.processAllQueued();
+      this.processQueue();
     }
   }
   
@@ -86,8 +97,16 @@ export class NavigationQueue {
       return;
     }
     
+    // Enforce maximum queue size by removing oldest items if necessary
+    if (this.queue.length >= NavigationConfig.MAX_QUEUE_SIZE) {
+      // Sort by timestamp (oldest first) and remove oldest
+      this.queue.sort((a, b) => a.timestamp - b.timestamp);
+      this.queue.shift();
+      console.log(`[NavigationQueue] Queue limit reached, removed oldest item`);
+    }
+    
     console.log(`[NavigationQueue] Enqueuing path: ${path} with priority: ${priority}`);
-    this.queue.push({ path, priority });
+    this.queue.push({ path, priority, timestamp: Date.now() });
     this.queue.sort((a, b) => b.priority - a.priority);
     
     // Only process immediately if navigator is mounted
@@ -100,45 +119,43 @@ export class NavigationQueue {
   
   // Process the navigation queue with adaptive timing
   private async processQueue() {
-    if (this.queue.length === 0) {
-      this.processing = false;
-      return;
-    }
-    
-    // Don't process if navigator is not mounted
     if (!this.navigatorMounted) {
-      console.log(`[NavigationQueue] Navigator not mounted. Queue processing paused.`);
       this.processing = false;
       return;
     }
     
     this.processing = true;
-    const now = Date.now();
-    const timeSinceLastNav = now - this.lastNavTime;
     
-    // Adaptive delay based on how recently we navigated
-    const delay = timeSinceLastNav < 500 ? 500 : 0;
-    
-    if (delay > 0) {
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    
-    const next = this.queue.shift();
-    if (next) {
-      try {
-        this.lastNavTime = Date.now();
-        await router.replace(next.path);
-        console.log(`[NavigationQueue] Navigated to: ${next.path}`);
-      } catch (error) {
-        console.error(`[NavigationQueue] Navigation error:`, error);
+    // Process all items with a while loop rather than recursion
+    while (this.queue.length > 0) {
+      const now = Date.now();
+      const timeSinceLastNav = now - this.lastNavTime;
+      
+      // Ensure we have adequate delay between navigations
+      if (timeSinceLastNav < 500) {
+        await delay(500 - timeSinceLastNav);
+      }
+      
+      const next = this.queue.shift();
+      if (next) {
+        try {
+          this.lastNavTime = Date.now();
+          await router.replace(next.path);
+          console.log(`[NavigationQueue] Navigated to: ${next.path}`);
+        } catch (error) {
+          console.error(`[NavigationQueue] Navigation error for ${next.path}:`, error);
+          // Continue processing queue despite errors
+        }
+        
+        // Small delay between navigation attempts for better UI experience
+        await delay(200);
       }
     }
     
-    // Continue processing the queue with a small delay between navigations
-    setTimeout(() => this.processQueue(), 200); // Increased from 100ms to 200ms
+    this.processing = false;
   }
 
-  // Process all queued navigation requests with appropriate delays
+  // Process all queued navigation requests
   processAllQueued() {
     console.log('[NavigationQueue] Processing all queued navigation requests');
     
@@ -148,29 +165,23 @@ export class NavigationQueue {
     }
     
     if (this.queue.length > 0 && !this.processing) {
-      // Process all queued items, ensuring that each has a minimum delay between them
-      const processNext = () => {
-        if (this.queue.length === 0) {
-          this.processing = false;
-          return;
-        }
-        
-        const next = this.queue.shift();
-        if (next) {
-          this.processing = true;
-          try {
-            router.replace(next.path);
-            this.lastNavTime = Date.now();
-            console.log(`[NavigationQueue] Processed queued navigation to: ${next.path}`);
-            setTimeout(processNext, 200); // 200ms delay between navigations
-          } catch (error) {
-            console.error(`[NavigationQueue] Error processing queued navigation:`, error);
-            setTimeout(processNext, 200); // Continue despite errors
-          }
-        }
-      };
-      
-      processNext();
+      this.processQueue();
+    }
+  }
+  
+  /**
+   * Clears all pending navigation requests from the queue
+   * @param olderThan Optional parameter to only clear requests older than specified milliseconds
+   */
+  clearQueue(olderThan?: number) {
+    if (olderThan) {
+      const now = Date.now();
+      const oldSize = this.queue.length;
+      this.queue = this.queue.filter(item => (now - item.timestamp) < olderThan);
+      console.log(`[NavigationQueue] Cleared ${oldSize - this.queue.length} stale navigation requests older than ${olderThan}ms`);
+    } else {
+      console.log(`[NavigationQueue] Clearing ${this.queue.length} pending navigation requests`);
+      this.queue = [];
     }
   }
 }
