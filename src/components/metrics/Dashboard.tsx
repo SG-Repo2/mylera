@@ -24,6 +24,9 @@ import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 // Add auto-refresh interval constant
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 
+// Add recovery timeout constant
+const RECOVERY_TIMEOUT = 3000; // 3 seconds
+
 // Add a deep equality check function at the top of the file, outside the component
 const deepEqual = (obj1: any, obj2: any): boolean => {
   // If either is null or undefined or they are of different types
@@ -277,6 +280,17 @@ export const Dashboard = React.memo(function Dashboard({
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   });
+
+  // Add missing refs
+  const isMounted = useRef(true);
+  const isSyncInProgress = useRef(false);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -551,62 +565,74 @@ export const Dashboard = React.memo(function Dashboard({
     setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
+  // Add recovery mechanism earlier in the component lifecycle
+  useEffect(() => {
+    const recoveryTimer = setTimeout(() => {
+      if (!healthMetrics && isLoading) {
+        console.log('[Dashboard] Recovery mechanism triggered - resetting state');
+        
+        // Create default data immediately
+        const defaultTotal = createDefaultDailyTotal();
+        const defaultMetrics = createDefaultHealthMetrics();
+        
+        // Update state with default data
+        setDailyTotal(defaultTotal);
+        setHealthMetrics(defaultMetrics);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        
+        // Schedule a background refresh
+        setTimeout(() => {
+          if (isMounted.current && !isSyncInProgress.current) {
+            console.log('[Dashboard] Attempting background refresh after recovery');
+            fetchIdRef.current += 1;
+            isManualRefreshRef.current = false;
+            fetchData(fetchIdRef.current);
+          }
+        }, 1000);
+      }
+    }, RECOVERY_TIMEOUT);
+    
+    return () => clearTimeout(recoveryTimer);
+  }, [healthMetrics, isLoading]);
+
+  // Add additional safeguard for fetch operations
+  const safeFetch = useCallback(async (requestId: number) => {
+    if (!isMounted.current || isSyncInProgress.current) {
+      console.log('[Dashboard] Skipping fetch - component unmounted or sync in progress');
+      return false;
+    }
+
+    try {
+      isSyncInProgress.current = true;
+      await fetchData(requestId);
+      return true;
+    } catch (error) {
+      console.error('[Dashboard] Error during fetch:', error);
+      return false;
+    } finally {
+      isSyncInProgress.current = false;
+    }
+  }, [fetchData]);
+
+  // Modify the handleRefresh to use safeFetch
   const handleRefresh = useCallback(() => {
-    // If a fetch is already in progress, don't start another one
     if (isLoading) {
       console.log('[Dashboard] Manual refresh requested but fetch already in progress');
       return;
     }
     
-    // Mark this as a manual refresh - this is important!
     isManualRefreshRef.current = true;
-    
-    console.log('[Dashboard] Manual refresh triggered');
-    
-    // Increment fetch ID in the ref
-    fetchIdRef.current += 1;
-    
-    // Explicitly set refreshing state for UI feedback
     setIsRefreshing(true);
-    
-    // Also update the loading state
     setIsLoading(true);
     
-    // Sync health data and fetch dashboard data
-    syncHealthData();
-    fetchData(fetchIdRef.current);
-  }, [syncHealthData, fetchData]);
-
-  // Add error recovery mechanism
-  useEffect(() => {
-    // If we're stuck in a loading state for too long, reset
-    const recoveryTimer = setTimeout(() => {
-      // Only attempt recovery if still loading and no data yet
-      if (!healthMetrics && isLoading && !abortControllerRef.current?.signal.aborted) {
-        console.log('[Dashboard] Recovery mechanism triggered - resetting state');
-        
-        // Create default data
-        const defaultData = createDefaultHealthMetrics();
-        const defaultTotal = createDefaultDailyTotal();
-        
-        // Update state with default data
-        setDailyTotal(defaultTotal);
-        setHealthMetrics(defaultData);
-        setFetchError(new Error('Dashboard recovery mechanism triggered'));
-        
-        // Reset loading states
+    fetchIdRef.current += 1;
+    safeFetch(fetchIdRef.current).finally(() => {
+      if (isMounted.current) {
         setIsRefreshing(false);
-        setIsLoading(false);
-        
-        // Force a fresh fetch
-        setDataInitialized(false);
-        fetchIdRef.current += 1;
-        syncHealthData();
       }
-    }, 5000);
-    
-    return () => clearTimeout(recoveryTimer);
-  }, [healthMetrics, syncHealthData, userId, date, isLoading]);
+    });
+  }, [isLoading, safeFetch]);
 
   // Use our isLoading state instead of the prop from useHealthData
   if (isLoading && !dataInitialized) {

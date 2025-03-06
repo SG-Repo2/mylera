@@ -255,16 +255,21 @@ export default function RootLayout() {
   // Use state for navigator mounted status
   const [navigatorMounted, setNavigatorMounted] = useState(false);
   
-  // Set navigator as mounted after a delay
+  // Set navigator as mounted after a delay with proper safeguards
   useEffect(() => {
     console.log('[RootLayout] Starting navigator mount timer');
     
+    // Primary mount timer with increased delay
     const mountTimer = setTimeout(() => {
       setNavigatorMounted(true);
-      // Set navigator mounted state in queue and process any queued navigation
-      navigationQueue.setNavigatorMounted(true);
-      console.log('[RootLayout] Navigator marked as mounted');
-    }, 300); // Increased delay from 100ms to 300ms
+      
+      // Secondary delay for navigation queue processing
+      setTimeout(() => {
+        navigationQueue.setNavigatorMounted(true);
+        navigationQueue.processAllQueued(); // Process any queued navigations
+        console.log('[RootLayout] Navigator fully mounted and ready for navigation');
+      }, 200);
+    }, 800); // Increased from 300ms to 800ms for more reliable mounting
     
     return () => clearTimeout(mountTimer);
   }, []);

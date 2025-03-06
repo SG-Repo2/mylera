@@ -126,9 +126,10 @@ export interface HealthProvider {
   /**
    * Retry a failed operation with exponential backoff.
    * @param operation - The async operation to retry
-   * @param maxRetries - Maximum number of retry attempts
-   * @param initialDelay - Initial delay in milliseconds
+   * @param maxRetries - Maximum number of retry attempts (default: 3)
+   * @param initialDelay - Initial delay in milliseconds (default: 1000)
    * @returns Result of the operation
+   * @throws Last error encountered if all retries fail
    */
   retryOperation<T>(
     operation: () => Promise<T>,
@@ -557,43 +558,83 @@ export abstract class BaseHealthProvider implements HealthProvider {
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        // On first attempt, we just run the operation
+        // First attempt without delay
         if (attempt === 0) {
           return await operation();
         }
         
-        // For subsequent attempts, apply exponential backoff
-        const delay = initialDelay * Math.pow(2, attempt - 1);
+        // Log retry attempts consistently
         logger.info(
           LogCategory.Health,
-          `[BaseHealthProvider] Retry attempt ${attempt}/${maxRetries} after ${delay}ms`
+          `[${this.constructor.name}] Retry attempt ${attempt}/${maxRetries} after ${initialDelay * Math.pow(2, attempt - 1)}ms`
         );
         
-        // Wait before retrying
-        await new Promise(resolve => setTimeout(resolve, delay));
+        // Apply exponential backoff delay
+        await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, attempt - 1)));
         
         // Try the operation again
         return await operation();
       } catch (error) {
-        lastError = error instanceof Error 
-          ? error 
-          : new Error(`Unknown error: ${error}`);
+        // Transform error to standard format
+        lastError = this.standardizeError(error);
         
-        logger.warn(
-          LogCategory.Health,
-          `[BaseHealthProvider] Operation failed (attempt ${attempt}/${maxRetries}):`, 
-          lastError.message
-        );
-        
-        // If this is the last attempt, we'll fall through and throw the error
         if (attempt === maxRetries) {
-          logger.error(LogCategory.Health, '[BaseHealthProvider] All retry attempts failed');
+          // Final attempt failed
+          logger.error(
+            LogCategory.Health, 
+            `[${this.constructor.name}] All retry attempts failed: ${lastError.message}`
+          );
         }
       }
     }
     
-    // If we get here, all retries failed
     throw lastError || new Error('Operation failed after all retry attempts');
+  }
+
+  /**
+   * Standardize error format across all platforms
+   * @param error The error to standardize
+   * @returns A standardized Error object
+   */
+  protected standardizeError(error: unknown): Error {
+    if (error instanceof Error) {
+      // Enhance error with platform information
+      const enhancedError = new Error(`[${this.constructor.name}] ${error.message}`);
+      enhancedError.stack = error.stack;
+      enhancedError.name = error.name;
+      return enhancedError;
+    }
+    
+    if (typeof error === 'string') {
+      return new Error(`[${this.constructor.name}] ${error}`);
+    }
+    
+    return new Error(`[${this.constructor.name}] Unknown error: ${JSON.stringify(error)}`);
+  }
+
+  /**
+   * Validate health data with standardized rules
+   * @param data The health data to validate
+   * @returns Validated and sanitized health data
+   */
+  protected validateHealthData(data: HealthMetrics): HealthMetrics {
+    const validated = { ...data };
+    
+    // Apply validation rules for each metric type
+    Object.entries(validated).forEach(([key, value]) => {
+      if (typeof value === 'number') {
+        const metricType = key as MetricType;
+        if (!this.validateMetricValue(value, metricType)) {
+          logger.warn(
+            LogCategory.Health,
+            `[${this.constructor.name}] Invalid ${metricType} value: ${value}, setting to 0`
+          );
+          validated[metricType] = 0;
+        }
+      }
+    });
+    
+    return validated;
   }
 
   /**

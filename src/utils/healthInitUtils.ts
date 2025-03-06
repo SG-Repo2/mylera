@@ -10,9 +10,14 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // Track initialized users to prevent redundant initializations
 const initializedUsers = new Set<string>();
 
+// Constants for initialization
+const INIT_TIMEOUT = 8000; // 8 seconds timeout
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 1000;
+
 /**
  * Initialize health provider for a given user and update permission status
- * Uses the unified safeInitialize method from the provider
+ * Uses the unified safeInitialize method from the provider with improved error handling
  */
 export async function initializeHealthProviderForUser(
   userId: string,
@@ -34,22 +39,64 @@ export async function initializeHealthProviderForUser(
     
     logger.info(LogCategory.Health, `Initializing provider for user ${userId}`);
     
-    // Get provider and use the unified safeInitialize method
-    const provider = HealthProviderFactory.getProvider();
-    const permissionStatus = await provider.safeInitialize(userId);
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Health provider initialization timeout')), INIT_TIMEOUT);
+    });
     
-    logger.info(LogCategory.Health, `Provider initialization complete, status: ${permissionStatus}`);
+    // Initialize with retries
+    const initializeWithRetries = async () => {
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const provider = HealthProviderFactory.getProvider();
+          const permissionStatus = await provider.safeInitialize(userId);
+          
+          logger.info(LogCategory.Health, `Provider initialized successfully on attempt ${attempt + 1}`);
+          return permissionStatus;
+        } catch (error) {
+          if (attempt === MAX_RETRIES) throw error;
+          
+          logger.warn(
+            LogCategory.Health,
+            `Initialization attempt ${attempt + 1} failed, retrying in ${RETRY_DELAY}ms`
+          );
+          
+          await delay(RETRY_DELAY);
+        }
+      }
+      throw new Error('All initialization attempts failed');
+    };
     
-    // Update the status
+    // Race between initialization and timeout
+    const permissionStatus = await Promise.race([
+      initializeWithRetries(),
+      timeoutPromise
+    ]);
+    
+    // Update status and mark as initialized
     setHealthStatus(permissionStatus);
-    
-    // Mark this user as initialized
     initializedUsers.add(userId);
     
-  } catch (error) {
-    logger.error(LogCategory.Health, `Failed to initialize health provider: ${error}`);
+    logger.info(LogCategory.Health, `Provider initialization complete for user ${userId}`);
     
-    // Default to 'not_determined' status on error
+  } catch (error) {
+    // Detailed error logging
+    logger.error(
+      LogCategory.Health,
+      `Health provider initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      error instanceof Error ? error.stack : undefined
+    );
+    
+    // Always provide a fallback status
     setHealthStatus('not_determined');
+    
+    // Still mark as initialized to prevent further attempts
+    initializedUsers.add(userId);
+    
+    // Log the fallback action
+    logger.info(
+      LogCategory.Health,
+      `Fallback status set for user ${userId} after initialization failure`
+    );
   }
 }
