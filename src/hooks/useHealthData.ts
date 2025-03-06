@@ -72,7 +72,7 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
-      return;
+      return false; // Return false to indicate sync did not happen
     }
     
     // Check for minimum time between syncs to prevent unnecessary operations
@@ -80,13 +80,13 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
     const timeSinceLastSync = now - lastSyncTimeRef.current;
     if (timeSinceLastSync < MIN_SYNC_INTERVAL && isInitialized) {
       console.log(`[useHealthData] Sync skipped - too soon (${timeSinceLastSync}ms since last sync)`);
-      return;
+      return false; // Return false to indicate sync did not happen
     }
     
     if (!userId) {
       setError(new Error('User ID is required to sync health data'));
       setLoading(false);
-      return;
+      return false; // Return false to indicate sync did not happen
     }
     
     isSyncInProgress.current = true;
@@ -115,17 +115,17 @@ export const useHealthData = (provider: HealthProvider, userId: string) => {
         // For other issues, we'll continue and let the UI show without health data
         setError(initError instanceof Error ? initError : new Error('Health provider initialization failed'));
         isSyncInProgress.current = false;
-        return;
+        return false; // Return false to indicate sync did not complete
       }
       
       // Check mount state before continuing
-      if (!isMounted.current) return;
+      if (!isMounted.current) return false;
       
       // Check permission status
       const permissionState = await provider.checkPermissionsStatus();
       
       // Check mount state before continuing
-      if (!isMounted.current) return;
+      if (!isMounted.current) return false;
       
       // If permissions aren't granted, request them
       if (permissionState.status !== 'granted') {

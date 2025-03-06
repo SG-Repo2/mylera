@@ -66,6 +66,18 @@ export class NavigationQueue {
   private queue: Array<{ path: string, priority: number }> = [];
   private processing = false;
   private lastNavTime = 0;
+  private navigatorMounted = false;
+  
+  // Set navigator mounted state
+  setNavigatorMounted(mounted: boolean) {
+    this.navigatorMounted = mounted;
+    console.log(`[NavigationQueue] Navigator mounted state set to: ${mounted}`);
+    
+    // Process queue immediately if navigator is now mounted and there are items in queue
+    if (mounted && this.queue.length > 0 && !this.processing) {
+      this.processAllQueued();
+    }
+  }
   
   // Add navigation request to queue with priority
   enqueue(path: string, priority = 0) {
@@ -74,17 +86,28 @@ export class NavigationQueue {
       return;
     }
     
+    console.log(`[NavigationQueue] Enqueuing path: ${path} with priority: ${priority}`);
     this.queue.push({ path, priority });
     this.queue.sort((a, b) => b.priority - a.priority);
     
-    if (!this.processing) {
+    // Only process immediately if navigator is mounted
+    if (this.navigatorMounted && !this.processing) {
       this.processQueue();
+    } else {
+      console.log(`[NavigationQueue] Navigation to ${path} queued. Waiting for navigator to be ready.`);
     }
   }
   
   // Process the navigation queue with adaptive timing
   private async processQueue() {
     if (this.queue.length === 0) {
+      this.processing = false;
+      return;
+    }
+    
+    // Don't process if navigator is not mounted
+    if (!this.navigatorMounted) {
+      console.log(`[NavigationQueue] Navigator not mounted. Queue processing paused.`);
       this.processing = false;
       return;
     }
@@ -112,7 +135,43 @@ export class NavigationQueue {
     }
     
     // Continue processing the queue with a small delay between navigations
-    setTimeout(() => this.processQueue(), 100);
+    setTimeout(() => this.processQueue(), 200); // Increased from 100ms to 200ms
+  }
+
+  // Process all queued navigation requests with appropriate delays
+  processAllQueued() {
+    console.log('[NavigationQueue] Processing all queued navigation requests');
+    
+    if (!this.navigatorMounted) {
+      console.log('[NavigationQueue] Cannot process queue - navigator not mounted');
+      return;
+    }
+    
+    if (this.queue.length > 0 && !this.processing) {
+      // Process all queued items, ensuring that each has a minimum delay between them
+      const processNext = () => {
+        if (this.queue.length === 0) {
+          this.processing = false;
+          return;
+        }
+        
+        const next = this.queue.shift();
+        if (next) {
+          this.processing = true;
+          try {
+            router.replace(next.path);
+            this.lastNavTime = Date.now();
+            console.log(`[NavigationQueue] Processed queued navigation to: ${next.path}`);
+            setTimeout(processNext, 200); // 200ms delay between navigations
+          } catch (error) {
+            console.error(`[NavigationQueue] Error processing queued navigation:`, error);
+            setTimeout(processNext, 200); // Continue despite errors
+          }
+        }
+      };
+      
+      processNext();
+    }
   }
 }
 

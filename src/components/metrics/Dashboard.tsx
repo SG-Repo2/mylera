@@ -202,7 +202,6 @@ const sanitizeMetricsForComparison = (metrics: HealthMetrics) => {
   return sanitized as HealthMetrics;
 };
 
-// Add a ref to track if refresh is manual
 export const Dashboard = React.memo(function Dashboard({
   provider,
   userId,
@@ -251,8 +250,11 @@ export const Dashboard = React.memo(function Dashboard({
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
 
-  // New ref to track if current refresh is manual
+  // Reference to track if current refresh is manual
   const isManualRefreshRef = useRef<boolean>(false);
+  
+  // Add a reference to track the in-progress fetch state
+  const fetchInProgressRef = useRef<boolean>(false);
 
   // Define these functions directly, not in useCallback
   const createDefaultHealthMetrics = (): HealthMetrics => ({
@@ -341,24 +343,27 @@ export const Dashboard = React.memo(function Dashboard({
     // Prevent too frequent refreshes
     const now = Date.now();
     const timeSinceLastFetch = now - lastFetchTimeRef.current;
-    if (timeSinceLastFetch < 2000 && hasCompletedInitialFetchRef.current) {
+    if (timeSinceLastFetch < 2000 && hasCompletedInitialFetchRef.current && !isManualRefreshRef.current) {
       console.log('[Dashboard] Skipping fetch - too soon after previous fetch');
       return;
     }
     
-    // Set loading state only for manual refreshes
+    // Only set refreshing state for manual refreshes
     if (isManualRefreshRef.current) {
       setIsRefreshing(true);
     }
     
+    // Track fetch in progress state
+    fetchInProgressRef.current = true;
+    
     lastFetchTimeRef.current = now;
-    console.log(`[Dashboard] Starting fetch for requestId: ${requestId}`);
+    console.log(`[Dashboard] Starting fetch for requestId: ${requestId}, manual refresh: ${isManualRefreshRef.current}`);
     
     try {
       // Once we've successfully completed a fetch, mark global init as done
       dashboardInitRef.current.globalInitialized = true;
       
-      console.log('Dashboard fetching data for:', { userId, date, requestId });
+      console.log('Dashboard fetching data for:', { userId, date, requestId, isManualRefresh: isManualRefreshRef.current });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
@@ -410,22 +415,21 @@ export const Dashboard = React.memo(function Dashboard({
       // Mark fetch as completed
       hasCompletedInitialFetchRef.current = true;
       
-      // Reset refreshing state
-      if (isManualRefreshRef.current) {
-        setIsRefreshing(false);
-        isManualRefreshRef.current = false;
-      }
     } catch (err) {
       console.error('[Dashboard] Error fetching dashboard data:', err);
       
       if (requestId === fetchIdRef.current && isMountedRef.current) {
         setFetchError(err instanceof Error ? err : new Error('Failed to fetch dashboard data'));
-        
-        // Always finish the refresh even on error
-        if (isManualRefreshRef.current) {
-          setIsRefreshing(false);
-          isManualRefreshRef.current = false;
-        }
+      }
+    } finally {
+      // Always reset the fetch in progress flag
+      fetchInProgressRef.current = false;
+      
+      // Always reset refreshing state if this was a manual refresh
+      if (isManualRefreshRef.current && isMountedRef.current) {
+        console.log('[Dashboard] Resetting manual refresh state');
+        setIsRefreshing(false);
+        isManualRefreshRef.current = false;
       }
     }
   }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints]);
@@ -440,7 +444,7 @@ export const Dashboard = React.memo(function Dashboard({
     console.log('[Dashboard] Setting up auto-refresh timer');
     
     autoRefreshTimerRef.current = setInterval(() => {
-      if (isMountedRef.current && appStateRef.current === 'active') {
+      if (isMountedRef.current && appStateRef.current === 'active' && !fetchInProgressRef.current) {
         // Explicitly mark this as NOT a manual refresh
         isManualRefreshRef.current = false;
         
@@ -473,7 +477,8 @@ export const Dashboard = React.memo(function Dashboard({
       if (
         prevState.match(/inactive|background/) && 
         nextAppState === 'active' &&
-        hasCompletedInitialFetchRef.current // Only refresh on resume after initial fetch
+        hasCompletedInitialFetchRef.current && 
+        !fetchInProgressRef.current // Don't start a new fetch if one is in progress
       ) {
         console.log('[Dashboard] App has come to the foreground - refreshing dashboard data');
         
@@ -489,7 +494,7 @@ export const Dashboard = React.memo(function Dashboard({
         
         // Then fetch dashboard data after a short delay to allow sync to complete
         setTimeout(() => {
-          if (isMountedRef.current) {
+          if (isMountedRef.current && !fetchInProgressRef.current) {
             fetchData(newFetchId);
           }
         }, 1000);
@@ -502,6 +507,12 @@ export const Dashboard = React.memo(function Dashboard({
   }, [fetchData, syncHealthData]);
 
   useEffect(() => {
+    // Don't trigger a fetch if one is already in progress
+    if (fetchInProgressRef.current) {
+      console.log('[Dashboard] Skipping initial fetch - fetch already in progress');
+      return;
+    }
+    
     // Increment fetch ID in the ref without triggering re-renders
     fetchIdRef.current += 1;
     const currentFetchId = fetchIdRef.current;
@@ -533,8 +544,14 @@ export const Dashboard = React.memo(function Dashboard({
     setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
-  const handleRefresh = React.useCallback(() => {
-    // Mark this as a manual refresh
+  const handleRefresh = useCallback(() => {
+    // If a fetch is already in progress, don't start another one
+    if (fetchInProgressRef.current) {
+      console.log('[Dashboard] Manual refresh requested but fetch already in progress');
+      return;
+    }
+    
+    // Mark this as a manual refresh - this is important!
     isManualRefreshRef.current = true;
     
     console.log('[Dashboard] Manual refresh triggered');
@@ -568,6 +585,7 @@ export const Dashboard = React.memo(function Dashboard({
         
         // Reset loading states
         setIsRefreshing(false);
+        fetchInProgressRef.current = false;
         
         // Force a fresh fetch
         hasCompletedInitialFetchRef.current = false;

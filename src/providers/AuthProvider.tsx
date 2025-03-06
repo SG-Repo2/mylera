@@ -8,12 +8,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
-import { PermissionStatus } from './health/types/permissions';
+import { PermissionStatus } from '@/src/providers/health/types/permissions';
 import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
-import { HealthProviderFactory } from './health/factory/HealthProviderFactory';
+import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { Platform } from 'react-native';
+import { router } from 'expo-router';
+import { navigationQueue } from '@/src/utils/NavigationUtils';
+import { useNavigationReady } from '@/src/contexts/NavigationReadyContext';
 
 interface AuthContextType {
   session: Session | null;
@@ -38,6 +41,8 @@ interface RegisterProfileData {
   showProfile?: boolean;
 }
 
+type PermissionState = { status: string } | string;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -45,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
   const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(false);
+  const navigationReady = useNavigationReady();
 
   useEffect(() => {
     // Check initial session
@@ -234,7 +240,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Don't block registration on health provider errors
       }
       
-      console.log('[AuthProvider] Registration process completed successfully');
+      // Add delay before navigation to ensure navigator is mounted
+      console.log('[AuthProvider] Adding delay before navigation after registration');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Use the navigation queue or direct navigation based on navigator mount state
+      if (navigationReady) {
+        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
+        router.replace('/(app)/(home)');
+      } else {
+        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
+        navigationQueue.enqueue('/(app)/(home)', 10);
+      }
+      
     } catch (err) {
       console.error('[AuthProvider] Registration error:', err);
       const mappedError = mapAuthError(err);
@@ -299,6 +317,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (healthErr) {
         // Don't block login if health permissions check fails
         console.warn('[AuthProvider] Non-critical error checking health permissions:', healthErr);
+      }
+
+      // Add delay before navigation to ensure navigator is mounted
+      console.log('[AuthProvider] Adding delay before navigation after login');
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Use the navigation queue or direct navigation based on navigator mount state
+      if (navigationReady) {
+        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
+        router.replace('/(app)/(home)');
+      } else {
+        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
+        navigationQueue.enqueue('/(app)/(home)', 10);
       }
 
     } catch (err) {
