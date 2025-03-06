@@ -8,6 +8,7 @@ import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../../../../services/supabaseClient';
 import { logger, LogCategory } from '@/src/utils/logger';
+import { MetricType } from '@/src/types/metrics';
 
 const STORAGE_KEY = {
   ACCESS_TOKEN: 'fitbit_access_token',
@@ -661,83 +662,12 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   /**
    * normalizeMetrics
    *
-   * Converts raw Fitbit data into the standard NormalizedMetric format.
+   * Converts raw Fitbit data into the standard NormalizedMetric format using
+   * the standardized implementation from BaseHealthProvider.
    */
-  normalizeMetrics(rawData: RawHealthData, type: string): NormalizedMetric[] {
-    const metrics: NormalizedMetric[] = [];
-    switch (type) {
-      case 'steps':
-        if (rawData.steps) {
-          metrics.push(...rawData.steps.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.STEPS,
-            type: 'steps'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'distance':
-        if (rawData.distance) {
-          metrics.push(...rawData.distance.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.DISTANCE,
-            type: 'distance'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'calories':
-        if (rawData.calories) {
-          metrics.push(...rawData.calories.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.CALORIES,
-            type: 'calories'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'heart_rate':
-        if (rawData.heart_rate) {
-          metrics.push(...rawData.heart_rate.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.HEART_RATE,
-            type: 'heart_rate'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'basal_calories':
-        if (rawData.basal_calories) {
-          metrics.push(...rawData.basal_calories.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.CALORIES,
-            type: 'basal_calories'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'flights_climbed':
-        if (rawData.flights_climbed) {
-          metrics.push(...rawData.flights_climbed.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.COUNT,
-            type: 'flights_climbed'
-          } as NormalizedMetric)));
-        }
-        break;
-      case 'exercise':
-        if (rawData.exercise) {
-          metrics.push(...rawData.exercise.map(raw => ({
-            timestamp: raw.endDate,
-            value: raw.value,
-            unit: METRIC_UNITS.EXERCISE,
-            type: 'exercise'
-          } as NormalizedMetric)));
-        }
-        break;
-    }
-    return metrics;
+  normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
+    // Use the standardized implementation from BaseHealthProvider
+    return super.normalizeMetrics(rawData, type);
   }
 
   /**

@@ -3,6 +3,12 @@ import type { MetricType } from '../../../types/metrics';
 import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
 import { HealthProviderPermissionError } from './errors';
 import { logger, LogCategory, LogLevel } from '@/src/utils/logger';
+import { 
+  standardizeHeartRateCalculation,
+  standardizeStepsCalculation,
+  standardizeCaloriesCalculation,
+  standardizeDistanceCalculation
+} from '../../../utils/health/normalizeHealthData';
 
 /**
  * Interface representing a platform-specific health data provider.
@@ -129,6 +135,15 @@ export interface HealthProvider {
     maxRetries?: number,
     initialDelay?: number
   ): Promise<T>;
+  
+  /**
+   * Safely initialize the health provider with timeout protection.
+   * This unified method centralizes all initialization logic and provides safeguards.
+   * 
+   * @param userId - The unique identifier of the user
+   * @returns The current permission status after initialization
+   */
+  safeInitialize(userId: string): Promise<PermissionStatus>;
 }
 
 /**
@@ -240,6 +255,60 @@ export abstract class BaseHealthProvider implements HealthProvider {
   }
 
   /**
+   * Safely initialize the health provider with timeout protection.
+   * This unified method centralizes all initialization logic and provides safeguards.
+   * 
+   * @param userId - The unique identifier of the user
+   * @returns The current permission status after initialization
+   */
+  async safeInitialize(userId: string): Promise<PermissionStatus> {
+    try {
+      // Check if provider is already initialized
+      if (!this.initialized) {
+        console.log(`[BaseHealthProvider] Provider not initialized, initializing...`);
+        await this.initialize();
+      } else {
+        console.log(`[BaseHealthProvider] Provider already initialized, skipping initialization step`);
+      }
+
+      // Check if permission manager is initialized
+      if (!this.permissionManager) {
+        console.log(`[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`);
+        await this.initializePermissions(userId);
+      } else {
+        console.log(`[BaseHealthProvider] Permission manager already initialized, skipping initialization step`);
+      }
+
+      // Check permission status with timeout protection
+      console.log(`[BaseHealthProvider] Checking permission status with timeout protection...`);
+      const permissionState = await Promise.race([
+        this.checkPermissionsStatus(),
+        new Promise<PermissionStatus>((_, reject) =>
+          setTimeout(() => reject(new Error('Permission check timeout')), 3000)
+        )
+      ]);
+
+      // Handle different return types from checkPermissionsStatus
+      let status: PermissionStatus;
+      if (typeof permissionState === 'string') {
+        status = permissionState as PermissionStatus;
+      } else if (typeof permissionState === 'object' && permissionState !== null && 'status' in permissionState) {
+        status = permissionState.status as PermissionStatus;
+      } else {
+        console.warn(`[BaseHealthProvider] Unexpected permission state format:`, permissionState);
+        status = 'not_determined';
+      }
+
+      console.log(`[BaseHealthProvider] Safe initialization completed with status: ${status}`);
+      return status;
+    } catch (error) {
+      console.error(`[BaseHealthProvider] Safe initialization error:`, error);
+      // Return not_determined on error to allow graceful degradation
+      return 'not_determined';
+    }
+  }
+
+  /**
    * Request health data access permissions.
    * Must be implemented by platform-specific providers.
    * @returns The final permission status after the request
@@ -301,14 +370,72 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
   /**
    * Normalize raw health data into a standardized format.
-   * Default implementation throws an error - must be implemented by providers.
+   * Default implementation provides standardized processing across providers.
    * @param rawData - Raw health data from the platform
    * @param type - Type of metric to normalize
    * @returns Array of normalized metrics
-   * @throws {Error} If not implemented by the provider
    */
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
-    throw new Error('Method not implemented.');
+    if (!rawData || !rawData[type] || !rawData[type].length) {
+      logger.debug(LogCategory.Health, `No ${type} data to normalize`);
+      return [];
+    }
+    
+    try {
+      const rawValues = rawData[type].map(item => 
+        typeof item.value === 'number' ? item.value : parseFloat(item.value as string)
+      );
+      
+      // Use standardized calculation based on metric type
+      const standardizedValue = this.standardizeMetric(type, rawValues);
+      
+      // Return normalized format with timestamps from the first and last entries
+      const timestamps = rawData[type]
+        .filter(item => item.startDate)
+        .map(item => new Date(item.startDate).getTime())
+        .sort((a, b) => a - b);
+      
+      const startTime = timestamps.length ? new Date(timestamps[0]) : new Date();
+      const endTime = timestamps.length ? new Date(timestamps[timestamps.length - 1]) : new Date();
+      
+      // Get the unit from the first item, or use a default based on metric type
+      const unit = rawData[type][0]?.unit || this.getDefaultUnitForType(type);
+      
+      return [{
+        timestamp: startTime.toISOString(),
+        value: standardizedValue,
+        unit,
+        type,
+        confidence: 1.0
+      }];
+    } catch (error) {
+      logger.error(LogCategory.Health, `Error normalizing ${type} data: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+  
+  /**
+   * Get default unit for a metric type
+   * @param type The metric type
+   * @returns The default unit as a string
+   */
+  protected getDefaultUnitForType(type: MetricType): string {
+    switch (type) {
+      case 'steps':
+      case 'flights_climbed':
+        return 'count';
+      case 'distance':
+        return 'meters';
+      case 'calories':
+      case 'basal_calories':
+        return 'kcal';
+      case 'heart_rate':
+        return 'bpm';
+      case 'exercise':
+        return 'minutes';
+      default:
+        return 'count';
+    }
   }
 
   /**
@@ -467,5 +594,56 @@ export abstract class BaseHealthProvider implements HealthProvider {
     
     // If we get here, all retries failed
     throw lastError || new Error('Operation failed after all retry attempts');
+  }
+
+  /**
+   * Standardized health metric normalization that can be used by all providers.
+   * This ensures consistent calculation of metrics across platforms.
+   * 
+   * @param metricType Type of health metric to normalize
+   * @param rawValues Array of raw readings
+   * @returns Standardized and normalized value
+   */
+  protected standardizeMetric(metricType: MetricType, rawValues: number[]): number {
+    if (!rawValues || rawValues.length === 0) {
+      return 0;
+    }
+
+    switch (metricType) {
+      case 'heart_rate':
+        return standardizeHeartRateCalculation(rawValues);
+      
+      case 'steps':
+        return standardizeStepsCalculation(rawValues);
+      
+      case 'calories':
+      case 'basal_calories':
+        return standardizeCaloriesCalculation(rawValues);
+      
+      case 'distance':
+        return standardizeDistanceCalculation(rawValues);
+      
+      case 'flights_climbed':
+        // Simple sum for flights climbed
+        return Math.round(
+          rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0)
+        );
+      
+      case 'exercise':
+        // Exercise should be in minutes - cap at 24 hours per day
+        return Math.min(
+          Math.round(
+            rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0)
+          ),
+          1440 // 24 hours in minutes
+        );
+      
+      default:
+        // For any other metrics, just do a basic non-negative average
+        const validValues = rawValues.filter(v => v >= 0);
+        return validValues.length 
+          ? Math.round(validValues.reduce((sum, val) => sum + val, 0) / validValues.length)
+          : 0;
+    }
   }
 }
