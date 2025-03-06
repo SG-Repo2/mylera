@@ -217,24 +217,16 @@ export const Dashboard = React.memo(function Dashboard({
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dataInitialized, setDataInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  // Add state for tracking last fetch time
+  const [lastFetchTime, setLastFetchTime] = useState(0);
   
   // Replace fetchId state with a ref to avoid infinite update loops
   const fetchIdRef = useRef(0);
   
-  // Add an initialization tracking ref to prevent multiple init cycles
-  const isInitializedRef = useRef(false);
-  
-  // Add a mount status ref to prevent updates on unmounted component
-  const isMountedRef = useRef(true);
-  
   // Add proper AppState tracking ref to fix linter error
   const appStateRef = useRef(AppState.currentState);
-  
-  // Add a last fetch time ref to prevent too frequent refreshes
-  const lastFetchTimeRef = useRef(0);
-  
-  // Add a flag to track the first fetch
-  const hasCompletedInitialFetchRef = useRef(false);
   
   // Add a static flag to track global initialization state - this persists beyond component unmount/remount
   const dashboardInitRef = useRef({
@@ -244,17 +236,17 @@ export const Dashboard = React.memo(function Dashboard({
   // Add a timer ref for auto-refresh
   const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Reference to track if current refresh is manual
+  const isManualRefreshRef = useRef<boolean>(false);
+  
+  // Add abort controller ref for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
   // Get the health data from the provider
   const { loading, error, syncHealthData, isInitialized } = useHealthData(provider, userId);
   
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
-
-  // Reference to track if current refresh is manual
-  const isManualRefreshRef = useRef<boolean>(false);
-  
-  // Add a reference to track the in-progress fetch state
-  const fetchInProgressRef = useRef<boolean>(false);
 
   // Define these functions directly, not in useCallback
   const createDefaultHealthMetrics = (): HealthMetrics => ({
@@ -305,14 +297,20 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
 
-  // Set mounted flag on component mount/unmount
+  // Set up cleanup on component mount/unmount
   useEffect(() => {
-    isMountedRef.current = true;
+    // Create a new AbortController for this component instance
+    abortControllerRef.current = new AbortController();
+    
     console.log('[Dashboard] Component mounted, global init state:', dashboardInitRef.current.globalInitialized);
     
     return () => {
-      isMountedRef.current = false;
       console.log('[Dashboard] Component unmounting');
+      
+      // Signal abort to cancel any pending operations
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
       
       // Clear auto-refresh timer on unmount
       if (autoRefreshTimerRef.current) {
@@ -342,24 +340,27 @@ export const Dashboard = React.memo(function Dashboard({
     
     // Prevent too frequent refreshes
     const now = Date.now();
-    const timeSinceLastFetch = now - lastFetchTimeRef.current;
-    if (timeSinceLastFetch < 2000 && hasCompletedInitialFetchRef.current && !isManualRefreshRef.current) {
+    const timeSinceLastFetch = now - lastFetchTime;
+    if (timeSinceLastFetch < 2000 && dataInitialized && !isManualRefreshRef.current) {
       console.log('[Dashboard] Skipping fetch - too soon after previous fetch');
       return;
     }
+    
+    // Set loading state
+    setIsLoading(true);
     
     // Only set refreshing state for manual refreshes
     if (isManualRefreshRef.current) {
       setIsRefreshing(true);
     }
     
-    // Track fetch in progress state
-    fetchInProgressRef.current = true;
-    
-    lastFetchTimeRef.current = now;
+    setLastFetchTime(now);
     console.log(`[Dashboard] Starting fetch for requestId: ${requestId}, manual refresh: ${isManualRefreshRef.current}`);
     
     try {
+      // Create a new signal for this fetch request
+      const signal = abortControllerRef.current?.signal;
+      
       // Once we've successfully completed a fetch, mark global init as done
       dashboardInitRef.current.globalInitialized = true;
       
@@ -370,8 +371,8 @@ export const Dashboard = React.memo(function Dashboard({
         leaderboardService.getUserRank(userId, date)
       ]);
       
-      // Check if this response is stale
-      if (requestId !== fetchIdRef.current || !isMountedRef.current) {
+      // Check if this response is stale or if the component has been unmounted
+      if (requestId !== fetchIdRef.current || signal?.aborted) {
         console.log('[Dashboard] Stale data response or component unmounted, ignoring');
         return;
       }
@@ -396,8 +397,8 @@ export const Dashboard = React.memo(function Dashboard({
         healthMetrics
       );
       
-      // Simple check - if component has unmounted, abort
-      if (!isMountedRef.current) return;
+      // Don't update state if the component has been unmounted
+      if (signal?.aborted) return;
       
       // Update state directly without complex comparisons
       console.log('[Dashboard] Updating dashboard state...');
@@ -410,41 +411,43 @@ export const Dashboard = React.memo(function Dashboard({
       setDailyTotal(userTotal);
       setHealthMetrics(transformedMetrics);
       
-      console.log('[Dashboard] Dashboard state updated successfully');
+      // Mark data as initialized
+      setDataInitialized(true);
       
-      // Mark fetch as completed
-      hasCompletedInitialFetchRef.current = true;
+      console.log('[Dashboard] Dashboard state updated successfully');
       
     } catch (err) {
       console.error('[Dashboard] Error fetching dashboard data:', err);
       
-      if (requestId === fetchIdRef.current && isMountedRef.current) {
+      // Only update error state if the request is still current and component is mounted
+      if (requestId === fetchIdRef.current && !abortControllerRef.current?.signal.aborted) {
         setFetchError(err instanceof Error ? err : new Error('Failed to fetch dashboard data'));
       }
     } finally {
       // Always reset the fetch in progress flag
-      fetchInProgressRef.current = false;
+      setIsLoading(false);
       
       // Always reset refreshing state if this was a manual refresh
-      if (isManualRefreshRef.current && isMountedRef.current) {
+      if (isManualRefreshRef.current && !abortControllerRef.current?.signal.aborted) {
         console.log('[Dashboard] Resetting manual refresh state');
         setIsRefreshing(false);
         isManualRefreshRef.current = false;
       }
     }
-  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints]);
+  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints, dataInitialized, lastFetchTime]);
 
   // Setup auto-refresh timer
   useEffect(() => {
-    // Skip if component not mounted or initialized
-    if (!isMountedRef.current || !isInitialized || !hasCompletedInitialFetchRef.current) {
+    // Skip if not initialized or data is not yet loaded
+    if (!isInitialized || !dataInitialized) {
       return undefined;
     }
     
     console.log('[Dashboard] Setting up auto-refresh timer');
     
     autoRefreshTimerRef.current = setInterval(() => {
-      if (isMountedRef.current && appStateRef.current === 'active' && !fetchInProgressRef.current) {
+      // Only refresh if component has mounted data and is in the foreground and not already loading
+      if (appStateRef.current === 'active' && !isLoading) {
         // Explicitly mark this as NOT a manual refresh
         isManualRefreshRef.current = false;
         
@@ -464,7 +467,7 @@ export const Dashboard = React.memo(function Dashboard({
         autoRefreshTimerRef.current = null;
       }
     };
-  }, [fetchData, isInitialized, hasCompletedInitialFetchRef.current]);
+  }, [fetchData, isInitialized, dataInitialized, isLoading]);
 
   // Fix AppState listener effect to prevent multiple fetches
   useEffect(() => {
@@ -477,8 +480,8 @@ export const Dashboard = React.memo(function Dashboard({
       if (
         prevState.match(/inactive|background/) && 
         nextAppState === 'active' &&
-        hasCompletedInitialFetchRef.current && 
-        !fetchInProgressRef.current // Don't start a new fetch if one is in progress
+        dataInitialized && 
+        !isLoading // Don't start a new fetch if one is in progress
       ) {
         console.log('[Dashboard] App has come to the foreground - refreshing dashboard data');
         
@@ -494,7 +497,8 @@ export const Dashboard = React.memo(function Dashboard({
         
         // Then fetch dashboard data after a short delay to allow sync to complete
         setTimeout(() => {
-          if (isMountedRef.current && !fetchInProgressRef.current) {
+          // Check if component is still mounted and a fetch is not already in progress
+          if (!abortControllerRef.current?.signal.aborted && !isLoading) {
             fetchData(newFetchId);
           }
         }, 1000);
@@ -504,13 +508,24 @@ export const Dashboard = React.memo(function Dashboard({
     return () => {
       subscription.remove();
     };
-  }, [fetchData, syncHealthData]);
+  }, [fetchData, syncHealthData, dataInitialized, isLoading]);
 
   useEffect(() => {
     // Don't trigger a fetch if one is already in progress
-    if (fetchInProgressRef.current) {
+    if (isLoading) {
       console.log('[Dashboard] Skipping initial fetch - fetch already in progress');
       return;
+    }
+    
+    // If data is already initialized and not explicitly refreshing, skip
+    if (dataInitialized && !isRefreshing) {
+      console.log('[Dashboard] Skipping initial fetch - data already initialized');
+      return;
+    }
+    
+    // Set loading state for first fetch
+    if (!dataInitialized) {
+      setIsLoading(true);
     }
     
     // Increment fetch ID in the ref without triggering re-renders
@@ -522,15 +537,7 @@ export const Dashboard = React.memo(function Dashboard({
     
     // Call fetchData with current request ID
     fetchData(currentFetchId);
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
-
-  // Mark the completion of initial fetch
-  useEffect(() => {
-    if (healthMetrics && !hasCompletedInitialFetchRef.current) {
-      hasCompletedInitialFetchRef.current = true;
-      console.log('[Dashboard] Initial data fetch completed');
-    }
-  }, [healthMetrics]);
+  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem, dataInitialized, isRefreshing]);
 
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
@@ -546,7 +553,7 @@ export const Dashboard = React.memo(function Dashboard({
 
   const handleRefresh = useCallback(() => {
     // If a fetch is already in progress, don't start another one
-    if (fetchInProgressRef.current) {
+    if (isLoading) {
       console.log('[Dashboard] Manual refresh requested but fetch already in progress');
       return;
     }
@@ -562,6 +569,9 @@ export const Dashboard = React.memo(function Dashboard({
     // Explicitly set refreshing state for UI feedback
     setIsRefreshing(true);
     
+    // Also update the loading state
+    setIsLoading(true);
+    
     // Sync health data and fetch dashboard data
     syncHealthData();
     fetchData(fetchIdRef.current);
@@ -571,7 +581,8 @@ export const Dashboard = React.memo(function Dashboard({
   useEffect(() => {
     // If we're stuck in a loading state for too long, reset
     const recoveryTimer = setTimeout(() => {
-      if (isMountedRef.current && !healthMetrics) {
+      // Only attempt recovery if still loading and no data yet
+      if (!healthMetrics && isLoading && !abortControllerRef.current?.signal.aborted) {
         console.log('[Dashboard] Recovery mechanism triggered - resetting state');
         
         // Create default data
@@ -585,19 +596,20 @@ export const Dashboard = React.memo(function Dashboard({
         
         // Reset loading states
         setIsRefreshing(false);
-        fetchInProgressRef.current = false;
+        setIsLoading(false);
         
         // Force a fresh fetch
-        hasCompletedInitialFetchRef.current = false;
+        setDataInitialized(false);
         fetchIdRef.current += 1;
         syncHealthData();
       }
     }, 5000);
     
     return () => clearTimeout(recoveryTimer);
-  }, [healthMetrics, syncHealthData, userId, date]);
+  }, [healthMetrics, syncHealthData, userId, date, isLoading]);
 
-  if (loading) {
+  // Use our isLoading state instead of the prop from useHealthData
+  if (isLoading && !dataInitialized) {
     return <LoadingView />;
   }
 
