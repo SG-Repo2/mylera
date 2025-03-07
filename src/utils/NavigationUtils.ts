@@ -78,6 +78,7 @@ export class NavigationQueue {
   private processing = false;
   private lastNavTime = 0;
   private navigatorMounted = false;
+  private permissionsHandled: boolean = false;
   
   // Set navigator mounted state
   setNavigatorMounted(mounted: boolean) {
@@ -88,6 +89,15 @@ export class NavigationQueue {
     if (mounted && this.queue.length > 0 && !this.processing) {
       this.processQueue();
     }
+  }
+  
+  // Add permission handling methods
+  setPermissionsHandled(handled: boolean) {
+    this.permissionsHandled = handled;
+  }
+  
+  isPermissionsHandled() {
+    return this.permissionsHandled;
   }
   
   // Add navigation request to queue with priority

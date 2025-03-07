@@ -258,6 +258,14 @@ function ProtectedRoutes() {
     return () => clearTimeout(initialDelay);
   }, [session, loading, pathname, navigateSafely, navigatorMounted, needsHealthSetup, healthDataInitialized]);
 
+  // Add permission handling here where we have access to AuthProvider
+  useEffect(() => {
+    if (healthPermissionStatus !== null) {
+      // Update parent's permission state
+      navigationQueue.setPermissionsHandled(true);
+    }
+  }, [healthPermissionStatus]);
+
   if (loading) {
     return <LoadingView />;
   }
@@ -271,9 +279,8 @@ function ProtectedRoutes() {
 
 export default function RootLayout() {
   const [navigatorMounted, setNavigatorMounted] = useState(false);
-  const [permissionsHandled, setPermissionsHandled] = useState(false);
   
-  // Original navigator mount effect
+  // Remove usePermissionCheck and handle permissions through NavigationQueue
   useEffect(() => {
     console.log('[RootLayout] Starting navigator mount timer');
     
@@ -290,28 +297,11 @@ export default function RootLayout() {
     return () => clearTimeout(mountTimer);
   }, []);
 
-  // Add new permissions check effect
-  useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const { healthPermissionStatus } = useAuth();
-        if (healthPermissionStatus !== null) {
-          setPermissionsHandled(true);
-        }
-      } catch (error) {
-        console.error('[RootLayout] Error checking permissions:', error);
-        setPermissionsHandled(true);
-      }
-    };
-    
-    checkPermissions();
-  }, []);
-
   return (
     <AuthProvider>
       <NavigationReadyProvider 
         value={navigatorMounted}
-        permissionsHandled={permissionsHandled}
+        permissionsHandled={navigationQueue.isPermissionsHandled()}
       >
         <PaperProvider theme={theme}>
           <StatusBar
