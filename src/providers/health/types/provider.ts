@@ -687,4 +687,54 @@ export abstract class BaseHealthProvider implements HealthProvider {
           : 0;
     }
   }
+
+  /**
+   * Standardized metric aggregation method to be used across all providers
+   * Ensures consistent handling of null values and empty arrays
+   * @param metrics Array of normalized metrics to aggregate
+   * @returns Aggregated value or null if no valid metrics
+   */
+  protected standardizedAggregateMetric(metrics: NormalizedMetric[]): number {
+    // Handle empty or undefined arrays
+    if (!metrics || metrics.length === 0) {
+      logger.debug(LogCategory.Health, '[BaseHealthProvider] No metrics to aggregate, returning 0');
+      return 0;
+    }
+
+    // Apply different strategies based on metric type
+    const metricType = metrics[0]?.type;
+    
+    if (metricType === 'heart_rate') {
+      // For heart rate, use weighted average with more recent readings weighted higher
+      const validHeartRates = metrics
+        .filter(m => typeof m.value === 'number' && m.value >= 30 && m.value <= 220)
+        .map(m => ({ value: m.value, timestamp: new Date(m.timestamp).getTime() }))
+        .sort((a, b) => b.timestamp - a.timestamp); // Sort by most recent first
+      
+      if (validHeartRates.length === 0) return 0;
+      
+      // Take weighted average - more recent readings have more weight
+      // Most recent 3 readings get 60% of weight, the rest 40%
+      if (validHeartRates.length <= 3) {
+        const sum = validHeartRates.reduce((acc, hr) => acc + hr.value, 0);
+        return Math.round(sum / validHeartRates.length);
+      } else {
+        const recentReadings = validHeartRates.slice(0, 3);
+        const olderReadings = validHeartRates.slice(3);
+        
+        const recentAvg = recentReadings.reduce((acc, hr) => acc + hr.value, 0) / recentReadings.length;
+        const olderAvg = olderReadings.reduce((acc, hr) => acc + hr.value, 0) / olderReadings.length;
+        
+        return Math.round((recentAvg * 0.6) + (olderAvg * 0.4));
+      }
+    }
+    
+    // For all other metrics, sum up all valid values
+    const validMetrics = metrics.filter(m => 
+      typeof m.value === 'number' && !isNaN(m.value) && isFinite(m.value)
+    );
+    
+    const sum = validMetrics.reduce((total, metric) => total + metric.value, 0);
+    return Math.round(sum);
+  }
 }

@@ -684,13 +684,14 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
     );
 
-    const steps = this.aggregateMetric(this.normalizeMetrics(rawData, 'steps'));
-    const distance = this.aggregateMetric(this.normalizeMetrics(rawData, 'distance'));
-    const calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'calories'));
-    const heart_rate = this.aggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
-    const basal_calories = this.aggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
-    const flights_climbed = this.aggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
-    const exercise = this.aggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
+    // Use standardizedAggregateMetric for consistent aggregation
+    const steps = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'steps'));
+    const distance = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'distance'));
+    const calories = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'calories'));
+    const heart_rate = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
+    const basal_calories = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
+    const flights_climbed = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
+    const exercise = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
 
     return {
       id: '',
@@ -710,15 +711,6 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
-  }
-
-  /**
-   * aggregateMetric
-   *
-   * A simple aggregation (summing) of normalized metric values.
-   */
-  private aggregateMetric(metrics: NormalizedMetric[]): number {
-    return metrics.reduce((sum, metric) => sum + metric.value, 0);
   }
 
   /**
