@@ -330,19 +330,19 @@ export function isValidMetricValue(value: number, type: string): boolean {
   
   switch (type) {
     case 'steps':
-      return value >= METRIC_VALIDATION.STEPS.MIN && value <= METRIC_VALIDATION.STEPS.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.STEPS.MAX;
     case 'distance':
-      return value >= METRIC_VALIDATION.DISTANCE.MIN && value <= METRIC_VALIDATION.DISTANCE.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.DISTANCE.MAX;
     case 'calories':
-      return value >= METRIC_VALIDATION.CALORIES.MIN && value <= METRIC_VALIDATION.CALORIES.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.CALORIES.MAX;
     case 'heart_rate':
       return value >= METRIC_VALIDATION.HEART_RATE.MIN && value <= METRIC_VALIDATION.HEART_RATE.MAX;
     case 'exercise':
-      return value >= METRIC_VALIDATION.EXERCISE.MIN && value <= METRIC_VALIDATION.EXERCISE.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.EXERCISE.MAX;
     case 'basal_calories':
-      return value >= METRIC_VALIDATION.BASAL_CALORIES.MIN && value <= METRIC_VALIDATION.BASAL_CALORIES.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.BASAL_CALORIES.MAX;
     case 'flights_climbed':
-      return value >= METRIC_VALIDATION.FLIGHTS_CLIMBED.MIN && value <= METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX;
+      return value >= 0 && value <= METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX;
     default:
       return value >= 0;
   }
