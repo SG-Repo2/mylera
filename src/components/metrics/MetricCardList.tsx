@@ -360,11 +360,13 @@ export const MetricCardList = React.memo(function MetricCardList({
         />
       )}
 
-      <GoalCelebration
-        visible={showCelebration}
-        bonusPoints={celebrationPoints}
-        onClose={() => setShowCelebration(false)}
-      />
+      {showCelebration && (
+        <GoalCelebration
+          visible={showCelebration}
+          bonusPoints={celebrationPoints}
+          onClose={() => setShowCelebration(false)}
+        />
+      )}
     </View>
   );
 }, (prevProps, nextProps) => {

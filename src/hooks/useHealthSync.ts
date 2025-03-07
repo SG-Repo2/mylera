@@ -89,7 +89,7 @@ const BACKOFF_FACTOR = 1.5; // Exponential factor
  * const handleRefresh = () => syncHealthData();
  * ```
  */
-export const useHealthData = (provider: HealthProvider, userId: string) => {
+export const useHealthSync = (provider: HealthProvider, userId: string) => {
   // Use reducer instead of multiple useState calls to batch updates
   const [state, dispatch] = useReducer(healthDataReducer, initialState);
   const { loading, error, isInitialized } = state;

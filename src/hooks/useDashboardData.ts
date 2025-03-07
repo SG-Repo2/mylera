@@ -6,12 +6,12 @@ import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import { useHealthData } from '@/src/hooks/useHealthSync';
+import { useHealthSync } from './useHealthSync';
 
 /**
  * Custom hook for fetching and processing health metrics data
  */
-export const useHealthMetrics = (
+export const useDashboardData = (
   provider: HealthProvider,
   userId: string,
   date: string
@@ -29,13 +29,13 @@ export const useHealthMetrics = (
   const isFetchingRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   
-  // Use the health data hook
+  // Use our renamed hook
   const {
-    loading,
-    error,
+    loading: healthDataLoading,
+    error: healthDataError,
     syncHealthData,
     isInitialized
-  } = useHealthData(provider, userId);
+  } = useHealthSync(provider, userId);
 
   /**
    * Transform daily metric scores into HealthMetrics format
@@ -180,8 +180,8 @@ export const useHealthMetrics = (
   return {
     dailyTotal,
     healthMetrics,
-    loading,
-    error: error || fetchError,
+    loading: healthDataLoading,
+    error: healthDataError || fetchError,
     userRank,
     isRefreshing,
     errorDialogVisible,
