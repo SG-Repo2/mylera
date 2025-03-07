@@ -597,19 +597,12 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns A standardized Error object
    */
   protected standardizeError(error: unknown): Error {
-    if (error instanceof Error) {
-      // Enhance error with platform information
-      const enhancedError = new Error(`[${this.constructor.name}] ${error.message}`);
-      enhancedError.stack = error.stack;
-      enhancedError.name = error.name;
-      return enhancedError;
+    try {
+      this.handleProviderError('standardizing error', error);
+    } catch (e) {
+      return e instanceof Error ? e : new Error('Unknown error during standardization');
     }
-    
-    if (typeof error === 'string') {
-      return new Error(`[${this.constructor.name}] ${error}`);
-    }
-    
-    return new Error(`[${this.constructor.name}] Unknown error: ${JSON.stringify(error)}`);
+    return new Error('Unreachable code');
   }
 
   /**
@@ -618,23 +611,26 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @returns Validated and sanitized health data
    */
   protected validateHealthData(data: HealthMetrics): HealthMetrics {
-    const validated = { ...data };
-    
-    // Apply validation rules for each metric type
-    Object.entries(validated).forEach(([key, value]) => {
-      if (typeof value === 'number') {
-        const metricType = key as MetricType;
-        if (!this.validateMetricValue(value, metricType)) {
-          logger.warn(
-            LogCategory.Health,
-            `[${this.constructor.name}] Invalid ${metricType} value: ${value}, setting to 0`
-          );
-          validated[metricType] = 0;
+    try {
+      const validated = { ...data };
+      
+      Object.entries(validated).forEach(([key, value]) => {
+        if (typeof value === 'number') {
+          const metricType = key as MetricType;
+          if (!this.validateMetricValue(value, metricType)) {
+            this.handleProviderError('validating metric value', 
+              `Invalid value: ${value}`, 
+              metricType
+            );
+          }
         }
-      }
-    });
-    
-    return validated;
+      });
+      
+      return validated;
+    } catch (error) {
+      this.handleProviderError('validating health data', error);
+      return data; // This line is unreachable but TypeScript needs it
+    }
   }
 
   /**
@@ -736,5 +732,41 @@ export abstract class BaseHealthProvider implements HealthProvider {
     
     const sum = validMetrics.reduce((total, metric) => total + metric.value, 0);
     return Math.round(sum);
+  }
+
+  /**
+   * Standardized error handling method for health operations
+   * Formats errors consistently and logs them before rethrowing
+   * @param operation Description of the operation that failed
+   * @param error The original error that was caught
+   * @param metricType Optional metric type if operation was metric-specific
+   * @throws Formatted error with consistent structure
+   */
+  protected handleProviderError(operation: string, error: unknown, metricType?: string): never {
+    // Create a consistent error format regardless of provider
+    const formattedError = error instanceof Error 
+      ? error 
+      : new Error(typeof error === 'string' ? error : 'Unknown error');
+    
+    // Add context to the error message
+    const contextMessage = metricType 
+      ? `[${this.constructor.name}] Error ${operation} for ${metricType}: ${formattedError.message}`
+      : `[${this.constructor.name}] Error ${operation}: ${formattedError.message}`;
+    
+    // Log the error with appropriate category
+    logger.error(LogCategory.Health, contextMessage);
+    
+    // For permission errors, use the standard health permission error type
+    if (contextMessage.toLowerCase().includes('permission') || 
+        formattedError.message.toLowerCase().includes('permission')) {
+      throw new HealthProviderPermissionError(
+        metricType || 'health data',
+        formattedError.message
+      );
+    }
+    
+    // Rethrow with improved context
+    formattedError.message = contextMessage;
+    throw formattedError;
   }
 }
