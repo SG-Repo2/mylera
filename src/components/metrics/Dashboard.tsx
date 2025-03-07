@@ -21,62 +21,6 @@ import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
-// Add auto-refresh interval constant
-const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
-
-// Add recovery timeout constant
-const RECOVERY_TIMEOUT = 3000; // 3 seconds
-
-// Add constants for metric importance
-const CRITICAL_METRICS = ['steps', 'distance', 'calories'] as const;
-const IMPORTANT_METRICS = ['heart_rate', 'basal_calories'] as const;
-const OPTIONAL_METRICS = ['flights_climbed', 'exercise'] as const;
-
-// Add a deep equality check function at the top of the file, outside the component
-const deepEqual = (obj1: any, obj2: any): boolean => {
-  // If either is null or undefined or they are of different types
-  if (obj1 === obj2) return true;
-  if (obj1 == null || obj2 == null) return false;
-  if (typeof obj1 !== typeof obj2) return false;
-
-  // For primitive types
-  if (typeof obj1 !== 'object') return obj1 === obj2;
-
-  // For arrays
-  if (Array.isArray(obj1) && Array.isArray(obj2)) {
-    if (obj1.length !== obj2.length) return false;
-    return obj1.every((item, index) => deepEqual(item, obj2[index]));
-  }
-
-  // For objects
-  const keys1 = Object.keys(obj1);
-  const keys2 = Object.keys(obj2);
-  
-  if (keys1.length !== keys2.length) return false;
-  
-  return keys1.every(key => 
-    Object.prototype.hasOwnProperty.call(obj2, key) && 
-    deepEqual(obj1[key], obj2[key])
-  );
-};
-
-// Add validation function to check for valid metric data
-const validateMetricsData = (metrics: HealthMetrics | null): boolean => {
-  if (!metrics) return false;
-  
-  // Check if we have at least two critical metrics with non-zero values
-  const validCriticalMetrics = CRITICAL_METRICS.filter(
-    metric => metrics[metric] !== null && metrics[metric] > 0
-  );
-  
-  // Check if we have at least one important metric
-  const validImportantMetrics = IMPORTANT_METRICS.filter(
-    metric => metrics[metric] !== null && metrics[metric] > 0
-  );
-  
-  return validCriticalMetrics.length >= 2 || validImportantMetrics.length >= 1;
-};
-
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
@@ -96,6 +40,7 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
           style={styles.logo}
         />
         <View style={styles.statsContainer}>
+
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
@@ -177,13 +122,9 @@ const transformMetricsToHealthMetrics = (
   metrics: DailyMetricScore[],
   dailyTotal: DailyTotal | null,
   userId: string,
-  date: string,
-  existingMetrics: HealthMetrics | null = null
+  date: string
 ): HealthMetrics => {
-  // Use existing timestamps if we have them, otherwise create new ones
   const now = new Date().toISOString();
-  const created_at = existingMetrics?.created_at || now;
-  // Only update the last_updated time, not created_at
   
   const result: HealthMetrics = {
     id: `${userId}-${date}`,
@@ -200,7 +141,7 @@ const transformMetricsToHealthMetrics = (
     weekly_score: null,
     streak_days: null,
     last_updated: now,
-    created_at: created_at,
+    created_at: now,
     updated_at: now
   };
 
@@ -212,18 +153,6 @@ const transformMetricsToHealthMetrics = (
   });
 
   return result;
-};
-
-// Helper function to sanitize metrics for comparison by excluding changing timestamps
-const sanitizeMetricsForComparison = (metrics: HealthMetrics) => {
-  // Create a shallow copy to avoid modifying the original
-  const sanitized = { ...metrics } as { [key: string]: any };
-  
-  // Delete fields that may change but don't affect the display
-  delete sanitized.last_updated;
-  delete sanitized.updated_at;
-  
-  return sanitized as HealthMetrics;
 };
 
 export const Dashboard = React.memo(function Dashboard({
@@ -241,121 +170,21 @@ export const Dashboard = React.memo(function Dashboard({
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [dataInitialized, setDataInitialized] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasValidData, setHasValidData] = useState(false);
-  const [showLoadingState, setShowLoadingState] = useState(true);
-  // Add state for tracking last fetch time
-  const [lastFetchTime, setLastFetchTime] = useState(0);
   
   // Replace fetchId state with a ref to avoid infinite update loops
   const fetchIdRef = useRef(0);
-  
-  // Add proper AppState tracking ref to fix linter error
+  const isFetchingRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   
-  // Add a static flag to track global initialization state - this persists beyond component unmount/remount
-  const dashboardInitRef = useRef({
-    globalInitialized: false
-  });
+  const {
+    loading,
+    error,
+    syncHealthData,
+    isInitialized
+  } = useHealthData(provider, userId);
 
-  // Add a timer ref for auto-refresh
-  const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Reference to track if current refresh is manual
-  const isManualRefreshRef = useRef<boolean>(false);
-  
-  // Add abort controller ref for cleanup
-  const abortControllerRef = useRef<AbortController | null>(null);
-  
-  // Get the health data from the provider
-  const { loading, error, syncHealthData, isInitialized } = useHealthData(provider, userId);
-  
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
-
-  // Add state for tracking available metrics
-  const [availableMetrics, setAvailableMetrics] = useState<Set<string>>(new Set());
-  const [hasMinimumMetrics, setHasMinimumMetrics] = useState(false);
-
-  // Add fallback handling for partial data
-  const fallbackToPartialData = useCallback(() => {
-    // Use any available metrics and show placeholders for others
-    const availableMetrics = Object.entries(healthMetrics || {})
-      .filter(([_, value]) => typeof value === 'number' && value > 0)
-      .reduce((acc, [key, value]) => ({...acc, [key]: value}), {});
-    
-    // Track which metrics are available
-    const availableMetricSet = new Set(Object.keys(availableMetrics));
-    setAvailableMetrics(availableMetricSet);
-    
-    // Check if we have minimum required metrics (at least 2 critical metrics)
-    const criticalMetricsAvailable = CRITICAL_METRICS.filter(
-      metric => availableMetricSet.has(metric)
-    ).length;
-    
-    setHasMinimumMetrics(criticalMetricsAvailable >= 2);
-    
-    // Merge with defaults for missing metrics
-    const mergedMetrics = {
-      ...createDefaultHealthMetrics(),
-      ...availableMetrics,
-      user_id: userId,
-      date: date,
-      last_updated: new Date().toISOString()
-    };
-    
-    setHealthMetrics(mergedMetrics);
-    setIsLoading(false);
-    
-    // Log available metrics for debugging
-    console.log('[Dashboard] Partial data available:', {
-      total: availableMetricSet.size,
-      metrics: Array.from(availableMetricSet),
-      hasCritical: criticalMetricsAvailable >= 2
-    });
-  }, [userId, date, healthMetrics]);
-
-  // Define these functions directly, not in useCallback
-  const createDefaultHealthMetrics = (): HealthMetrics => ({
-    steps: 0,
-    distance: 0,
-    calories: 0,
-    heart_rate: 0,
-    basal_calories: 0,
-    flights_climbed: 0,
-    exercise: 0,
-    user_id: userId,
-    date: date,
-    daily_score: 0,
-    updated_at: new Date().toISOString(),
-    created_at: new Date().toISOString(),
-    id: `${userId}-${date}`,
-    weekly_score: 0,
-    streak_days: 0,
-    last_updated: new Date().toISOString()
-  });
-
-  const createDefaultDailyTotal = (): DailyTotal => ({
-    id: `${userId}-${date}`,
-    user_id: userId,
-    date: date,
-    total_points: 0,
-    metrics_completed: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  });
-
-  // Add missing refs
-  const isMounted = useRef(true);
-  const isSyncInProgress = useRef(false);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (dailyTotal) {
@@ -376,83 +205,23 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
 
-  // Set up cleanup on component mount/unmount
-  useEffect(() => {
-    // Create a new AbortController for this component instance
-    abortControllerRef.current = new AbortController();
-    
-    console.log('[Dashboard] Component mounted, global init state:', dashboardInitRef.current.globalInitialized);
-    
-    return () => {
-      console.log('[Dashboard] Component unmounting');
-      
-      // Signal abort to cancel any pending operations
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      
-      // Clear auto-refresh timer on unmount
-      if (autoRefreshTimerRef.current) {
-        clearInterval(autoRefreshTimerRef.current);
-        autoRefreshTimerRef.current = null;
-      }
-    };
-  }, []);
-
   const fetchData = useCallback(async (requestId: number) => {
-    // Don't proceed if component isn't initialized, no user ID
-    if (!userId) {
-      console.log('[Dashboard] Skipping fetch - missing userId');
-      return;
-    }
+    if (!isInitialized || !userId || isFetchingRef.current) return;
     
-    // If health data isn't initialized yet, we'll still proceed but with a warning
-    if (!isInitialized) {
-      console.log('[Dashboard] Warning: Fetching without health initialization - some metrics may be incomplete');
-    }
-    
-    // Skip if we've already done the global initialization
-    if (dashboardInitRef.current.globalInitialized && requestId < 3) {
-      console.log('[Dashboard] Skipping redundant fetch - already initialized globally');
-      return;
-    }
-    
-    // Prevent too frequent refreshes
-    const now = Date.now();
-    const timeSinceLastFetch = now - lastFetchTime;
-    if (timeSinceLastFetch < 2000 && dataInitialized && !isManualRefreshRef.current) {
-      console.log('[Dashboard] Skipping fetch - too soon after previous fetch');
-      return;
-    }
-    
-    // Set loading state
-    setIsLoading(true);
-    
-    // Only set refreshing state for manual refreshes
-    if (isManualRefreshRef.current) {
-      setIsRefreshing(true);
-    }
-    
-    setLastFetchTime(now);
-    console.log(`[Dashboard] Starting fetch for requestId: ${requestId}, manual refresh: ${isManualRefreshRef.current}`);
+    isFetchingRef.current = true;
+    setIsRefreshing(true);
     
     try {
-      // Create a new signal for this fetch request
-      const signal = abortControllerRef.current?.signal;
-      
-      // Once we've successfully completed a fetch, mark global init as done
-      dashboardInitRef.current.globalInitialized = true;
-      
-      console.log('Dashboard fetching data for:', { userId, date, requestId, isManualRefresh: isManualRefreshRef.current });
+      console.log('Dashboard fetching data for:', { userId, date, requestId });
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
         leaderboardService.getUserRank(userId, date)
       ]);
       
-      // Check if this response is stale or if the component has been unmounted
-      if (requestId !== fetchIdRef.current || signal?.aborted) {
-        console.log('[Dashboard] Stale data response or component unmounted, ignoring');
+      // Check if this response is stale
+      if (requestId !== fetchIdRef.current) {
+        console.log('Stale data response, ignoring');
         return;
       }
       
@@ -467,191 +236,52 @@ export const Dashboard = React.memo(function Dashboard({
         updated_at: new Date().toISOString()
       };
       
-      // Transform metrics but don't update state yet
-      const transformedMetrics = transformMetricsToHealthMetrics(
-        metricScores, 
-        userTotal, 
-        userId, 
-        date, 
-        healthMetrics
-      );
-      
-      // Validate the transformed metrics
-      const isDataValid = validateMetricsData(transformedMetrics);
-      
-      // Don't update state if the component has been unmounted
-      if (signal?.aborted) return;
-      
-      // Update state directly without complex comparisons
-      console.log('[Dashboard] Updating dashboard state...', {
-        hasValidData: isDataValid,
-        metricsAvailable: !!transformedMetrics
-      });
-      
-      // Clear any previous errors
-      setFetchError(null);
-      
-      // Update all state at once to prevent partial updates
-      setUserRank(rank);
       setDailyTotal(userTotal);
-      setHealthMetrics(transformedMetrics);
-      setHasValidData(isDataValid);
-      
-      // Only hide loading state if we have valid data
-      if (isDataValid) {
-        setShowLoadingState(false);
-      }
-      
-      // Mark data as initialized
-      setDataInitialized(true);
-      
-      // After successful fetch, update available metrics
-      if (transformedMetrics) {
-        const newAvailableMetrics = new Set(
-          Object.entries(transformedMetrics)
-            .filter(([key, value]) => 
-              typeof value === 'number' && 
-              value > 0 && 
-              !['id', 'user_id', 'date', 'daily_score', 'weekly_score', 'streak_days'].includes(key)
-            )
-            .map(([key]) => key)
-        );
-        
-        setAvailableMetrics(newAvailableMetrics);
-        setHasMinimumMetrics(
-          CRITICAL_METRICS.filter(metric => newAvailableMetrics.has(metric)).length >= 2
-        );
-      }
-      
-      console.log('[Dashboard] Dashboard state updated successfully');
-      
+      setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
+      setUserRank(rank);
+      setFetchError(null);
     } catch (err) {
-      console.error('[Dashboard] Error fetching dashboard data:', err);
-      
-      // Only update error state if the request is still current and component is mounted
-      if (requestId === fetchIdRef.current && !abortControllerRef.current?.signal.aborted) {
-        setFetchError(err instanceof Error ? err : new Error('Failed to fetch dashboard data'));
-      }
-      
-      // On error, try to use partial data
-      fallbackToPartialData();
+      // Only handle errors from current request
+      if (requestId !== fetchIdRef.current) return;
+      console.error('Error fetching metrics:', err);
+      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+      setErrorDialogVisible(true);
     } finally {
-      // Always reset the fetch in progress flag
-      if (!hasValidData) {
-        setIsLoading(false);
-      }
-      
-      // Always reset refreshing state if this was a manual refresh
-      if (isManualRefreshRef.current && !abortControllerRef.current?.signal.aborted) {
-        console.log('[Dashboard] Resetting manual refresh state');
+      if (requestId === fetchIdRef.current) {
         setIsRefreshing(false);
-        isManualRefreshRef.current = false;
+        isFetchingRef.current = false;
       }
     }
-  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints, dataInitialized, lastFetchTime, fallbackToPartialData]);
-
-  // Setup auto-refresh timer
-  useEffect(() => {
-    // Skip if not initialized or data is not yet loaded
-    if (!isInitialized || !dataInitialized) {
-      return undefined;
-    }
-    
-    console.log('[Dashboard] Setting up auto-refresh timer');
-    
-    autoRefreshTimerRef.current = setInterval(() => {
-      // Only refresh if component has mounted data and is in the foreground and not already loading
-      if (appStateRef.current === 'active' && !isLoading) {
-        // Explicitly mark this as NOT a manual refresh
-        isManualRefreshRef.current = false;
-        
-        console.log('[Dashboard] Auto-refresh triggered');
-        const newFetchId = fetchIdRef.current + 1;
-        fetchIdRef.current = newFetchId;
-        
-        // Don't set isRefreshing state for automatic refreshes
-        // This prevents the pull-to-refresh indicator from showing
-        fetchData(newFetchId);
-      }
-    }, AUTO_REFRESH_INTERVAL);
-    
-    return () => {
-      if (autoRefreshTimerRef.current) {
-        clearInterval(autoRefreshTimerRef.current);
-        autoRefreshTimerRef.current = null;
-      }
-    };
-  }, [fetchData, isInitialized, dataInitialized, isLoading]);
-
-  // Fix AppState listener effect to prevent multiple fetches
-  useEffect(() => {
-    // Register for app state changes
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      const prevState = appStateRef.current;
-      appStateRef.current = nextAppState;
-      
-      // Only refresh when coming from background to active
-      if (
-        prevState.match(/inactive|background/) && 
-        nextAppState === 'active' &&
-        dataInitialized && 
-        !isLoading // Don't start a new fetch if one is in progress
-      ) {
-        console.log('[Dashboard] App has come to the foreground - refreshing dashboard data');
-        
-        // Coming back to foreground is NOT a manual refresh
-        isManualRefreshRef.current = false;
-        
-        // Use incremented request ID to track this specific fetch request
-        const newFetchId = fetchIdRef.current + 1;
-        fetchIdRef.current = newFetchId;
-        
-        // First sync health data to get latest from device
-        syncHealthData();
-        
-        // Then fetch dashboard data after a short delay to allow sync to complete
-        setTimeout(() => {
-          // Check if component is still mounted and a fetch is not already in progress
-          if (!abortControllerRef.current?.signal.aborted && !isLoading) {
-            fetchData(newFetchId);
-          }
-        }, 1000);
-      }
-    });
-    
-    return () => {
-      subscription.remove();
-    };
-  }, [fetchData, syncHealthData, dataInitialized, isLoading]);
+  }, [userId, date, isInitialized]); // Remove fetchId from dependencies
 
   useEffect(() => {
-    // Don't trigger a fetch if one is already in progress
-    if (isLoading) {
-      console.log('[Dashboard] Skipping initial fetch - fetch already in progress');
-      return;
-    }
-    
-    // If data is already initialized and not explicitly refreshing, skip
-    if (dataInitialized && !isRefreshing) {
-      console.log('[Dashboard] Skipping initial fetch - data already initialized');
-      return;
-    }
-    
-    // Set loading state for first fetch
-    if (!dataInitialized) {
-      setIsLoading(true);
-    }
-    
     // Increment fetch ID in the ref without triggering re-renders
     fetchIdRef.current += 1;
     const currentFetchId = fetchIdRef.current;
     
-    // Explicitly mark initial load as not a manual refresh
-    isManualRefreshRef.current = false;
-    
     // Call fetchData with current request ID
     fetchData(currentFetchId);
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem, dataInitialized, isRefreshing]);
+  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
+
+  // Add AppState change listener to refresh data when app comes to foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appStateRef.current.match(/inactive|background/) && 
+        nextAppState === 'active'
+      ) {
+        console.log('App has come to the foreground - refreshing dashboard data');
+        // Increment fetch ID in the ref
+        fetchIdRef.current += 1;
+        fetchData(fetchIdRef.current);
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchData]);
 
   const handleRetry = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
@@ -665,70 +295,14 @@ export const Dashboard = React.memo(function Dashboard({
     setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
-  // Modify the recovery mechanism to use fallback
-  useEffect(() => {
-    const recoveryTimer = setTimeout(() => {
-      if (!healthMetrics && isLoading) {
-        console.log('[Dashboard] Recovery mechanism triggered - attempting partial data recovery');
-        
-        // Try to recover with partial data first
-        fallbackToPartialData();
-        
-        // Schedule a background refresh if we don't have minimum metrics
-        if (!hasMinimumMetrics && isMounted.current && !isSyncInProgress.current) {
-          setTimeout(() => {
-            console.log('[Dashboard] Attempting background refresh for missing metrics');
-            fetchIdRef.current += 1;
-            isManualRefreshRef.current = false;
-            fetchData(fetchIdRef.current);
-          }, 1000);
-        }
-      }
-    }, RECOVERY_TIMEOUT);
-    
-    return () => clearTimeout(recoveryTimer);
-  }, [healthMetrics, isLoading, hasMinimumMetrics, fallbackToPartialData]);
-
-  // Add additional safeguard for fetch operations
-  const safeFetch = useCallback(async (requestId: number) => {
-    if (!isMounted.current || isSyncInProgress.current) {
-      console.log('[Dashboard] Skipping fetch - component unmounted or sync in progress');
-      return false;
-    }
-
-    try {
-      isSyncInProgress.current = true;
-      await fetchData(requestId);
-      return true;
-    } catch (error) {
-      console.error('[Dashboard] Error during fetch:', error);
-      return false;
-    } finally {
-      isSyncInProgress.current = false;
-    }
-  }, [fetchData]);
-
-  // Modify the handleRefresh to use safeFetch
-  const handleRefresh = useCallback(() => {
-    if (isLoading) {
-      console.log('[Dashboard] Manual refresh requested but fetch already in progress');
-      return;
-    }
-    
-    isManualRefreshRef.current = true;
-    setIsRefreshing(true);
-    setIsLoading(true);
-    
+  const handleRefresh = React.useCallback(() => {
+    // Increment fetch ID in the ref
     fetchIdRef.current += 1;
-    safeFetch(fetchIdRef.current).finally(() => {
-      if (isMounted.current) {
-        setIsRefreshing(false);
-      }
-    });
-  }, [isLoading, safeFetch]);
+    syncHealthData();
+    fetchData(fetchIdRef.current);
+  }, [syncHealthData, fetchData]);
 
-  // Modify the render logic to consider valid data state
-  if (isLoading && !hasValidData) {
+  if (loading) {
     return <LoadingView />;
   }
 
@@ -746,7 +320,7 @@ export const Dashboard = React.memo(function Dashboard({
         }
       ]}
     >
-      {dailyTotal && hasValidData && (
+      {dailyTotal && (
         <Animated.View 
           style={[
             styles.headerWrapper,
@@ -756,9 +330,7 @@ export const Dashboard = React.memo(function Dashboard({
             }
           ]}
         >
-          <Header 
-            dailyTotal={dailyTotal}
-          />
+          <Header dailyTotal={dailyTotal} />
         </Animated.View>
       )}
 
@@ -774,15 +346,17 @@ export const Dashboard = React.memo(function Dashboard({
           />
         }
       >
-        {healthMetrics && hasValidData && (
+        {healthMetrics && (
           <MetricCardList 
-            metrics={healthMetrics}
-            availableMetrics={availableMetrics}
-            hasMinimumMetrics={hasMinimumMetrics}
-            showAlerts={showAlerts && hasMinimumMetrics}
+            metrics={healthMetrics} 
+            showAlerts={showAlerts}
             provider={provider}
-            isInitialLoad={!dashboardInitRef.current.globalInitialized}
-            isManualRefresh={isManualRefreshRef.current}
+            isInitialLoad={!dailyTotal}
+            isManualRefresh={isRefreshing}
+            availableMetrics={new Set(Object.entries(healthMetrics)
+              .filter(([key, value]) => value !== null && !['id', 'user_id', 'date', 'created_at', 'updated_at', 'last_updated'].includes(key))
+              .map(([key]) => key))}
+            hasMinimumMetrics={true}
           />
         )}
       </ScrollView>

@@ -356,11 +356,10 @@ export const MetricModal: React.FC<MetricModalProps> = ({
                 </View>
               ) : (
                 <BarChart 
-                  metricType={metricType}
-                  userId={userId}
-                  date={date}
-                  provider={provider}
-                />
+                    metricType={metricType}
+                    userId={userId}
+                    date={date}
+                    provider={provider} measurementSystem={'metric'}                />
               )}
             </View>
 

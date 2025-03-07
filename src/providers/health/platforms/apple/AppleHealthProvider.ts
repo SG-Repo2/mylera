@@ -234,8 +234,93 @@ export class AppleHealthProvider extends BaseHealthProvider {
   }
 
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
-    // Use the standardized implementation from BaseHealthProvider
-    return super.normalizeMetrics(rawData, type);
+    const metrics: NormalizedMetric[] = [];
+
+    switch (type) {
+      case 'steps':
+        if (rawData.steps) {
+          metrics.push(...rawData.steps.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.STEPS,
+            type: 'steps'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'distance':
+        if (rawData.distance) {
+          console.log('[AppleHealthProvider] Normalizing distance metrics:', {
+            rawMetrics: rawData.distance,
+            rawTotal: rawData.distance.reduce((sum, m) => sum + (m.value || 0), 0)
+          });
+          const normalizedDistanceMetrics = rawData.distance.map(raw => ({
+            timestamp: raw.endDate,
+            value: Number(raw.value), // Keep in meters
+            unit: METRIC_UNITS.DISTANCE,
+            type: 'distance'
+          } as NormalizedMetric));
+          metrics.push(...normalizedDistanceMetrics);
+          console.log('[AppleHealthProvider] Normalized distance metrics:', {
+            normalizedMetrics: normalizedDistanceMetrics,
+            normalizedTotal: normalizedDistanceMetrics.reduce((sum, m) => sum + m.value, 0)
+          });
+        } else {
+          console.log('[AppleHealthProvider] No distance data to normalize');
+        }
+        break;
+      case 'calories':
+        if (rawData.calories) {
+          metrics.push(...rawData.calories.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.CALORIES,
+            type: 'calories'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'heart_rate':
+        if (rawData.heart_rate) {
+          metrics.push(...rawData.heart_rate.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.HEART_RATE,
+            type: 'heart_rate'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'basal_calories':
+        if (rawData.basal_calories) {
+          metrics.push(...rawData.basal_calories.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.CALORIES,
+            type: 'basal_calories'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'flights_climbed':
+        if (rawData.flights_climbed) {
+          metrics.push(...rawData.flights_climbed.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.COUNT,
+            type: 'flights_climbed'
+          } as NormalizedMetric)));
+        }
+        break;
+      case 'exercise':
+        if (rawData.exercise) {
+          metrics.push(...rawData.exercise.map(raw => ({
+            timestamp: raw.endDate,
+            value: raw.value,
+            unit: METRIC_UNITS.EXERCISE,
+            type: 'exercise'
+          } as NormalizedMetric)));
+        }
+        break;
+    }
+
+    return metrics;
   }
 
   async getMetrics(): Promise<HealthMetrics> {
