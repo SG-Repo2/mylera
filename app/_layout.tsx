@@ -1,4 +1,4 @@
-// Modified _layout.tsx root component with navigation guard
+// Enhanced _layout.tsx with better navigation coordination
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useRouter, Slot, usePathname } from 'expo-router';
 import { 
@@ -20,10 +20,12 @@ import { navigationQueue } from '@/src/utils/NavigationUtils';
 // Declare the global type with our custom property
 declare global {
   var appStartTime: number;
+  var navigationReady: boolean;
 }
 
 // Initialize app start time for timeout calculations
 global.appStartTime = Date.now();
+global.navigationReady = false;
 
 // Get status bar height for proper spacing
 const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 20 : StatusBar.currentHeight || 0;
@@ -45,7 +47,13 @@ function LoadingView() {
 }
 
 function ProtectedRoutes() {
-  const { session, loading, needsHealthSetup } = useAuth();
+  const { 
+    session, 
+    loading, 
+    needsHealthSetup,
+    healthDataInitialized // Use the new health data initialization state
+  } = useAuth();
+  
   const router = useRouter();
   const pathname = usePathname();
   const navigatorMounted = useNavigationReady();
@@ -59,7 +67,11 @@ function ProtectedRoutes() {
   const navigationRef = useRef<{
     isRedirecting: boolean;
     lastPathname: string | null;
-    lastAuthState: { loading: boolean; hasSession: boolean };
+    lastAuthState: { 
+      loading: boolean; 
+      hasSession: boolean;
+      healthDataReady: boolean; // Add health data readiness to state tracking
+    };
     navigationAttempts: number;
     lastNavigationTime: number;
     pendingNavigationTimeout: ReturnType<typeof setTimeout> | null;
@@ -67,7 +79,11 @@ function ProtectedRoutes() {
   }>({
     isRedirecting: false,
     lastPathname: null,
-    lastAuthState: { loading: true, hasSession: false },
+    lastAuthState: { 
+      loading: true, 
+      hasSession: false,
+      healthDataReady: false
+    },
     navigationAttempts: 0,
     lastNavigationTime: 0,
     pendingNavigationTimeout: null,
@@ -132,6 +148,9 @@ function ProtectedRoutes() {
     // Reset navigation attempts counter when navigator is mounted
     navigationRef.current.navigationAttempts = 0;
     
+    // Set global navigation ready flag
+    global.navigationReady = true;
+    
     // Use the navigation queue to handle the actual navigation
     navigationQueue.enqueue(path, priority);
     navigationRef.current.lastPathname = path;
@@ -143,14 +162,20 @@ function ProtectedRoutes() {
     const initialDelay = setTimeout(() => {
       const nav = navigationRef.current;
       const hasSession = !!session;
+      const isHealthDataReady = !!healthDataInitialized;
       
       // Track significant auth state changes
       const isAuthStateChange = 
         nav.lastAuthState.loading !== loading || 
-        nav.lastAuthState.hasSession !== hasSession;
+        nav.lastAuthState.hasSession !== hasSession ||
+        nav.lastAuthState.healthDataReady !== isHealthDataReady;
       
       // Update last auth state
-      nav.lastAuthState = { loading, hasSession };
+      nav.lastAuthState = { 
+        loading, 
+        hasSession,
+        healthDataReady: isHealthDataReady
+      };
       
       // Add a navigation throttle - don't navigate if we just did recently
       const now = Date.now();
@@ -170,12 +195,17 @@ function ProtectedRoutes() {
       }
       
       // Extra logging for debug
-      console.log('[ProtectedRoutes] Auth state check:', { hasSession, isAuthStateChange, navigatorMounted });
+      console.log('[ProtectedRoutes] Auth state check:', { 
+        hasSession, 
+        isAuthStateChange, 
+        navigatorMounted,
+        healthDataInitialized,
+        pathname
+      });
 
       // After login, add a small delay to ensure the session is fully loaded
-      // This helps prevent the Dashboard loading twice
-      if (hasSession && isAuthStateChange) {
-        console.log('[ProtectedRoutes] Detected successful login, preparing navigation');
+      if (hasSession && isAuthStateChange && isHealthDataReady) {
+        console.log('[ProtectedRoutes] Detected successful login with health data ready, preparing navigation');
         
         // Set a flag to prevent multiple navigations from the same auth state change
         const currentTime = Date.now();
@@ -187,31 +217,17 @@ function ProtectedRoutes() {
           setTimeout(() => {
             // Only navigate if not already navigating and not recently navigated
             if (!nav.isRedirecting) {
-              navigateSafely('/');
+              navigateSafely('/(app)/(home)');
             }
-          }, 150);
+          }, 300);
         } else {
           console.log('[ProtectedRoutes] Skipping navigation - recent auth state change');
         }
         return;
       }
       
-      // Check if auth state or path has changed
-      const authChanged = nav.lastAuthState.loading !== loading || 
-                          nav.lastAuthState.hasSession !== hasSession;
-      const pathChanged = nav.lastPathname !== pathname;
-      
-      console.log('[ProtectedRoutes] Navigation check:', {
-        authChanged,
-        pathChanged,
-        hasSession,
-        pathname,
-        navigatorMounted,
-        needsHealthSetup: needsHealthSetup?.()
-      });
-  
       // Only navigate if something changed to avoid unnecessary navigation
-      if (authChanged || pathChanged) {
+      if (isAuthStateChange || pathname !== nav.lastPathname) {
         if (!hasSession) {
           if (pathname === '/' || isProtectedRoute(pathname)) {
             console.log('[ProtectedRoutes] No session on protected/root route, redirecting to login');
@@ -229,16 +245,17 @@ function ProtectedRoutes() {
             }
           }
           
-          if (pathname === '/' || isAuthRoute(pathname)) {
-            console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home');
+          // Only navigate to home if health data is ready or we're not already there
+          if ((pathname === '/' || isAuthRoute(pathname)) && healthDataInitialized) {
+            console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home with health data ready');
             navigateSafely('/(app)/(home)');
           }
         }
       }
-    }, 100);
+    }, 300);
     
     return () => clearTimeout(initialDelay);
-  }, [session, loading, router, pathname, navigateSafely, navigatorMounted, needsHealthSetup]);
+  }, [session, loading, pathname, navigateSafely, navigatorMounted, needsHealthSetup, healthDataInitialized]);
 
   if (loading) {
     return <LoadingView />;
@@ -252,7 +269,7 @@ function ProtectedRoutes() {
 }
 
 export default function RootLayout() {
-  // Use state for navigator mounted status
+  // Use state for navigator mounted status with a longer initial delay
   const [navigatorMounted, setNavigatorMounted] = useState(false);
   
   // Set navigator as mounted after a delay with proper safeguards
@@ -268,8 +285,8 @@ export default function RootLayout() {
         navigationQueue.setNavigatorMounted(true);
         navigationQueue.processAllQueued(); // Process any queued navigations
         console.log('[RootLayout] Navigator fully mounted and ready for navigation');
-      }, 200);
-    }, 800); // Increased from 300ms to 800ms for more reliable mounting
+      }, 500);
+    }, 1200); // Increased from 800ms to 1200ms for more reliable mounting
     
     return () => clearTimeout(mountTimer);
   }, []);

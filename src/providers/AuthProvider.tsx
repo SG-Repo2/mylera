@@ -1,11 +1,4 @@
-/**
- * Key points:
-	•	We store both session and user to manage app logic that might require more than a session token.
-	•	The loading state helps display UI feedback (e.g., spinners) while auth actions are in progress.
-	•	The error state is updated when any registration, login, or logout operation fails.
-	•	We expose register, login, and logout for the rest of the app to consume.
- */
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from '@/src/providers/health/types/permissions';
@@ -18,12 +11,14 @@ import { router } from 'expo-router';
 import { navigationQueue } from '@/src/utils/NavigationUtils';
 import { useNavigationReady } from '@/src/contexts/NavigationReadyContext';
 
+// Add health data initialization state
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   loading: boolean;
   error: string | null;
   healthPermissionStatus: PermissionStatus | null;
+  healthDataInitialized: boolean; // New state to track health data initialization
   register: (email: string, password: string, profileData?: RegisterProfileData) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -50,7 +45,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
   const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(false);
+  // Add new state for health data initialization
+  const [healthDataInitialized, setHealthDataInitialized] = useState(false);
+  
   const navigatorMounted = useNavigationReady();
+
+  // Track session initialization
+  const sessionInitialized = useRef(false);
 
   useEffect(() => {
     // Check initial session
@@ -60,9 +61,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Initialize health provider if user is logged in
       if (session?.user) {
-        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+        try {
+          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+          
+          // Pre-initialize health data for existing sessions
+          const provider = HealthProviderFactory.getProvider();
+          
+          // Try to fetch initial metrics to ensure data will be available
+          // This prevents the dashboard from showing zeros
+          try {
+            await provider.getMetrics();
+            // Mark health data as initialized
+            setHealthDataInitialized(true);
+          } catch (healthDataError) {
+            console.warn('[AuthProvider] Initial health data fetch error:', healthDataError);
+            // Still mark as initialized even if there's an error
+            // The dashboard will handle showing appropriate fallbacks
+            setHealthDataInitialized(true);
+          }
+        } catch (initError) {
+          console.error('[AuthProvider] Health provider initialization error:', initError);
+          // Even on error, continue to mark initialization as complete
+          setHealthDataInitialized(true);
+        }
       }
       
+      sessionInitialized.current = true;
       console.log('[AuthProvider] Initial session check complete. Setting loading to false');
       setLoading(false);
     });
@@ -74,9 +98,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       
+      // Reset health data initialization state on session change
+      setHealthDataInitialized(false);
+      
       // Handle health permissions on auth state change
       if (session?.user) {
-        await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+        try {
+          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
+          
+          // Pre-initialize health data for the new session
+          const provider = HealthProviderFactory.getProvider();
+          
+          try {
+            await provider.getMetrics();
+            // Mark health data as initialized
+            setHealthDataInitialized(true);
+          } catch (healthDataError) {
+            console.warn('[AuthProvider] Health data fetch error on auth change:', healthDataError);
+            // Still mark as initialized to avoid blocking the UI
+            setHealthDataInitialized(true);
+          }
+        } catch (error) {
+          console.error('[AuthProvider] Health init error on auth change:', error);
+          // Mark as initialized even on error
+          setHealthDataInitialized(true);
+        }
       } else {
         setHealthPermissionStatus(null);
       }
@@ -89,6 +135,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Wait for navigator to be ready before processing initial navigation
+  useEffect(() => {
+    if (navigatorMounted && sessionInitialized.current && !loading) {
+      console.log('[AuthProvider] Navigator mounted and session initialized - processing any pending navigation');
+      navigationQueue.processAllQueued();
+    }
+  }, [navigatorMounted, loading]);
 
   /**
    * Handle user registration
@@ -115,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
       setIsAuthNavigationLocked(true); // Lock navigation
+      setHealthDataInitialized(false); // Reset health data initialization state
       
       // Validate display name first
       if (!profile.displayName?.trim()) {
@@ -229,27 +284,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Continue initializing even if permission request times out
           await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
           console.log('[AuthProvider] Health provider initialized successfully');
+          
+          // NEW: Fetch initial metrics to ensure data is available
+          try {
+            await provider.getMetrics();
+            setHealthDataInitialized(true);
+          } catch (metricsError) {
+            console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
+            // Mark as initialized anyway to prevent blocking
+            setHealthDataInitialized(true);
+          }
         } catch (healthPermissionError) {
           console.error('[AuthProvider] Error requesting health permissions:', healthPermissionError);
           // Don't block registration on health provider errors
+          // Mark health data as initialized to avoid blocking the UI
+          setHealthDataInitialized(true);
         }
         
         console.log('[AuthProvider] Registration process completed successfully');
       } catch (healthError) {
         console.error('[AuthProvider] Error initializing health provider:', healthError);
         // Don't block registration on health provider errors
+        // Mark health data as initialized to avoid blocking the UI
+        setHealthDataInitialized(true);
       }
       
       // Add delay before navigation to ensure navigator is mounted
       console.log('[AuthProvider] Adding delay before navigation after registration');
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Use the navigation queue or direct navigation based on navigator mount state
-      if (navigatorMounted) {
-        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
+      // Wait for navigator to be mounted and health data to be initialized
+      if (navigatorMounted && healthDataInitialized) {
+        console.log('[AuthProvider] Navigator mounted and health data initialized, proceeding with direct navigation');
         router.replace('/(app)/(home)');
       } else {
-        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
+        console.log('[AuthProvider] Navigator not mounted or health data not initialized, queueing navigation');
         navigationQueue.enqueue('/(app)/(home)', 10);
       }
       
@@ -257,6 +326,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('[AuthProvider] Registration error:', err);
       const mappedError = mapAuthError(err);
       setError(mappedError);
+      // Mark health data as initialized to prevent blocking the UI
+      setHealthDataInitialized(true);
       throw err; // Re-throw to allow caller to handle
     } finally {
       setLoading(false);
@@ -279,6 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLoading(true);
       setIsAuthNavigationLocked(true); // Lock navigation
+      setHealthDataInitialized(false); // Reset health data initialization
 
       console.log('[AuthProvider] Starting login attempt...');
       
@@ -289,52 +361,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (signInError) throw signInError;
 
-      console.log('[AuthProvider] Login successful, checking health permissions...');
+      console.log('[AuthProvider] Login successful, initializing health provider...');
       
-      // After successful login, check health permissions - but don't wait for this
-      // to complete before allowing navigation. This prevents delays in UI feedback.
+      // After successful login, initialize health provider and data
       const provider = HealthProviderFactory.getProvider();
       try {
-        const permissionState = await Promise.race([
-          provider.checkPermissionsStatus(),
-          // Add a timeout to prevent blocking navigation if health check is slow
-          new Promise<PermissionState>((_, reject) => 
-            setTimeout(() => reject(new Error('Health permission check timeout')), 2000)
-          )
-        ]);
+        // First initialize the health provider and permissions
+        await provider.safeInitialize(user?.id || 'default-user-id');
         
-        // Fix: Access the status property from PermissionState correctly
-        const status = typeof permissionState === 'string' 
-          ? permissionState 
-          : permissionState.status;
-        
-        // Safely convert to string before comparison
-        const statusStr = String(status);
-        const validStatus = (statusStr === 'prompt' ? 'not_determined' : statusStr) as PermissionStatus;
-        
-        setHealthPermissionStatus(validStatus);
-        console.log('[AuthProvider] Health permission status updated:', validStatus);
+        // Then attempt to fetch initial metrics
+        try {
+          await provider.getMetrics();
+          setHealthDataInitialized(true);
+          console.log('[AuthProvider] Initial health data loaded successfully');
+        } catch (metricsError) {
+          console.warn('[AuthProvider] Error loading initial health data:', metricsError);
+          // Mark as initialized anyway to prevent blocking
+          setHealthDataInitialized(true);
+        }
       } catch (healthErr) {
-        // Don't block login if health permissions check fails
-        console.warn('[AuthProvider] Non-critical error checking health permissions:', healthErr);
+        console.warn('[AuthProvider] Health initialization error:', healthErr);
+        // Mark as initialized even on errors
+        setHealthDataInitialized(true);
       }
 
       // Add delay before navigation to ensure navigator is mounted
       console.log('[AuthProvider] Adding delay before navigation after login');
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       // Use the navigation queue or direct navigation based on navigator mount state
-      if (navigatorMounted) {
-        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
+      if (navigatorMounted && healthDataInitialized) {
+        console.log('[AuthProvider] Navigator mounted and health data initialized, proceeding with direct navigation');
         router.replace('/(app)/(home)');
       } else {
-        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
+        console.log('[AuthProvider] Navigator not mounted or health data not initialized, queueing navigation');
         navigationQueue.enqueue('/(app)/(home)', 10);
       }
 
     } catch (err) {
       console.error('[AuthProvider] Login error:', err);
       setError(mapAuthError(err));
+      // Ensure health data is marked as initialized even on errors
+      setHealthDataInitialized(true);
     } finally {
       // Use a short delay before unlocking navigation to prevent immediate re-navigation
       setTimeout(() => {
@@ -359,6 +427,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setError(null);
       setLoading(true);
+      setHealthDataInitialized(false);
 
       // Clean up health provider state
       if (user) {
@@ -421,6 +490,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setError(null);
       setLoading(true);
+      setHealthDataInitialized(false);
 
       const provider = HealthProviderFactory.getProvider();
       
@@ -451,6 +521,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       console.log('[AuthProvider] Permission request completed with status:', status);
       setHealthPermissionStatus(status);
+      
+      // Try to fetch initial metrics after permissions are granted
+      if (status === 'granted') {
+        try {
+          await provider.getMetrics();
+          setHealthDataInitialized(true);
+        } catch (metricsError) {
+          console.warn('[AuthProvider] Error loading metrics after permission grant:', metricsError);
+          // Mark as initialized anyway
+          setHealthDataInitialized(true);
+        }
+      } else {
+        // Even with denied permissions, mark as initialized
+        setHealthDataInitialized(true);
+      }
+      
       return status;
       
     } catch (err) {
@@ -463,6 +549,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setError(userMessage);
       setHealthPermissionStatus('denied');
+      // Mark as initialized even on errors
+      setHealthDataInitialized(true);
       return 'denied';
     } finally {
       setLoading(false);
@@ -475,6 +563,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     error,
     healthPermissionStatus,
+    healthDataInitialized, // Expose this state to consumers
     register: (email: string, password: string, profileData?: RegisterProfileData) => {
       if (!profileData) {
         throw new Error('Profile data is required for registration');

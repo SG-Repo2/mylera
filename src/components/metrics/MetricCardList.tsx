@@ -24,6 +24,11 @@ interface MetricCardListProps {
 
 type DisplayedMetricType = MetricType;
 
+// Add constants for metric importance
+const CRITICAL_METRICS = ['steps', 'distance', 'calories'] as const;
+const IMPORTANT_METRICS = ['heart_rate', 'basal_calories'] as const;
+const OPTIONAL_METRICS = ['flights_climbed', 'exercise'] as const;
+
 // Add this utility function above the MetricCardList component
 const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
   // Compare only metric values that affect the display
@@ -113,6 +118,26 @@ const metricOrder: DisplayedMetricType[] = [
   'flights_climbed'
 ];
 
+// Add validation function for individual metrics
+const isValidMetricValue = (value: number | null): boolean => {
+  return value !== null && value > 0;
+};
+
+// Add validation function for metric sets
+const validateMetricSet = (metrics: HealthMetrics): boolean => {
+  // Check critical metrics first
+  const validCriticalMetrics = CRITICAL_METRICS.filter(
+    metric => isValidMetricValue(metrics[metric])
+  );
+  
+  // Check important metrics
+  const validImportantMetrics = IMPORTANT_METRICS.filter(
+    metric => isValidMetricValue(metrics[metric])
+  );
+  
+  return validCriticalMetrics.length >= 2 || validImportantMetrics.length >= 1;
+};
+
 export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
@@ -131,6 +156,10 @@ export const MetricCardList = React.memo(function MetricCardList({
   const { user } = useAuth();
   const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   
+  // Add state for tracking valid data
+  const [hasValidData, setHasValidData] = useState(false);
+  const isFirstRender = useRef(true);
+  
   // Add tracking to reset animations when metrics change
   const prevMetricsRef = useRef<HealthMetrics | null>(null);
   const animationsRun = useRef(false);
@@ -144,6 +173,66 @@ export const MetricCardList = React.memo(function MetricCardList({
   const fadeAnims = useRef(
     metricOrder.map(() => new Animated.Value(0))
   ).current;
+
+  // Validate metrics when they change
+  useEffect(() => {
+    if (metrics) {
+      const isValid = validateMetricSet(metrics);
+      setHasValidData(isValid);
+      
+      if (isFirstRender.current) {
+        isFirstRender.current = false;
+      }
+    }
+  }, [metrics]);
+
+  // Memoize metric values to prevent unnecessary re-renders
+  const memoizedMetrics = React.useMemo(() => {
+    console.log('[MetricCardList] Recalculating memoized metrics');
+    
+    // Return null values if data is not valid and not first render
+    if (!hasValidData && !isFirstRender.current) {
+      return metricOrder.map(metricType => ({
+        type: metricType,
+        value: null,
+        points: 0,
+        config: healthMetrics[metricType]
+      }));
+    }
+    
+    return metricOrder.map(metricType => ({
+      type: metricType,
+      value: metrics[metricType] as number,
+      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
+      config: healthMetrics[metricType]
+    }));
+  }, [metrics, hasValidData]);
+
+  // Run fade-in animations only when we have valid data
+  React.useEffect(() => {
+    if (!hasValidData || animationsRun.current) return;
+    
+    // Reset animations first
+    fadeAnims.forEach(anim => anim.setValue(0));
+    
+    // Enhanced stagger animation sequence
+    const animations = fadeAnims.map((anim, index) =>
+      Animated.sequence([
+        Animated.delay(index * 80), // Stagger delay
+        Animated.spring(anim, {
+          toValue: 1,
+          useNativeDriver: true,
+          damping: 12,
+          stiffness: 100,
+        })
+      ])
+    );
+    
+    // Start all animations and mark as complete
+    Animated.parallel(animations).start(() => {
+      animationsRun.current = true;
+    });
+  }, [fadeAnims, hasValidData]);
 
   // Check if metrics have changed
   useEffect(() => {
@@ -188,44 +277,6 @@ export const MetricCardList = React.memo(function MetricCardList({
     }
   }, [metrics, valueChangeAnims, isManualRefresh]);
 
-  // Memoize metric values to prevent unnecessary re-renders
-  const memoizedMetrics = React.useMemo(() => {
-    console.log('[MetricCardList] Recalculating memoized metrics');
-    return metricOrder.map(metricType => ({
-      type: metricType,
-      value: metrics[metricType] as number,
-      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
-      config: healthMetrics[metricType]
-    }));
-  }, [metrics]);
-
-  // Run fade-in animations
-  React.useEffect(() => {
-    // Only run animations on initial render or if animations need to be reset
-    if (animationsRun.current) return;
-    
-    // Reset animations first
-    fadeAnims.forEach(anim => anim.setValue(0));
-    
-    // Enhanced stagger animation sequence
-    const animations = fadeAnims.map((anim, index) =>
-      Animated.sequence([
-        Animated.delay(index * 80), // Stagger delay
-        Animated.spring(anim, {
-          toValue: 1,
-          useNativeDriver: true,
-          damping: 12,
-          stiffness: 100,
-        })
-      ])
-    );
-    
-    // Start all animations and mark as complete
-    Animated.parallel(animations).start(() => {
-      animationsRun.current = true;
-    });
-  }, [fadeAnims, metrics]);
-
   // Memoize modal handlers
   const handleModalClose = useCallback(() => {
     setModalVisible(false);
@@ -240,7 +291,7 @@ export const MetricCardList = React.memo(function MetricCardList({
   // Check for goal achievement
   useEffect(() => {
     const stepsMetric = memoizedMetrics.find(m => m.type === 'steps');
-    if (stepsMetric && stepsMetric.value >= stepsMetric.config.defaultGoal) {
+    if (stepsMetric && stepsMetric.value && stepsMetric.value >= stepsMetric.config.defaultGoal) {
       setShowCelebration(true);
       setCelebrationPoints(stepsMetric.points);
     }
@@ -251,8 +302,12 @@ export const MetricCardList = React.memo(function MetricCardList({
       <View style={styles.grid}>
         {memoizedMetrics.map((metric, index) => {
           const metricType = metric.type as MetricType;
-          const fadeAnim = fadeAnims[index]; // Get the fade animation for this card
-          const valueAnim = valueChangeAnims[index]; // Get the value change animation for this card
+          const fadeAnim = fadeAnims[index];
+          const valueAnim = valueChangeAnims[index];
+          
+          // Skip rendering if value is not valid
+          const showMetric = hasValidData || isFirstRender.current;
+          if (!showMetric) return null;
           
           return (
             <Animated.View
@@ -283,7 +338,7 @@ export const MetricCardList = React.memo(function MetricCardList({
                 metricType={metricType}
                 color={metricColors[metricType]}
                 onPress={() => handleMetricPress(metricType)}
-                showAlert={showAlerts}
+                showAlert={showAlerts && hasValidData}
                 measurementSystem={measurementSystem}
                 valueChangeAnim={valueAnim}
               />

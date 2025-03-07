@@ -60,6 +60,23 @@ const deepEqual = (obj1: any, obj2: any): boolean => {
   );
 };
 
+// Add validation function to check for valid metric data
+const validateMetricsData = (metrics: HealthMetrics | null): boolean => {
+  if (!metrics) return false;
+  
+  // Check if we have at least two critical metrics with non-zero values
+  const validCriticalMetrics = CRITICAL_METRICS.filter(
+    metric => metrics[metric] !== null && metrics[metric] > 0
+  );
+  
+  // Check if we have at least one important metric
+  const validImportantMetrics = IMPORTANT_METRICS.filter(
+    metric => metrics[metric] !== null && metrics[metric] > 0
+  );
+  
+  return validCriticalMetrics.length >= 2 || validImportantMetrics.length >= 1;
+};
+
 interface DashboardProps {
   provider: HealthProvider;
   userId: string;
@@ -226,6 +243,8 @@ export const Dashboard = React.memo(function Dashboard({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dataInitialized, setDataInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasValidData, setHasValidData] = useState(false);
+  const [showLoadingState, setShowLoadingState] = useState(true);
   // Add state for tracking last fetch time
   const [lastFetchTime, setLastFetchTime] = useState(0);
   
@@ -457,11 +476,17 @@ export const Dashboard = React.memo(function Dashboard({
         healthMetrics
       );
       
+      // Validate the transformed metrics
+      const isDataValid = validateMetricsData(transformedMetrics);
+      
       // Don't update state if the component has been unmounted
       if (signal?.aborted) return;
       
       // Update state directly without complex comparisons
-      console.log('[Dashboard] Updating dashboard state...');
+      console.log('[Dashboard] Updating dashboard state...', {
+        hasValidData: isDataValid,
+        metricsAvailable: !!transformedMetrics
+      });
       
       // Clear any previous errors
       setFetchError(null);
@@ -470,14 +495,20 @@ export const Dashboard = React.memo(function Dashboard({
       setUserRank(rank);
       setDailyTotal(userTotal);
       setHealthMetrics(transformedMetrics);
+      setHasValidData(isDataValid);
+      
+      // Only hide loading state if we have valid data
+      if (isDataValid) {
+        setShowLoadingState(false);
+      }
       
       // Mark data as initialized
       setDataInitialized(true);
       
       // After successful fetch, update available metrics
-      if (healthMetrics) {
+      if (transformedMetrics) {
         const newAvailableMetrics = new Set(
-          Object.entries(healthMetrics)
+          Object.entries(transformedMetrics)
             .filter(([key, value]) => 
               typeof value === 'number' && 
               value > 0 && 
@@ -506,7 +537,9 @@ export const Dashboard = React.memo(function Dashboard({
       fallbackToPartialData();
     } finally {
       // Always reset the fetch in progress flag
-      setIsLoading(false);
+      if (!hasValidData) {
+        setIsLoading(false);
+      }
       
       // Always reset refreshing state if this was a manual refresh
       if (isManualRefreshRef.current && !abortControllerRef.current?.signal.aborted) {
@@ -694,8 +727,8 @@ export const Dashboard = React.memo(function Dashboard({
     });
   }, [isLoading, safeFetch]);
 
-  // Use our isLoading state instead of the prop from useHealthData
-  if (isLoading && !dataInitialized) {
+  // Modify the render logic to consider valid data state
+  if (isLoading && !hasValidData) {
     return <LoadingView />;
   }
 
@@ -713,7 +746,7 @@ export const Dashboard = React.memo(function Dashboard({
         }
       ]}
     >
-      {dailyTotal && (
+      {dailyTotal && hasValidData && (
         <Animated.View 
           style={[
             styles.headerWrapper,
@@ -741,7 +774,7 @@ export const Dashboard = React.memo(function Dashboard({
           />
         }
       >
-        {healthMetrics && (
+        {healthMetrics && hasValidData && (
           <MetricCardList 
             metrics={healthMetrics}
             availableMetrics={availableMetrics}
