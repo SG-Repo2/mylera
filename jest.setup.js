@@ -1,5 +1,4 @@
 // Add React Native specific setup
-import '@testing-library/jest-native/extend-expect';
 
 // Load test environment variables
 process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://test-project.supabase.co';

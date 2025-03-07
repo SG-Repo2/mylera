@@ -54,3 +54,4 @@ backup.sql
 .env.prod
 .env.test
 urgh.sql
+systemPrompts/prompt.md
