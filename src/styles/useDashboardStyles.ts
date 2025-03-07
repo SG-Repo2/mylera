@@ -1,20 +1,22 @@
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform, Dimensions } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
-import { brandColors } from '@/src/theme/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const createStyles = (theme: MD3Theme) =>
   StyleSheet.create({
     container: {
       flex: 1,
+      backgroundColor: theme.colors.background,
     },
     headerWrapper: {
       marginHorizontal: 16,
       marginTop: 8,
-      borderRadius: 12,
+      borderRadius: theme.roundness * 1.5,
       overflow: 'hidden',
       ...Platform.select({
         ios: {
-          shadowColor: '#000',
+          shadowColor: theme.colors.shadow || theme.colors.outline,
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.05,
           shadowRadius: 3,
@@ -51,7 +53,7 @@ const createStyles = (theme: MD3Theme) =>
       backgroundColor: theme.colors.primaryContainer,
       paddingHorizontal: 8,
       paddingVertical: 4,
-      borderRadius: 12,
+      borderRadius: theme.roundness * 1.5,
     },
     statText: {
       color: theme.colors.primary,
@@ -72,14 +74,13 @@ const createStyles = (theme: MD3Theme) =>
     },
     loadingCard: {
       backgroundColor: theme.colors.surface,
-      borderRadius: 24,
+      borderRadius: theme.roundness * 3,
       padding: 24,
-      width: '85%',
-      maxWidth: 320,
+      width: Math.min(SCREEN_WIDTH * 0.85, 320),
       alignItems: 'center',
       ...Platform.select({
         ios: {
-          shadowColor: '#000',
+          shadowColor: theme.colors.shadow || theme.colors.outline,
           shadowOffset: { width: 0, height: 4 },
           shadowOpacity: 0.15,
           shadowRadius: 12,
@@ -105,16 +106,19 @@ const createStyles = (theme: MD3Theme) =>
       paddingBottom: 32,
     },
     errorDialog: {
-      borderRadius: 24,
+      borderRadius: theme.roundness * 3,
+      backgroundColor: theme.colors.surface,
     },
     errorDialogTitle: {
       textAlign: 'center',
+      color: theme.colors.error,
       fontSize: 20,
       fontWeight: '600',
       letterSpacing: 0.5,
     },
     errorDialogContent: {
       textAlign: 'center',
+      color: theme.colors.onSurface,
       fontSize: 16,
       lineHeight: 24,
       letterSpacing: 0.25,
@@ -124,6 +128,7 @@ const createStyles = (theme: MD3Theme) =>
       paddingBottom: 8,
     },
     errorDialogButton: {
+      color: theme.colors.primary,
       padding: 12,
       fontSize: 16,
       fontWeight: '600',

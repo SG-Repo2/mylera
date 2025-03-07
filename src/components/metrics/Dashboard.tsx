@@ -1,25 +1,16 @@
 import React from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform, AppState } from 'react-native';
+import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Surface, Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
-import { useHealthData } from '@/src/hooks/useHealthData';
+import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { MetricCardList } from './MetricCardList';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
+import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
+import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
+import { useHealthMetrics } from '@/src/hooks/useHealthMetrics';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import { metricsService } from '@/src/services/metricsService';
-import { leaderboardService } from '@/src/services/leaderboardService';
-import { useState, useEffect, useCallback, useRef } from 'react';
 import type { DailyTotal } from '@/src/types/schemas';
-import type { z } from 'zod';
-import { DailyMetricScoreSchema, MetricType } from '@/src/types/schemas';
-import { healthMetrics } from '@/src/config/healthMetrics';
-import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
-type DailyMetricScore = z.infer<typeof DailyMetricScoreSchema>;
-import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 
 interface DashboardProps {
   provider: HealthProvider;
@@ -28,9 +19,9 @@ interface DashboardProps {
   showAlerts?: boolean;
 }
 
+// Extracted Header component with React.memo for performance
 const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
   const styles = useDashboardStyles();
-  const theme = useTheme();
   
   return (
     <View style={styles.headerContainer}>
@@ -40,7 +31,6 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
           style={styles.logo}
         />
         <View style={styles.statsContainer}>
-
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
@@ -50,44 +40,13 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
   );
 });
 
+// Extracted LoadingView component with React.memo for performance
 const LoadingView = React.memo(() => {
   const styles = useDashboardStyles();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { loadingAnimations } = useDashboardAnimations(null);
   
-  const pulseAnim = React.useRef(new Animated.Value(0.8)).current;
-  const spinAnim = React.useRef(new Animated.Value(0)).current;
-  
-  React.useEffect(() => {
-    Animated.parallel([
-      Animated.loop(
-        Animated.sequence([
-          Animated.spring(pulseAnim, {
-            toValue: 1,
-            useNativeDriver: true,
-            damping: 10,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-          Animated.spring(pulseAnim, {
-            toValue: 0.8,
-            useNativeDriver: true,
-            damping: 10,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-        ])
-      ),
-      Animated.loop(
-        Animated.timing(spinAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        })
-      ),
-    ]).start();
-  }, []);
-
   return (
     <View style={[
       styles.loadingContainer,
@@ -96,13 +55,8 @@ const LoadingView = React.memo(() => {
       <View style={styles.loadingCard}>
         <Animated.View style={{
           transform: [
-            { scale: pulseAnim },
-            {
-              rotate: spinAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0deg', '360deg']
-              })
-            }
+            { scale: loadingAnimations.scale },
+            { rotate: loadingAnimations.rotate }
           ]
         }}>
           <ActivityIndicator
@@ -118,42 +72,44 @@ const LoadingView = React.memo(() => {
   );
 });
 
-const transformMetricsToHealthMetrics = (
-  metrics: DailyMetricScore[],
-  dailyTotal: DailyTotal | null,
-  userId: string,
-  date: string
-): HealthMetrics => {
-  const now = new Date().toISOString();
+// Extracted ErrorDialog component with React.memo for performance
+const ErrorDialog = React.memo(({ 
+  visible, 
+  onDismiss 
+}: { 
+  visible: boolean; 
+  onDismiss: () => void 
+}) => {
+  const theme = useTheme();
+  const styles = useDashboardStyles();
   
-  const result: HealthMetrics = {
-    id: `${userId}-${date}`,
-    user_id: userId,
-    date: date,
-    steps: null,
-    distance: null,
-    calories: null,
-    heart_rate: null,
-    exercise: null,
-    basal_calories: null,
-    flights_climbed: null,
-    daily_score: dailyTotal?.total_points || 0,
-    weekly_score: null,
-    streak_days: null,
-    last_updated: now,
-    created_at: now,
-    updated_at: now
-  };
-
-  metrics.forEach(metric => {
-    const metricType = metric.metric_type as MetricType;
-    if (metricType in result && typeof metric.value === 'number') {
-      result[metricType] = metric.value;
-    }
-  });
-
-  return result;
-};
+  return (
+    <Portal>
+      <Dialog 
+        visible={visible} 
+        onDismiss={onDismiss}
+        style={styles.errorDialog}
+      >
+        <Dialog.Title style={styles.errorDialogTitle}>
+          Error
+        </Dialog.Title>
+        <Dialog.Content>
+          <Text style={styles.errorDialogContent}>
+            Failed to fetch health metrics. Please try again.
+          </Text>
+        </Dialog.Content>
+        <Dialog.Actions style={styles.errorDialogActions}>
+          <Text 
+            onPress={onDismiss} 
+            style={styles.errorDialogButton}
+          >
+            OK
+          </Text>
+        </Dialog.Actions>
+      </Dialog>
+    </Portal>
+  );
+});
 
 export const Dashboard = React.memo(function Dashboard({
   provider,
@@ -163,173 +119,58 @@ export const Dashboard = React.memo(function Dashboard({
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { healthPermissionStatus, requestHealthPermissions, user } = useAuth();
-  const [dailyTotal, setDailyTotal] = useState<DailyTotal | null>(null);
-  const [healthMetrics, setHealthMetrics] = useState<HealthMetrics | null>(null);
-  const [fetchError, setFetchError] = useState<Error | null>(null);
-  const [errorDialogVisible, setErrorDialogVisible] = useState(false);
-  const [userRank, setUserRank] = useState<number | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { healthPermissionStatus, requestHealthPermissions } = useAuth();
   
-  // Replace fetchId state with a ref to avoid infinite update loops
-  const fetchIdRef = useRef(0);
-  const isFetchingRef = useRef(false);
-  const appStateRef = useRef(AppState.currentState);
-  
+  // Use our custom hooks
   const {
+    dailyTotal,
+    healthMetrics,
     loading,
     error,
-    syncHealthData,
-    isInitialized
-  } = useHealthData(provider, userId);
-
-  const headerOpacity = React.useRef(new Animated.Value(0)).current;
-  const slideAnim = React.useRef(new Animated.Value(-20)).current;
-
-  useEffect(() => {
-    if (dailyTotal) {
-      Animated.parallel([
-        Animated.timing(headerOpacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 12,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-      ]).start();
-    }
-  }, [dailyTotal, headerOpacity, slideAnim]);
-
-  const fetchData = useCallback(async (requestId: number) => {
-    if (!isInitialized || !userId || isFetchingRef.current) return;
-    
-    isFetchingRef.current = true;
-    setIsRefreshing(true);
-    
-    try {
-      console.log('Dashboard fetching data for:', { userId, date, requestId });
-      const [totals, metricScores, rank] = await Promise.all([
-        metricsService.getDailyTotals(date),
-        metricsService.getDailyMetrics(userId, date),
-        leaderboardService.getUserRank(userId, date)
-      ]);
-      
-      // Check if this response is stale
-      if (requestId !== fetchIdRef.current) {
-        console.log('Stale data response, ignoring');
-        return;
-      }
-      
-      // Keep original structure without modifications
-      const userTotal = {
-        id: `${userId}-${date}`,
-        user_id: userId,
-        date: date,
-        total_points: calculateTotalPoints(metricScores),
-        metrics_completed: metricScores.length,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      
-      setDailyTotal(userTotal);
-      setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
-      setUserRank(rank);
-      setFetchError(null);
-    } catch (err) {
-      // Only handle errors from current request
-      if (requestId !== fetchIdRef.current) return;
-      console.error('Error fetching metrics:', err);
-      setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
-    } finally {
-      if (requestId === fetchIdRef.current) {
-        setIsRefreshing(false);
-        isFetchingRef.current = false;
-      }
-    }
-  }, [userId, date, isInitialized]); // Remove fetchId from dependencies
-
-  useEffect(() => {
-    // Increment fetch ID in the ref without triggering re-renders
-    fetchIdRef.current += 1;
-    const currentFetchId = fetchIdRef.current;
-    
-    // Call fetchData with current request ID
-    fetchData(currentFetchId);
-  }, [fetchData, isInitialized, user?.user_metadata?.measurementSystem]);
-
-  // Add AppState change listener to refresh data when app comes to foreground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      if (
-        appStateRef.current.match(/inactive|background/) && 
-        nextAppState === 'active'
-      ) {
-        console.log('App has come to the foreground - refreshing dashboard data');
-        // Increment fetch ID in the ref
-        fetchIdRef.current += 1;
-        fetchData(fetchIdRef.current);
-      }
-      appStateRef.current = nextAppState;
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [fetchData]);
-
-  const handleRetry = React.useCallback(async () => {
+    errorDialogVisible,
+    setErrorDialogVisible,
+    isRefreshing,
+    refreshData,
+    handleRetry,
+    availableMetrics
+  } = useHealthMetrics(provider, userId, date);
+  
+  const { headerAnimations } = useDashboardAnimations(dailyTotal);
+  
+  // Extended retry handler that checks permissions
+  const extendedRetryHandler = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
       const status = await requestHealthPermissions();
       if (status === 'granted') {
-        syncHealthData();
+        handleRetry();
       }
     } else {
-      syncHealthData();
+      handleRetry();
     }
-    setErrorDialogVisible(false);
-  }, [error, requestHealthPermissions, syncHealthData]);
+  }, [error, requestHealthPermissions, handleRetry]);
 
-  const handleRefresh = React.useCallback(() => {
-    // Increment fetch ID in the ref
-    fetchIdRef.current += 1;
-    syncHealthData();
-    fetchData(fetchIdRef.current);
-  }, [syncHealthData, fetchData]);
-
+  // Render loading state
   if (loading) {
     return <LoadingView />;
   }
 
-  if (error || healthPermissionStatus === 'denied' || fetchError) {
-    return <ErrorView error={error || fetchError || new Error('Unknown error')} onRetry={handleRetry} />;
+  // Render error state
+  if (error || healthPermissionStatus === 'denied') {
+    return <ErrorView 
+      error={error || new Error('Health permissions denied')} 
+      onRetry={extendedRetryHandler} 
+    />;
   }
 
   return (
     <SafeAreaView 
       style={[
         styles.container, 
-        { 
-          backgroundColor: theme.colors.background,
-          paddingTop: Platform.OS === 'ios' ? 0 : 4
-        }
+        { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
       ]}
     >
       {dailyTotal && (
-        <Animated.View 
-          style={[
-            styles.headerWrapper,
-            {
-              opacity: headerOpacity,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
+        <Animated.View style={[styles.headerWrapper, headerAnimations]}>
           <Header dailyTotal={dailyTotal} />
         </Animated.View>
       )}
@@ -340,7 +181,7 @@ export const Dashboard = React.memo(function Dashboard({
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={handleRefresh}
+            onRefresh={refreshData}
             colors={[theme.colors.primary]}
             progressBackgroundColor={theme.colors.surface}
           />
@@ -353,63 +194,16 @@ export const Dashboard = React.memo(function Dashboard({
             provider={provider}
             isInitialLoad={!dailyTotal}
             isManualRefresh={isRefreshing}
-            availableMetrics={new Set(Object.entries(healthMetrics)
-              .filter(([key, value]) => value !== null && !['id', 'user_id', 'date', 'created_at', 'updated_at', 'last_updated'].includes(key))
-              .map(([key]) => key))}
+            availableMetrics={availableMetrics as Set<string>}
             hasMinimumMetrics={true}
           />
         )}
       </ScrollView>
 
-      <Portal>
-        <Dialog 
-          visible={errorDialogVisible} 
-          onDismiss={() => setErrorDialogVisible(false)}
-          style={{
-            borderRadius: 24,
-            backgroundColor: theme.colors.surface,
-          }}
-        >
-          <Dialog.Title 
-            style={{ 
-              textAlign: 'center',
-              color: theme.colors.error,
-              fontSize: 20,
-              fontWeight: '600',
-              letterSpacing: 0.5,
-            }}
-          >
-            Error
-          </Dialog.Title>
-          <Dialog.Content>
-            <Text 
-              style={{ 
-                textAlign: 'center',
-                color: theme.colors.onSurface,
-                fontSize: 16,
-                lineHeight: 24,
-                letterSpacing: 0.25,
-              }}
-            >
-              Failed to fetch health metrics. Please try again.
-            </Text>
-          </Dialog.Content>
-          <Dialog.Actions style={{ justifyContent: 'center', paddingBottom: 8 }}>
-            <Text 
-              onPress={() => setErrorDialogVisible(false)} 
-              style={{ 
-                color: theme.colors.primary,
-                padding: 12,
-                fontSize: 16,
-                fontWeight: '600',
-                letterSpacing: 0.5,
-              }}
-            >
-              OK
-            </Text>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+      <ErrorDialog 
+        visible={errorDialogVisible} 
+        onDismiss={() => setErrorDialogVisible(false)} 
+      />
     </SafeAreaView>
   );
 });

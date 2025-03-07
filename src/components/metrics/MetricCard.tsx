@@ -7,6 +7,7 @@ import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
+import { useMetricCardAnimations } from '@/src/hooks/useMetricCardAnimations';
 
 interface MetricCardProps {
   title: string;
@@ -44,106 +45,31 @@ export const MetricCard = React.memo(function MetricCard({
   const styles = useMetricCardStyles();
   const theme = useTheme();
   const { user } = useAuth();
-  const measurementSystem = propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
+  
+  const measurementSystem = useMemo(() => 
+    propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem,
+    [propMeasurementSystem, user?.user_metadata?.measurementSystem]
+  );
   
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
-  const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
-  const percentage = Math.round(progress * 100);
+  const formattedValue = useMemo(() => 
+    healthMetrics[metricType].formatValue(value ?? 0, measurementSystem),
+    [value, metricType, measurementSystem]
+  );
+  const displayUnit = useMemo(() => 
+    DISPLAY_UNITS[metricType][measurementSystem],
+    [metricType, measurementSystem]
+  );
+  const percentage = useMemo(() => Math.round(progress * 100), [progress]);
   
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
-  const valueChangePulseAnim = useRef(new Animated.Value(0)).current;
-  const prevValueRef = useRef<number | null>(null);
-  
-  useEffect(() => {
-    if (prevValueRef.current !== null && prevValueRef.current !== value) {
-      if (value === null || prevValueRef.current === null) {
-        // Don't animate null transitions
-        return;
-      }
-      
-      const percentChange = Math.abs(((value - prevValueRef.current) / prevValueRef.current));
-      
-      if (percentChange > 0.01 && !valueChangeAnim) {
-        // Cancel any previous animation
-        valueChangePulseAnim.stopAnimation();
-        valueChangePulseAnim.setValue(0);
-        
-        Animated.sequence([
-          Animated.timing(valueChangePulseAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(valueChangePulseAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          })
-        ]).start();
-      }
-    }
-    
-    prevValueRef.current = value;
-  }, [value, valueChangePulseAnim, metricType, valueChangeAnim]);
-
-  const handlePressIn = React.useCallback(() => {
-    // Cancel ongoing animations
-    scaleAnim.stopAnimation();
-    glowAnim.stopAnimation();
-    
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 0.95,
-        useNativeDriver: true,
-        stiffness: 200,
-        damping: 15,
-        mass: 1
-      }),
-      Animated.timing(glowAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true
-      })
-    ], { stopTogether: false }).start();
-  }, [scaleAnim, glowAnim]);
-
-  const handlePressOut = React.useCallback(() => {
-    // Cancel ongoing animations
-    scaleAnim.stopAnimation();
-    glowAnim.stopAnimation();
-    
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        stiffness: 200,
-        damping: 15,
-        mass: 1
-      }),
-      Animated.timing(glowAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true
-      })
-    ], { stopTogether: false }).start();
-  }, [scaleAnim, glowAnim]);
-
-  const combinedValueChangeAnim = useMemo(() => {
-    const baseAnim = valueChangeAnim || valueChangePulseAnim;
-    
-    return baseAnim.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [1, 1.1, 1]
-    });
-  }, [valueChangeAnim, valueChangePulseAnim]);
-  
-  const backgroundColorAnim = useMemo(() => {
-    const baseAnim = valueChangeAnim || valueChangePulseAnim;
-    
-    return baseAnim;
-  }, [valueChangeAnim, valueChangePulseAnim]);
+  const {
+    scaleAnim,
+    glowAnim,
+    combinedValueChangeAnim,
+    backgroundColorAnim,
+    handlePressIn,
+    handlePressOut,
+  } = useMetricCardAnimations({ value, valueChangeAnim });
   
   const cardBackgroundColorStyle = useMemo(() => {
     const pulseColor = color || theme.colors.primary;
@@ -160,19 +86,13 @@ export const MetricCard = React.memo(function MetricCard({
     };
   }, [backgroundColorAnim, color, theme.colors.surface, theme.colors.primary]);
   
-  const getPointsText = () => {
-    if (metricType === 'heart_rate') {
-      return '(zone)';
-    }
+  const getPointsText = useMemo(() => {
+    if (metricType === 'heart_rate') return '(zone)';
     const increment = healthMetrics[metricType].pointIncrement.value;
-    if (increment === 1) {
-      return '(1 per)';
-    }
-    if (increment < 1) {
-      return `(${Math.round(1/increment)} per)`;
-    }
+    if (increment === 1) return '(1 per)';
+    if (increment < 1) return `(${Math.round(1/increment)} per)`;
     return `(1 per ${increment})`;
-  };
+  }, [metricType]);
 
   return (
     <Animated.View 
@@ -240,7 +160,7 @@ export const MetricCard = React.memo(function MetricCard({
                     {percentage}% of goal
                   </Text>
                   <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}>
-                    {points} pts {getPointsText()} {displayUnit}
+                    {points} pts {getPointsText} {displayUnit}
                   </Text>
                 </View>
               </View>
