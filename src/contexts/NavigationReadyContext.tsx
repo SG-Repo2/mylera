@@ -1,30 +1,44 @@
 import React, { createContext, useContext, useEffect } from 'react';
 
-// Context to track when the navigator is fully mounted and ready
-const NavigationReadyContext = createContext<boolean>(false);
+interface NavigationState {
+  isReady: boolean;
+  isPermissionsHandled: boolean;
+}
 
-// Provider component
+const NavigationReadyContext = createContext<NavigationState>({
+  isReady: false,
+  isPermissionsHandled: false
+});
+
 export function NavigationReadyProvider({ 
   children, 
-  value 
+  value,
+  permissionsHandled = false 
 }: { 
   children: React.ReactNode; 
   value: boolean;
+  permissionsHandled?: boolean;
 }) {
-  // Log when the value changes
   useEffect(() => {
-    console.log('[NavigationReadyProvider] Navigation ready state changed:', value);
-  }, [value]);
+    console.log('[NavigationReadyProvider] Navigation state changed:', {
+      isReady: value,
+      isPermissionsHandled: permissionsHandled
+    });
+  }, [value, permissionsHandled]);
 
   return (
-    <NavigationReadyContext.Provider value={value}>
+    <NavigationReadyContext.Provider 
+      value={{
+        isReady: value,
+        isPermissionsHandled: permissionsHandled
+      }}
+    >
       {children}
     </NavigationReadyContext.Provider>
   );
 }
 
-// Hook to access the navigation ready state
 export function useNavigationReady() {
-  const value = useContext(NavigationReadyContext);
-  return value;
-} 
+  const state = useContext(NavigationReadyContext);
+  return state;
+}

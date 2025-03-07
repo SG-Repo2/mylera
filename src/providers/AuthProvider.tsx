@@ -48,7 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Add new state for health data initialization
   const [healthDataInitialized, setHealthDataInitialized] = useState(false);
   
-  const navigatorMounted = useNavigationReady();
+  // Update how we import and use the navigation ready state
+  const { isReady: navigatorMounted, isPermissionsHandled } = useNavigationReady();
 
   // Track session initialization
   const sessionInitialized = useRef(false);
@@ -389,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthProvider] Adding delay before navigation after login');
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Use the navigation queue or direct navigation based on navigator mount state
+      // Update navigation checks in login function
       if (navigatorMounted && healthDataInitialized) {
         console.log('[AuthProvider] Navigator mounted and health data initialized, proceeding with direct navigation');
         router.replace('/(app)/(home)');
@@ -453,7 +454,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthProvider] Adding delay before navigation after logout');
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Use the navigation queue or direct navigation based on navigator mount state
+      // Update navigation checks in logout function
       if (navigatorMounted) {
         console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
         router.replace('/(auth)/login');
@@ -487,6 +488,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const PERMISSION_TIMEOUT = 6000; // 6 seconds
     
+    // Update permission request logic to consider isPermissionsHandled
+    if (!navigatorMounted || !isPermissionsHandled) {
+      console.log('[AuthProvider] Waiting for navigator and permissions to be ready');
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     try {
       setError(null);
       setLoading(true);

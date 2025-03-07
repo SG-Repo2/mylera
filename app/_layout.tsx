@@ -51,12 +51,13 @@ function ProtectedRoutes() {
     session, 
     loading, 
     needsHealthSetup,
-    healthDataInitialized // Use the new health data initialization state
+    healthDataInitialized,
+    healthPermissionStatus // Add this
   } = useAuth();
   
   const router = useRouter();
   const pathname = usePathname();
-  const navigatorMounted = useNavigationReady();
+  const { isReady: navigatorMounted, isPermissionsHandled } = useNavigationReady(); // Update this
   
   // Debug log when component mounts
   useEffect(() => {
@@ -269,31 +270,49 @@ function ProtectedRoutes() {
 }
 
 export default function RootLayout() {
-  // Use state for navigator mounted status with a longer initial delay
   const [navigatorMounted, setNavigatorMounted] = useState(false);
+  const [permissionsHandled, setPermissionsHandled] = useState(false);
   
-  // Set navigator as mounted after a delay with proper safeguards
+  // Original navigator mount effect
   useEffect(() => {
     console.log('[RootLayout] Starting navigator mount timer');
     
-    // Primary mount timer with increased delay
     const mountTimer = setTimeout(() => {
       setNavigatorMounted(true);
       
-      // Secondary delay for navigation queue processing
       setTimeout(() => {
         navigationQueue.setNavigatorMounted(true);
-        navigationQueue.processAllQueued(); // Process any queued navigations
+        navigationQueue.processAllQueued();
         console.log('[RootLayout] Navigator fully mounted and ready for navigation');
       }, 500);
-    }, 1200); // Increased from 800ms to 1200ms for more reliable mounting
+    }, 1200);
     
     return () => clearTimeout(mountTimer);
   }, []);
-  
+
+  // Add new permissions check effect
+  useEffect(() => {
+    const checkPermissions = async () => {
+      try {
+        const { healthPermissionStatus } = useAuth();
+        if (healthPermissionStatus !== null) {
+          setPermissionsHandled(true);
+        }
+      } catch (error) {
+        console.error('[RootLayout] Error checking permissions:', error);
+        setPermissionsHandled(true);
+      }
+    };
+    
+    checkPermissions();
+  }, []);
+
   return (
     <AuthProvider>
-      <NavigationReadyProvider value={navigatorMounted}>
+      <NavigationReadyProvider 
+        value={navigatorMounted}
+        permissionsHandled={permissionsHandled}
+      >
         <PaperProvider theme={theme}>
           <StatusBar
             barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
