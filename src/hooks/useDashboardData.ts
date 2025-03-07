@@ -6,7 +6,7 @@ import { metricsService } from '@/src/services/metricsService';
 import { leaderboardService } from '@/src/services/leaderboardService';
 import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import { useHealthData } from '@/src/hooks/useHealthData';
+import { useHealthData } from '@/src/hooks/useHealthSync';
 
 /**
  * Custom hook for fetching and processing health metrics data

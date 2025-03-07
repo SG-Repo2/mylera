@@ -8,7 +8,7 @@ import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
-import { useHealthMetrics } from '@/src/hooks/useHealthMetrics';
+import { useHealthMetrics } from '@/src/hooks/useDashboardData';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import type { DailyTotal } from '@/src/types/schemas';
 
