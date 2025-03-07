@@ -676,41 +676,24 @@ export class FitbitHealthProvider extends BaseHealthProvider {
    * Aggregates the normalized metrics into a HealthMetrics object.
    */
   async getMetrics(): Promise<HealthMetrics> {
-    const now = new Date();
-    const startOfDay = DateUtils.getStartOfDay(now);
-    const rawData = await this.fetchRawMetrics(
-      startOfDay,
-      now,
-      ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-    );
-
-    // Use standardizedAggregateMetric for consistent aggregation
-    const steps = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'steps'));
-    const distance = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'distance'));
-    const calories = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'calories'));
-    const heart_rate = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'heart_rate'));
-    const basal_calories = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'basal_calories'));
-    const flights_climbed = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'flights_climbed'));
-    const exercise = this.standardizedAggregateMetric(this.normalizeMetrics(rawData, 'exercise'));
-
-    return {
-      id: '',
-      user_id: '',
-      date: now.toISOString().split('T')[0],
-      steps,
-      distance,
-      calories,
-      heart_rate,
-      basal_calories,
-      flights_climbed,
-      exercise,
-      daily_score: 0,
-      weekly_score: null,
-      streak_days: null,
-      last_updated: now.toISOString(),
-      created_at: now.toISOString(),
-      updated_at: now.toISOString(),
-    };
+    try {
+      const now = new Date();
+      const startOfDay = DateUtils.getStartOfDay(now);
+      
+      console.log('[FitbitHealthProvider] Fetching metrics for time window:', {
+        start: startOfDay.toISOString(),
+        end: now.toISOString()
+      });
+      
+      // Use batched fetch for all metrics
+      return await this.batchFetchHealthMetrics(
+        startOfDay,
+        now,
+        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
+      );
+    } catch (error) {
+      this.handleProviderError('fetching metrics', error);
+    }
   }
 
   /**

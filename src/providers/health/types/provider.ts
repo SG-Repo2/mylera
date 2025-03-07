@@ -769,4 +769,99 @@ export abstract class BaseHealthProvider implements HealthProvider {
     formattedError.message = contextMessage;
     throw formattedError;
   }
+
+  /**
+   * Fetch multiple health metrics in a single batched operation
+   * Reduces API calls when fetching multiple metrics simultaneously
+   * @param startDate - Start of the time range
+   * @param endDate - End of the time range
+   * @param metricTypes - Array of metric types to fetch
+   * @returns Preprocessed health metrics ready for aggregation
+   */
+  protected async batchFetchHealthMetrics(
+    startDate: Date,
+    endDate: Date,
+    metricTypes: MetricType[]
+  ): Promise<HealthMetrics> {
+    // Skip empty requests
+    if (!metricTypes.length) {
+      return this.createEmptyHealthMetrics();
+    }
+    
+    try {
+      // Fetch all raw metrics in one call
+      const rawData = await this.fetchRawMetrics(startDate, endDate, metricTypes);
+      
+      // Track fetch timing for analytics
+      const fetchEndTime = Date.now();
+      
+      // Process metrics with standard method
+      const processedMetrics: Partial<HealthMetrics> = {};
+      
+      // Process each requested metric type
+      for (const type of metricTypes) {
+        try {
+          const normalizedMetrics = this.normalizeMetrics(rawData, type);
+          const aggregatedValue = this.standardizedAggregateMetric(normalizedMetrics);
+          
+          // Store in result object
+          processedMetrics[type] = aggregatedValue;
+        } catch (metricError) {
+          logger.warn(
+            LogCategory.Health, 
+            `[${this.constructor.name}] Error processing ${type} metric: ${metricError instanceof Error ? metricError.message : 'Unknown error'}`
+          );
+          processedMetrics[type] = null;
+        }
+      }
+      
+      // Create a complete metrics object
+      return {
+        id: '',
+        user_id: '',
+        date: startDate.toISOString().split('T')[0],
+        steps: processedMetrics.steps as number | null ?? null,
+        distance: processedMetrics.distance as number | null ?? null,
+        calories: processedMetrics.calories as number | null ?? null,
+        heart_rate: processedMetrics.heart_rate as number | null ?? null,
+        exercise: processedMetrics.exercise as number | null ?? null,
+        basal_calories: processedMetrics.basal_calories as number | null ?? null,
+        flights_climbed: processedMetrics.flights_climbed as number | null ?? null,
+        daily_score: 0, // Will be calculated elsewhere
+        weekly_score: null,
+        streak_days: null,
+        last_updated: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.handleProviderError('fetching batched health metrics', error);
+    }
+  }
+
+  /**
+   * Create an empty health metrics object for fallback
+   * @returns Empty health metrics with all values initialized to null
+   */
+  private createEmptyHealthMetrics(): HealthMetrics {
+    const now = new Date();
+    return {
+      id: '',
+      user_id: '',
+      date: now.toISOString().split('T')[0],
+      steps: null,
+      distance: null,
+      calories: null,
+      heart_rate: null,
+      exercise: null,
+      basal_calories: null,
+      flights_climbed: null,
+      daily_score: 0,
+      weekly_score: null,
+      streak_days: null,
+      last_updated: now.toISOString(),
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+    };
+  }
 }
