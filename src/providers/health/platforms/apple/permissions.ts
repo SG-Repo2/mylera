@@ -11,17 +11,42 @@ export const HEALTH_PERMISSIONS: Record<string, HealthPermission> = {
   AppleExerciseTime: 'AppleExerciseTime' as HealthPermission,
 };
 
+// Group permissions by category for optimized batching
+export const PERMISSION_GROUPS = {
+  activity: [
+    HEALTH_PERMISSIONS.StepCount,
+    HEALTH_PERMISSIONS.DistanceWalkingRunning,
+    HEALTH_PERMISSIONS.FlightsClimbed,
+    HEALTH_PERMISSIONS.AppleExerciseTime,
+  ],
+  energy: [
+    HEALTH_PERMISSIONS.ActiveEnergyBurned,
+    HEALTH_PERMISSIONS.BasalEnergyBurned,
+  ],
+  vitals: [
+    HEALTH_PERMISSIONS.HeartRate,
+  ],
+};
+
+// Create optimized permission batches
 export const permissions: HealthKitPermissions = {
   permissions: {
     read: [
-      HEALTH_PERMISSIONS.StepCount,
-      HEALTH_PERMISSIONS.DistanceWalkingRunning,
-      HEALTH_PERMISSIONS.ActiveEnergyBurned,
-      HEALTH_PERMISSIONS.HeartRate,
-      HEALTH_PERMISSIONS.FlightsClimbed,
-      HEALTH_PERMISSIONS.BasalEnergyBurned,
-      HEALTH_PERMISSIONS.AppleExerciseTime,
+      // Request all permissions in a single batch
+      ...PERMISSION_GROUPS.activity,
+      ...PERMISSION_GROUPS.energy,
+      ...PERMISSION_GROUPS.vitals,
     ],
-    write: [],
+    write: [], // We only need read permissions
   },
+};
+
+// Helper function to check if specific permission group is granted
+export const isPermissionGroupGranted = (
+  permissionResponses: Record<string, boolean>,
+  group: keyof typeof PERMISSION_GROUPS
+): boolean => {
+  return PERMISSION_GROUPS[group].every(
+    permission => permissionResponses[permission]
+  );
 };

@@ -416,6 +416,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('User must be logged in to request health permissions');
     }
 
+    const PERMISSION_TIMEOUT = 6000; // 6 seconds
+    
     try {
       setError(null);
       setLoading(true);
@@ -430,25 +432,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw initError;
       }
       
-      const status = await provider.requestPermissions();
+      // Create timeout promise with explicit rejection
+      const timeoutPromise = new Promise<PermissionStatus>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          console.warn('[AuthProvider] Permission request timed out after', PERMISSION_TIMEOUT, 'ms');
+          resolve('not_determined');
+        }, PERMISSION_TIMEOUT);
+        
+        // Cleanup timeout if promise is completed before timeout
+        return () => clearTimeout(timeoutId);
+      });
+      
+      // Race between permission request and timeout
+      const status = await Promise.race([
+        provider.requestPermissions(),
+        timeoutPromise
+      ]);
+      
+      console.log('[AuthProvider] Permission request completed with status:', status);
       setHealthPermissionStatus(status);
       return status;
+      
     } catch (err) {
       console.error('[AuthProvider] Health permissions error:', err);
-      let message = 'Failed to request health permissions';
+      const message = err instanceof Error ? err.message : 'Failed to request health permissions';
       
-      if (err instanceof Error) {
-        // Standardize error messages for consistent UI handling
-        if (err.message.includes('not available')) {
-          message = 'Health Connect is not available';
-        } else if (err.message.includes('42501')) {
-          message = 'Unable to save health settings';
-        } else {
-          message = err.message;
-        }
-      }
+      // Standardize error messages for consistent UI handling
+      const userMessage = message.includes('not available') ? 'Health Connect is not available' :
+                         message.includes('42501') ? 'Unable to save health settings' : message;
       
-      setError(message);
+      setError(userMessage);
       setHealthPermissionStatus('denied');
       return 'denied';
     } finally {

@@ -27,6 +27,11 @@ const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds
 // Add recovery timeout constant
 const RECOVERY_TIMEOUT = 3000; // 3 seconds
 
+// Add constants for metric importance
+const CRITICAL_METRICS = ['steps', 'distance', 'calories'] as const;
+const IMPORTANT_METRICS = ['heart_rate', 'basal_calories'] as const;
+const OPTIONAL_METRICS = ['flights_climbed', 'exercise'] as const;
+
 // Add a deep equality check function at the top of the file, outside the component
 const deepEqual = (obj1: any, obj2: any): boolean => {
   // If either is null or undefined or they are of different types
@@ -74,7 +79,6 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
           style={styles.logo}
         />
         <View style={styles.statsContainer}>
-
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
           </View>
@@ -250,6 +254,48 @@ export const Dashboard = React.memo(function Dashboard({
   
   const headerOpacity = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(-20)).current;
+
+  // Add state for tracking available metrics
+  const [availableMetrics, setAvailableMetrics] = useState<Set<string>>(new Set());
+  const [hasMinimumMetrics, setHasMinimumMetrics] = useState(false);
+
+  // Add fallback handling for partial data
+  const fallbackToPartialData = useCallback(() => {
+    // Use any available metrics and show placeholders for others
+    const availableMetrics = Object.entries(healthMetrics || {})
+      .filter(([_, value]) => typeof value === 'number' && value > 0)
+      .reduce((acc, [key, value]) => ({...acc, [key]: value}), {});
+    
+    // Track which metrics are available
+    const availableMetricSet = new Set(Object.keys(availableMetrics));
+    setAvailableMetrics(availableMetricSet);
+    
+    // Check if we have minimum required metrics (at least 2 critical metrics)
+    const criticalMetricsAvailable = CRITICAL_METRICS.filter(
+      metric => availableMetricSet.has(metric)
+    ).length;
+    
+    setHasMinimumMetrics(criticalMetricsAvailable >= 2);
+    
+    // Merge with defaults for missing metrics
+    const mergedMetrics = {
+      ...createDefaultHealthMetrics(),
+      ...availableMetrics,
+      user_id: userId,
+      date: date,
+      last_updated: new Date().toISOString()
+    };
+    
+    setHealthMetrics(mergedMetrics);
+    setIsLoading(false);
+    
+    // Log available metrics for debugging
+    console.log('[Dashboard] Partial data available:', {
+      total: availableMetricSet.size,
+      metrics: Array.from(availableMetricSet),
+      hasCritical: criticalMetricsAvailable >= 2
+    });
+  }, [userId, date, healthMetrics]);
 
   // Define these functions directly, not in useCallback
   const createDefaultHealthMetrics = (): HealthMetrics => ({
@@ -428,6 +474,24 @@ export const Dashboard = React.memo(function Dashboard({
       // Mark data as initialized
       setDataInitialized(true);
       
+      // After successful fetch, update available metrics
+      if (healthMetrics) {
+        const newAvailableMetrics = new Set(
+          Object.entries(healthMetrics)
+            .filter(([key, value]) => 
+              typeof value === 'number' && 
+              value > 0 && 
+              !['id', 'user_id', 'date', 'daily_score', 'weekly_score', 'streak_days'].includes(key)
+            )
+            .map(([key]) => key)
+        );
+        
+        setAvailableMetrics(newAvailableMetrics);
+        setHasMinimumMetrics(
+          CRITICAL_METRICS.filter(metric => newAvailableMetrics.has(metric)).length >= 2
+        );
+      }
+      
       console.log('[Dashboard] Dashboard state updated successfully');
       
     } catch (err) {
@@ -437,6 +501,9 @@ export const Dashboard = React.memo(function Dashboard({
       if (requestId === fetchIdRef.current && !abortControllerRef.current?.signal.aborted) {
         setFetchError(err instanceof Error ? err : new Error('Failed to fetch dashboard data'));
       }
+      
+      // On error, try to use partial data
+      fallbackToPartialData();
     } finally {
       // Always reset the fetch in progress flag
       setIsLoading(false);
@@ -448,7 +515,7 @@ export const Dashboard = React.memo(function Dashboard({
         isManualRefreshRef.current = false;
       }
     }
-  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints, dataInitialized, lastFetchTime]);
+  }, [userId, date, isInitialized, healthMetrics, calculateTotalPoints, dataInitialized, lastFetchTime, fallbackToPartialData]);
 
   // Setup auto-refresh timer
   useEffect(() => {
@@ -565,36 +632,29 @@ export const Dashboard = React.memo(function Dashboard({
     setErrorDialogVisible(false);
   }, [error, requestHealthPermissions, syncHealthData]);
 
-  // Add recovery mechanism earlier in the component lifecycle
+  // Modify the recovery mechanism to use fallback
   useEffect(() => {
     const recoveryTimer = setTimeout(() => {
       if (!healthMetrics && isLoading) {
-        console.log('[Dashboard] Recovery mechanism triggered - resetting state');
+        console.log('[Dashboard] Recovery mechanism triggered - attempting partial data recovery');
         
-        // Create default data immediately
-        const defaultTotal = createDefaultDailyTotal();
-        const defaultMetrics = createDefaultHealthMetrics();
+        // Try to recover with partial data first
+        fallbackToPartialData();
         
-        // Update state with default data
-        setDailyTotal(defaultTotal);
-        setHealthMetrics(defaultMetrics);
-        setIsLoading(false);
-        setIsRefreshing(false);
-        
-        // Schedule a background refresh
-        setTimeout(() => {
-          if (isMounted.current && !isSyncInProgress.current) {
-            console.log('[Dashboard] Attempting background refresh after recovery');
+        // Schedule a background refresh if we don't have minimum metrics
+        if (!hasMinimumMetrics && isMounted.current && !isSyncInProgress.current) {
+          setTimeout(() => {
+            console.log('[Dashboard] Attempting background refresh for missing metrics');
             fetchIdRef.current += 1;
             isManualRefreshRef.current = false;
             fetchData(fetchIdRef.current);
-          }
-        }, 1000);
+          }, 1000);
+        }
       }
     }, RECOVERY_TIMEOUT);
     
     return () => clearTimeout(recoveryTimer);
-  }, [healthMetrics, isLoading]);
+  }, [healthMetrics, isLoading, hasMinimumMetrics, fallbackToPartialData]);
 
   // Add additional safeguard for fetch operations
   const safeFetch = useCallback(async (requestId: number) => {
@@ -663,7 +723,9 @@ export const Dashboard = React.memo(function Dashboard({
             }
           ]}
         >
-          <Header dailyTotal={dailyTotal} />
+          <Header 
+            dailyTotal={dailyTotal}
+          />
         </Animated.View>
       )}
 
@@ -681,8 +743,10 @@ export const Dashboard = React.memo(function Dashboard({
       >
         {healthMetrics && (
           <MetricCardList 
-            metrics={healthMetrics} 
-            showAlerts={showAlerts}
+            metrics={healthMetrics}
+            availableMetrics={availableMetrics}
+            hasMinimumMetrics={hasMinimumMetrics}
+            showAlerts={showAlerts && hasMinimumMetrics}
             provider={provider}
             isInitialLoad={!dashboardInitRef.current.globalInitialized}
             isManualRefresh={isManualRefreshRef.current}

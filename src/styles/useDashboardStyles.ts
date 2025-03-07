@@ -129,6 +129,13 @@ const createStyles = (theme: MD3Theme) =>
       fontWeight: '600',
       letterSpacing: 0.5,
     },
+    partialDataText: {
+      color: theme.colors.error,
+      fontSize: 12,
+      textAlign: 'center',
+      marginTop: 4,
+      fontWeight: '500',
+    },
   });
 
 export const useDashboardStyles = () => {

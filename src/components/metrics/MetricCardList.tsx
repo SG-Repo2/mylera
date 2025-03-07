@@ -14,10 +14,12 @@ import { MeasurementSystem, DISPLAY_UNITS } from '@/src/utils/unitConversion';
 
 interface MetricCardListProps {
   metrics: HealthMetrics;
-  showAlerts?: boolean;
   provider: HealthProvider;
-  isInitialLoad?: boolean;
-  isManualRefresh?: boolean;
+  showAlerts: boolean;
+  isInitialLoad: boolean;
+  isManualRefresh: boolean;
+  availableMetrics: Set<string>;
+  hasMinimumMetrics: boolean;
 }
 
 type DisplayedMetricType = MetricType;
@@ -116,7 +118,9 @@ export const MetricCardList = React.memo(function MetricCardList({
   showAlerts = true,
   provider,
   isInitialLoad = false,
-  isManualRefresh = false
+  isManualRefresh = false,
+  availableMetrics,
+  hasMinimumMetrics
 }: MetricCardListProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);

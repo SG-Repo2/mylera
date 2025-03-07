@@ -221,15 +221,51 @@ export class HealthProviderFactory {
 
   /**
    * Resets the current provider instance and creates a new one.
-   * Useful when switching users or needing to reinitialize the provider.
+   * Ensures proper cleanup of existing provider before initialization.
    * 
    * @param deviceType - 'os' for platform-specific (Apple/Google) or 'fitbit' for Fitbit
    * @returns Promise resolving to the new provider instance
    */
   static async resetProvider(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
     logger.info(LogCategory.Health, '[HealthProviderFactory] Resetting provider...');
-    await this.cleanup();
-    return this.getProviderAsync(deviceType);
+    
+    // Ensure previous instance is fully cleaned up
+    try {
+      if (this.instance) {
+        logger.info(LogCategory.Health, '[HealthProviderFactory] Cleaning up existing provider');
+        await this.instance.cleanup();
+      }
+    } catch (error) {
+      logger.warn(
+        LogCategory.Health,
+        '[HealthProviderFactory] Error during provider cleanup:',
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      // Reset all state even if cleanup fails
+      this.instance = null;
+      this.platform = null;
+      this.isInitializing = false;
+      this.initializationPromise = null;
+      this.lastError = null;
+      
+      logger.info(LogCategory.Health, '[HealthProviderFactory] Provider state reset completed');
+    }
+    
+    // Now initialize a new provider
+    try {
+      const newProvider = await this.getProviderAsync(deviceType);
+      logger.info(LogCategory.Health, '[HealthProviderFactory] New provider initialized successfully');
+      return newProvider;
+    } catch (error) {
+      const resetError = new HealthProviderError(
+        `Failed to initialize new provider after reset: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'RESET_FAILED',
+        error instanceof Error ? error : undefined
+      );
+      logger.error(LogCategory.Health, '[HealthProviderFactory] Reset failed:', resetError.message);
+      throw resetError;
+    }
   }
 
   /**
