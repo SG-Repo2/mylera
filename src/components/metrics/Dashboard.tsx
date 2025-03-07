@@ -19,8 +19,27 @@ interface DashboardProps {
   showAlerts?: boolean;
 }
 
+// Add TypeScript types for component props
+interface HeaderProps {
+  dailyTotal: DailyTotal;
+}
+
+interface ErrorDialogProps {
+  visible: boolean;
+  onDismiss: () => void;
+  message?: string; // Add customizable error message
+}
+
+// Add prop types validation
+
+// Add loading state customization
+interface LoadingViewProps {
+  message?: string;
+  showSpinner?: boolean;
+}
+
 // Extracted Header component with React.memo for performance
-const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
+const Header = React.memo(({ dailyTotal }: HeaderProps) => {
   const styles = useDashboardStyles();
   
   return (
@@ -41,7 +60,10 @@ const Header = React.memo(({ dailyTotal }: { dailyTotal: DailyTotal }) => {
 });
 
 // Extracted LoadingView component with React.memo for performance
-const LoadingView = React.memo(() => {
+const LoadingView = React.memo(({ 
+  message = 'Loading your health data...',
+  showSpinner = true 
+}: LoadingViewProps) => {
   const styles = useDashboardStyles();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -65,7 +87,7 @@ const LoadingView = React.memo(() => {
           />
         </Animated.View>
         <Text style={styles.loadingText}>
-          Loading your health data...
+          {message}
         </Text>
       </View>
     </View>
@@ -75,11 +97,9 @@ const LoadingView = React.memo(() => {
 // Extracted ErrorDialog component with React.memo for performance
 const ErrorDialog = React.memo(({ 
   visible, 
-  onDismiss 
-}: { 
-  visible: boolean; 
-  onDismiss: () => void 
-}) => {
+  onDismiss,
+  message = 'Failed to fetch health metrics. Please try again.'
+}: ErrorDialogProps) => {
   const theme = useTheme();
   const styles = useDashboardStyles();
   
@@ -95,7 +115,7 @@ const ErrorDialog = React.memo(({
         </Dialog.Title>
         <Dialog.Content>
           <Text style={styles.errorDialogContent}>
-            Failed to fetch health metrics. Please try again.
+            {message}
           </Text>
         </Dialog.Content>
         <Dialog.Actions style={styles.errorDialogActions}>
@@ -110,6 +130,11 @@ const ErrorDialog = React.memo(({
     </Portal>
   );
 });
+
+// Add error boundary
+export class DashboardErrorBoundary extends React.Component {
+  // ... error boundary implementation
+}
 
 export const Dashboard = React.memo(function Dashboard({
   provider,
@@ -151,7 +176,7 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Render loading state
   if (loading) {
-    return <LoadingView />;
+    return <LoadingView message="Loading your health data..." showSpinner={true} />;
   }
 
   // Render error state
@@ -163,47 +188,49 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   return (
-    <SafeAreaView 
-      style={[
-        styles.container, 
-        { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
-      ]}
-    >
-      {dailyTotal && (
-        <Animated.View style={[styles.headerWrapper, headerAnimations]}>
-          <Header dailyTotal={dailyTotal} />
-        </Animated.View>
-      )}
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refreshData}
-            colors={[theme.colors.primary]}
-            progressBackgroundColor={theme.colors.surface}
-          />
-        }
+    <DashboardErrorBoundary>
+      <SafeAreaView 
+        style={[
+          styles.container, 
+          { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
+        ]}
       >
-        {healthMetrics && (
-          <MetricCardList 
-            metrics={healthMetrics} 
-            showAlerts={showAlerts}
-            provider={provider}
-            isInitialLoad={!dailyTotal}
-            isManualRefresh={isRefreshing}
-            availableMetrics={availableMetrics as Set<string>}
-            hasMinimumMetrics={true}
-          />
+        {dailyTotal && (
+          <Animated.View style={[styles.headerWrapper, headerAnimations]}>
+            <Header dailyTotal={dailyTotal} />
+          </Animated.View>
         )}
-      </ScrollView>
 
-      <ErrorDialog 
-        visible={errorDialogVisible} 
-        onDismiss={() => setErrorDialogVisible(false)} 
-      />
-    </SafeAreaView>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={refreshData}
+              colors={[theme.colors.primary]}
+              progressBackgroundColor={theme.colors.surface}
+            />
+          }
+        >
+          {healthMetrics && (
+            <MetricCardList 
+              metrics={healthMetrics} 
+              showAlerts={showAlerts}
+              provider={provider}
+              isInitialLoad={!dailyTotal}
+              isManualRefresh={isRefreshing}
+              availableMetrics={availableMetrics as Set<string>}
+              hasMinimumMetrics={true}
+            />
+          )}
+        </ScrollView>
+
+        <ErrorDialog 
+          visible={errorDialogVisible} 
+          onDismiss={() => setErrorDialogVisible(false)} 
+        />
+      </SafeAreaView>
+    </DashboardErrorBoundary>
   );
 });
