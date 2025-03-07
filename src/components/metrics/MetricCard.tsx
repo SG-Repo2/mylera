@@ -58,9 +58,16 @@ export const MetricCard = React.memo(function MetricCard({
   
   useEffect(() => {
     if (prevValueRef.current !== null && prevValueRef.current !== value) {
-      console.log(`[MetricCard] ${metricType} value changed: ${prevValueRef.current} -> ${value}`);
+      if (value === null || prevValueRef.current === null) {
+        // Don't animate null transitions
+        return;
+      }
       
-      if (!valueChangeAnim) {
+      const percentChange = Math.abs(((value - prevValueRef.current) / prevValueRef.current));
+      
+      if (percentChange > 0.01 && !valueChangeAnim) {
+        // Cancel any previous animation
+        valueChangePulseAnim.stopAnimation();
         valueChangePulseAnim.setValue(0);
         
         Animated.sequence([
@@ -82,6 +89,10 @@ export const MetricCard = React.memo(function MetricCard({
   }, [value, valueChangePulseAnim, metricType, valueChangeAnim]);
 
   const handlePressIn = React.useCallback(() => {
+    // Cancel ongoing animations
+    scaleAnim.stopAnimation();
+    glowAnim.stopAnimation();
+    
     Animated.parallel([
       Animated.spring(scaleAnim, {
         toValue: 0.95,
@@ -95,10 +106,14 @@ export const MetricCard = React.memo(function MetricCard({
         duration: 200,
         useNativeDriver: true
       })
-    ]).start();
+    ], { stopTogether: false }).start();
   }, [scaleAnim, glowAnim]);
 
   const handlePressOut = React.useCallback(() => {
+    // Cancel ongoing animations
+    scaleAnim.stopAnimation();
+    glowAnim.stopAnimation();
+    
     Animated.parallel([
       Animated.spring(scaleAnim, {
         toValue: 1,
@@ -112,7 +127,7 @@ export const MetricCard = React.memo(function MetricCard({
         duration: 200,
         useNativeDriver: true
       })
-    ]).start();
+    ], { stopTogether: false }).start();
   }, [scaleAnim, glowAnim]);
 
   const combinedValueChangeAnim = useMemo(() => {
