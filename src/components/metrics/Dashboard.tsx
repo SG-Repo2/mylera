@@ -131,9 +131,36 @@ const ErrorDialog = React.memo(({
   );
 });
 
-// Add error boundary
-export class DashboardErrorBoundary extends React.Component {
-  // ... error boundary implementation
+// Update the error boundary implementation
+class DashboardErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Dashboard Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <ErrorView
+          error={this.state.error || new Error('Unknown error occurred')}
+          onRetry={() => this.setState({ hasError: false, error: null })}
+        />
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 export const Dashboard = React.memo(function Dashboard({

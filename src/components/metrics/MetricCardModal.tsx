@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { View, Animated, Pressable, ScrollView, Easing } from 'react-native';
 import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -67,7 +67,7 @@ const getHealthTip = (metricType: MetricType): HealthTip => {
   return tips[metricType];
 };
 
-export const MetricModal: React.FC<MetricModalProps> = ({
+export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   visible,
   onClose,
   title,
@@ -91,20 +91,35 @@ export const MetricModal: React.FC<MetricModalProps> = ({
   const contentOpacity = React.useRef(new Animated.Value(0)).current;
   const scale = React.useRef(new Animated.Value(0.95)).current;
   const valueScale = React.useRef(new Animated.Value(1)).current;
-  const healthTip = getHealthTip(metricType);
+  const healthTip = useMemo(() => getHealthTip(metricType), [metricType]);
 
-  // Simulate loading and trend calculation
+  // Memoize config values
+  const metricConfig = useMemo(() => healthMetrics[metricType], [metricType]);
+  const metricColor = useMemo(() => metricColors[metricType], [metricType]);
+  const displayUnit = useMemo(() => 
+    DISPLAY_UNITS[metricType][measurementSystem],
+    [metricType, measurementSystem]
+  );
+
+  // Memoize formatted goal
+  const formattedGoal = useMemo(() => 
+    formatMetricValue(metricConfig.defaultGoal, metricType, measurementSystem),
+    [metricConfig.defaultGoal, metricType, measurementSystem]
+  );
+
+  // Effect with cleanup for loading simulation
   useEffect(() => {
     if (visible) {
       setIsLoading(true);
-      // Simulate API call delay
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setTrend({
           direction: Math.random() > 0.5 ? 'up' : 'down',
           percentage: Math.round(Math.random() * 20)
         });
         setIsLoading(false);
       }, 1000);
+      
+      return () => clearTimeout(timer);
     }
   }, [visible]);
 
@@ -228,13 +243,6 @@ export const MetricModal: React.FC<MetricModalProps> = ({
       animateIn();
     }
   }, [visible, animateIn]);
-
-  const metricConfig = healthMetrics[metricType];
-  const metricColor = metricColors[metricType];
-  const displayUnit = DISPLAY_UNITS[metricType][measurementSystem];
-
-  // Format goal value for display
-  const formattedGoal = formatMetricValue(metricConfig.defaultGoal, metricType, measurementSystem);
 
   return (
     <Portal>
@@ -385,4 +393,4 @@ export const MetricModal: React.FC<MetricModalProps> = ({
       </Modal>
     </Portal>
   );
-};
+});

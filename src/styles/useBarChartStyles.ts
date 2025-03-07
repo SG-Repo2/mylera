@@ -1,14 +1,16 @@
 import { StyleSheet } from 'react-native';
-import { brandColors } from '@/src/theme/theme';
+import { useTheme } from 'react-native-paper';
 
 const useBarChartStyles = () => {
+  const theme = useTheme();
+
   return StyleSheet.create({
     container: {
       height: 280,
       justifyContent: 'center',
       alignItems: 'center',
-      borderRadius: 16,
-      shadowColor: '#000',
+      borderRadius: theme.roundness * 2,
+      shadowColor: theme.colors.shadow || theme.colors.outline,
       shadowOffset: {
         width: 0,
         height: 2,
@@ -30,8 +32,8 @@ const useBarChartStyles = () => {
     chartArea: {
       flex: 1,
       marginLeft: 40,
-      width: '100%', // Take full width after margin
-      backgroundColor: '#FFFFFF',
+      width: '100%',
+      backgroundColor: theme.colors.surface,
     },
     gridContainer: {
       position: 'absolute',
@@ -45,6 +47,8 @@ const useBarChartStyles = () => {
       left: 0,
       right: 0,
       height: 1,
+      backgroundColor: theme.colors.outline,
+      opacity: 0.2,
     },
     barsContainer: {
       flex: 1,
@@ -65,11 +69,12 @@ const useBarChartStyles = () => {
     barValue: {
       fontSize: 10,
       fontWeight: '600',
+      color: theme.colors.onSurfaceVariant,
     },
     barContainer: {
       marginBottom: 8,
       borderRadius: 4,
-      shadowColor: '#000',
+      shadowColor: theme.colors.shadow || theme.colors.outline,
       shadowOffset: {
         width: 0,
         height: 1,
@@ -81,7 +86,17 @@ const useBarChartStyles = () => {
     dayLabel: {
       fontSize: 12,
       fontWeight: '500',
+      color: theme.colors.onSurfaceVariant,
     },
+    tickContainer: {
+      position: 'absolute',
+      left: 0,
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingLeft: 8,
+      transform: [{ translateY: -8 }]
+    }
   });
 };
 
