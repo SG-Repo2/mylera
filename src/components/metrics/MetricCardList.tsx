@@ -221,7 +221,7 @@ export const MetricCardList = React.memo(function MetricCardList({
         Animated.delay(index * 80), // Stagger delay
         Animated.spring(anim, {
           toValue: 1,
-          useNativeDriver: true,
+          useNativeDriver: true,  // Already correct
           damping: 12,
           stiffness: 100,
         })

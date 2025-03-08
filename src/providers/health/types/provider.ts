@@ -789,6 +789,26 @@ export abstract class BaseHealthProvider implements HealthProvider {
     }
     
     try {
+      // Check permissions before fetching - handle null permissionManager safely
+      if (this.permissionManager) {
+        const permissionState = await this.checkPermissionsStatus();
+        if (permissionState.status !== 'granted') {
+          await this.ensurePermissionsInitialized();
+          const permissionStatus = await this.requestPermissions();
+          if (permissionStatus !== 'granted') {
+            logger.warn(LogCategory.Health, 
+              `[${this.constructor.name}] Permission not granted for health data access, proceeding with limited functionality`
+            );
+          }
+        }
+      } else {
+        // If permission manager is null, try to initialize it
+        logger.warn(LogCategory.Health, 
+          `[${this.constructor.name}] Permission manager is null during batchFetchHealthMetrics, attempting to initialize`
+        );
+        await this.ensurePermissionsInitialized();
+      }
+
       // Fetch all raw metrics in one call
       const rawData = await this.fetchRawMetrics(startDate, endDate, metricTypes);
       
@@ -836,6 +856,36 @@ export abstract class BaseHealthProvider implements HealthProvider {
       };
     } catch (error) {
       this.handleProviderError('fetching batched health metrics', error);
+    }
+  }
+
+  /**
+   * Ensure the permission manager is initialized
+   * Creates a permission manager with default user ID if not already initialized
+   */
+  protected async ensurePermissionsInitialized(): Promise<void> {
+    if (!this.permissionManager) {
+      // Try to get a user ID from stored data or use a temporary one
+      let userId = 'temp-user-id';
+      
+      try {
+        // Initialize permissions with a temporary or default user ID
+        logger.info(LogCategory.Health, 
+          `[${this.constructor.name}] Initializing permissions with default user ID: ${userId}`
+        );
+        await this.initializePermissions(userId);
+        
+        // If still not initialized, log a clear error
+        if (!this.permissionManager) {
+          logger.error(LogCategory.Health, 
+            `[${this.constructor.name}] Failed to initialize permission manager with default user ID`
+          );
+        }
+      } catch (error) {
+        logger.error(LogCategory.Health, 
+          `[${this.constructor.name}] Error initializing permissions: ${(error as Error).message}`
+        );
+      }
     }
   }
 

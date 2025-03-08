@@ -123,19 +123,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   async checkPermissionsStatus(): Promise<PermissionState> {
     // Try to ensure permission manager is initialized
-    if (!this.permissionManager) {
-      logger.warn(LogCategory.Health, '[AppleHealthProvider] Permission manager not initialized during checkPermissionsStatus');
-      try {
-        await this.ensurePermissionsInitialized();
-      } catch (error) {
-        logger.error(LogCategory.Health, '[AppleHealthProvider] Failed to initialize permissions', (error as Error).message);
-        // Return a default state if initialization fails
-        return {
-          status: 'not_determined',
-          lastChecked: Date.now()
-        };
-      }
-    }
+    await this.ensurePermissionsInitialized();
 
     // If we still don't have a permission manager, use a default state
     if (!this.permissionManager) {
@@ -147,22 +135,38 @@ export class AppleHealthProvider extends BaseHealthProvider {
     }
 
     // First check cached state
-    const cachedState = await this.permissionManager.getPermissionState();
-    if (cachedState) {
-      return cachedState;
+    try {
+      const cachedState = await this.permissionManager.getPermissionState();
+      if (cachedState) {
+        return cachedState;
+      }
+    } catch (error) {
+      logger.warn(LogCategory.Health, '[AppleHealthProvider] Error getting cached permission state:', (error as Error).message);
     }
 
     // If no cached state, check current status
-    const available = await this.checkAvailability();
-    const status: PermissionStatus = available ? 'granted' : 'not_determined';
-    
-    const state: PermissionState = {
-      status,
-      lastChecked: Date.now()
-    };
-
-    await this.permissionManager.updatePermissionState(status);
-    return state;
+    try {
+      const available = await this.checkAvailability();
+      const status: PermissionStatus = available ? 'granted' : 'not_determined';
+      
+      const state: PermissionState = {
+        status,
+        lastChecked: Date.now()
+      };
+  
+      // Only try to update if permission manager exists
+      if (this.permissionManager) {
+        await this.permissionManager.updatePermissionState(status);
+      }
+      
+      return state;
+    } catch (error) {
+      logger.error(LogCategory.Health, '[AppleHealthProvider] Error checking availability:', (error as Error).message);
+      return {
+        status: 'not_determined',
+        lastChecked: Date.now()
+      };
+    }
   }
 
   private async checkAvailability(): Promise<boolean> {
@@ -194,14 +198,14 @@ export class AppleHealthProvider extends BaseHealthProvider {
     }
 
     await this.ensureInitialized();
-
-    const options = {
+    
+    const options = {  
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
     };
 
     const rawData: RawHealthData = {};
-
+    
     await Promise.all(
       types.map(async (type) => {
         switch (type) {
@@ -235,7 +239,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {
     const metrics: NormalizedMetric[] = [];
-
     switch (type) {
       case 'steps':
         if (rawData.steps) {
@@ -319,7 +322,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
         }
         break;
     }
-
     return metrics;
   }
 
@@ -327,12 +329,11 @@ export class AppleHealthProvider extends BaseHealthProvider {
     try {
       const now = new Date();
       const startOfDay = DateUtils.getStartOfDay(now);
-      
       console.log('[AppleHealthProvider] Fetching metrics for time window:', {
         start: startOfDay.toISOString(),
         end: now.toISOString()
       });
-      
+
       // Use batched fetch for all metrics
       return await this.batchFetchHealthMetrics(
         startOfDay,
@@ -351,7 +352,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         () => promisify<Array<{ 
           value: number; 
           startDate: string; 
-          endDate: string;
+          endDate: string; 
           day?: string; // Some implementations include a day field
         }>>(
           AppleHealthKit.getDailyStepCountSamples, 
@@ -372,7 +373,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
           sourceBundle: 'com.apple.health'
         }];
       }
-      
+
       // If we receive a single value instead of daily samples, still create a daily entry
       if (results.length === 1 && !results[0].day) {
         const startDate = new Date(options.startDate || new Date());
@@ -396,7 +397,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
           return samples;
         }
       }
-      
+
       // Process daily samples
       return results.map(sample => ({
         startDate: sample.startDate,
@@ -418,7 +419,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
       // First, try daily samples API if available
       try {
         const dailyResults = await this.retryOperation(
-          () => promisify<Array<{ value: number; startDate: string; endDate: string; }>>(
+          () => promisify<Array<{ value: number; startDate: string; endDate: string }>>(
             AppleHealthKit.getDailyDistanceWalkingRunningSamples, 
             {
               ...options,
@@ -439,7 +440,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
             unit: 'meters',
             sourceBundle: 'com.apple.health'
           }));
-          
           return mappedResults;
         }
       } catch (dailyError) {
@@ -449,7 +449,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
       // Fall back to standard distance API
       const results = await this.retryOperation(
         () => promisify<any>(AppleHealthKit.getDistanceWalkingRunning, options),
-        2, 
+        2,
         500
       );
       
@@ -469,7 +469,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
             sourceBundle: 'com.apple.health'
           }];
         }
-        
+
         // Distribute the total across days for multi-day ranges
         const dailyValue = results.value / daySpan;
         const samples = [];
@@ -479,7 +479,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
           dayDate.setDate(dayDate.getDate() + i);
           const dayStart = new Date(dayDate);
           dayStart.setHours(0, 0, 0, 0);
-          
           const dayEnd = new Date(dayDate);
           dayEnd.setHours(23, 59, 59, 999);
           
@@ -491,10 +490,9 @@ export class AppleHealthProvider extends BaseHealthProvider {
             sourceBundle: 'com.apple.health'
           });
         }
-        
         return samples;
       }
-      
+
       // No valid results found, return empty data for the range
       const emptyResult = [{
         startDate: options.startDate || new Date().toISOString(),
@@ -546,7 +544,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         const currentTotal = dailyTotals.get(day) || 0;
         dailyTotals.set(day, currentTotal + (sample.value || 0));
       });
-      
+
       // Convert daily totals to array format
       const dailyResults: RawHealthMetric[] = [];
       
@@ -554,7 +552,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
         const date = new Date(day);
         const startOfDay = new Date(date);
         startOfDay.setHours(0, 0, 0, 0);
-        
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         
@@ -626,7 +623,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
       // Group by day and calculate daily averages
       const dailyReadings = new Map<string, number[]>();
-      
       validSamples.forEach(sample => {
         const day = new Date(sample.startDate).toISOString().split('T')[0];
         if (!dailyReadings.has(day)) {
@@ -634,7 +630,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
         }
         dailyReadings.get(day)!.push(sample.value);
       });
-      
+
       // Convert to daily averages
       const dailyAverages: RawHealthMetric[] = [];
       
@@ -644,7 +640,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
         const recentWeight = 0.6;
         const oldWeight = 0.4;
         let avgValue;
-        
         if (readings.length <= 3) {
           // Simple average for few readings
           avgValue = readings.reduce((sum, val) => sum + val, 0) / readings.length;
@@ -662,7 +657,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
         const date = new Date(day);
         const startOfDay = new Date(date);
         startOfDay.setHours(0, 0, 0, 0);
-        
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         
@@ -728,7 +722,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
   }
 
   // Add a helper method to ensure permissions are initialized
-  private async ensurePermissionsInitialized(): Promise<void> {
+  protected async ensurePermissionsInitialized(): Promise<void> {
     if (!this.permissionManager) {
       // Try to initialize with a default user ID if one wasn't provided
       const userId = 'default-user-id';
@@ -752,7 +746,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
       }
       dailyData.get(day)!.push(item.value);
     });
-    
+
     // Create a RawHealthMetric for each day
     const result: RawHealthMetric[] = [];
     
@@ -760,7 +754,6 @@ export class AppleHealthProvider extends BaseHealthProvider {
       const date = new Date(day);
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
-      
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
       

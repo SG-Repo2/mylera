@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Dimensions, StyleSheet, Animated } from 'react-native';
+import { View, Dimensions, Animated } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MetricType } from '@/src/types/metrics';
 import { brandColors } from '@/src/theme/theme';
@@ -8,6 +8,7 @@ import Svg, { Rect, Line } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
 import { getYAxisConfig, formatTickValue, convertMetricValue } from '../../utils/metricUtils';
 import { MeasurementSystem } from '../../types/metrics';
+import useBarChartStyles from '../../styles/useBarChartStyles';
 
 interface BarChartProps {
   metricType: MetricType;
@@ -26,11 +27,12 @@ interface DataPoint {
   isEmpty: boolean;
 }
 
-export function BarChart({ metricType, userId, date, provider, measurementSystem }: BarChartProps) {
+export const BarChart = React.memo(function BarChart({ metricType, userId, date, provider, measurementSystem }: BarChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataPoint[]>([]);
   const theme = useTheme();
+  const styles = useBarChartStyles();
 
   // Move all useMemo hooks to the top level
   const chartWidth = useMemo(() => Math.max(Dimensions.get('window').width - 48, 100), []);
@@ -178,7 +180,7 @@ export function BarChart({ metricType, userId, date, provider, measurementSystem
             Animated.delay(index * 60),
             Animated.spring(item.animation, {
               toValue: 1,
-              useNativeDriver: false,
+              useNativeDriver: false, // Changed to false because we're animating height
               stiffness: 180,
               damping: 12,
               mass: 0.8,
@@ -368,96 +370,4 @@ export function BarChart({ metricType, userId, date, provider, measurementSystem
       {renderContent()}
     </View>
   );
-}
-
-// Add new styles for tick container
-const styles = StyleSheet.create({
-  container: {
-    height: 280,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  yAxisLabels: {
-    position: 'absolute',
-    left: 0,
-    top: 10,
-    bottom: 30,
-    width: 40,
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingLeft: 8,
-  },
-  chartArea: {
-    flex: 1,
-    marginLeft: 40,
-    width: Dimensions.get('window').width - 48,
-    backgroundColor: '#FFFFFF',
-  },
-  gridContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  gridLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 1,
-  },
-  barsContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingBottom: 20,
-    paddingHorizontal: 8,
-  },
-  barWrapper: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    height: '100%',
-  },
-  barLabelContainer: {
-    marginBottom: 4,
-  },
-  barValue: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  barContainer: {
-    marginBottom: 8,
-    borderRadius: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dayLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  tickContainer: {
-    position: 'absolute',
-    left: 0,
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 8,
-    transform: [{ translateY: -8 }]
-  }
 });
