@@ -123,19 +123,13 @@ const isValidMetricValue = (value: number | null): boolean => {
   return value !== null && value > 0;
 };
 
-// Add validation function for metric sets
+// Update validation function to be more lenient
 const validateMetricSet = (metrics: HealthMetrics): boolean => {
-  // Check critical metrics first
-  const validCriticalMetrics = CRITICAL_METRICS.filter(
-    metric => isValidMetricValue(metrics[metric])
-  );
+  // Check if we have ANY valid metrics
+  const allMetricTypes = [...CRITICAL_METRICS, ...IMPORTANT_METRICS, ...OPTIONAL_METRICS];
   
-  // Check important metrics
-  const validImportantMetrics = IMPORTANT_METRICS.filter(
-    metric => isValidMetricValue(metrics[metric])
-  );
-  
-  return validCriticalMetrics.length >= 2 || validImportantMetrics.length >= 1;
+  // Return true if at least one valid metric is available
+  return allMetricTypes.some(metric => isValidMetricValue(metrics[metric]));
 };
 
 export const MetricCardList = React.memo(function MetricCardList({
@@ -305,8 +299,9 @@ export const MetricCardList = React.memo(function MetricCardList({
           const fadeAnim = fadeAnims[index];
           const valueAnim = valueChangeAnims[index];
           
-          // Skip rendering if value is not valid
-          const showMetric = hasValidData || isFirstRender.current;
+          // Show metric if it has a valid value, regardless of overall dataset validation
+          const showMetric = (hasValidData || isFirstRender.current) && 
+                           (metric.value !== null && metric.value !== undefined);
           if (!showMetric) return null;
           
           return (

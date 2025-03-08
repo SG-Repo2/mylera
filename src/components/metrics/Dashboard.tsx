@@ -201,15 +201,26 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [error, requestHealthPermissions, handleRetry]);
 
-  // Render loading state
-  if (loading) {
+  // Enhanced loading state check - ensure we have data before exiting loading state
+  const isLoading = loading || (!healthMetrics && !error && !dailyTotal);
+  
+  // Render loading state with enhanced check
+  if (isLoading) {
     return <LoadingView message="Loading your health data..." showSpinner={true} />;
   }
 
-  // Render error state
+  // Render error state with type narrowing
   if (error || healthPermissionStatus === 'denied') {
     return <ErrorView 
-      error={error || new Error('Health permissions denied')} 
+      error={error || new HealthProviderPermissionError('Health permissions denied')} 
+      onRetry={extendedRetryHandler} 
+    />;
+  }
+
+  // Type guard to ensure data exists
+  if (!healthMetrics || !dailyTotal) {
+    return <ErrorView 
+      error={new Error('Failed to load health metrics')} 
       onRetry={extendedRetryHandler} 
     />;
   }
