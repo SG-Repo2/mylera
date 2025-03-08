@@ -19,15 +19,26 @@ export function ToggleableLeaderboard() {
   const [error, setError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const appStateRef = useRef(AppState.currentState);
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadData = useCallback(async (showLoading = true) => {
-    if (!user) {
-      console.log('No user found in loadData');
+    if (!user || !isMountedRef.current) {
+      console.log('No user found in loadData or component unmounted');
       return;
     }
     
-    if (showLoading) setLoading(true);
-    setError(null);
+    // Cancel any in-progress requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create a new abort controller for this request
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
+    if (showLoading && isMountedRef.current) setLoading(true);
+    if (isMountedRef.current) setError(null);
     
     try {
       const today = DateUtils.getLocalDateString();
@@ -37,6 +48,9 @@ export function ToggleableLeaderboard() {
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
+      // Check if component is still mounted before updating state
+      if (!isMountedRef.current) return;
+      
       // Add detailed logging of point values
       console.log('Fetched leaderboard data:', data.map(entry => ({
         id: entry.user_id.slice(0, 8),
@@ -47,6 +61,15 @@ export function ToggleableLeaderboard() {
       
       setLeaderboardData(data);
     } catch (err) {
+      // Don't update state if the request was aborted or component unmounted
+      if (!isMountedRef.current) return;
+      
+      // Don't treat aborted requests as errors
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log('Leaderboard request was aborted');
+        return;
+      }
+      
       console.error('Error while fetching leaderboard:', err);
       
       if (err instanceof Error) {
@@ -61,14 +84,16 @@ export function ToggleableLeaderboard() {
         setError(new Error('Failed to load leaderboard'));
       }
     } finally {
-      if (showLoading) setLoading(false);
+      // Only update loading state if component is still mounted
+      if (showLoading && isMountedRef.current) setLoading(false);
     }
   }, [user, timeframe]);
 
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     if (
       appStateRef.current.match(/inactive|background/) &&
-      nextAppState === 'active'
+      nextAppState === 'active' &&
+      isMountedRef.current
     ) {
       console.log('App has come to foreground, refreshing leaderboard');
       loadData(false);
@@ -77,18 +102,32 @@ export function ToggleableLeaderboard() {
   }, [loadData]);
 
   const onRefresh = useCallback(async () => {
+    if (!isMountedRef.current) return;
     setRefreshing(true);
     await loadData(false);
-    setRefreshing(false);
+    if (isMountedRef.current) setRefreshing(false);
   }, [loadData]);
 
   useEffect(() => {
+    // Set mounted flag
+    isMountedRef.current = true;
+    
     if (user) {
       loadData();
       
       const subscription = AppState.addEventListener('change', handleAppStateChange);
       
       return () => {
+        // Set unmounted flag
+        isMountedRef.current = false;
+        
+        // Cancel any in-progress requests
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+        
+        // Remove app state listener
         subscription.remove();
       };
     }

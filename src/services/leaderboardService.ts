@@ -69,6 +69,7 @@ export const leaderboardService = {
         userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
       });
 
+      
       // Calculate points using the same function as Dashboard
       const userPoints = new Map<string, { total: number, completed: number }>();
       userMetrics.forEach((metrics, userId) => {
