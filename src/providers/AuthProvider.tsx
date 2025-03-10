@@ -6,7 +6,6 @@ import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
 import { mapAuthError } from '../utils/errorUtils';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { Platform } from 'react-native';
 import { router } from 'expo-router';
 import { navigationQueue } from '@/src/utils/NavigationUtils';
 import { useNavigationReady } from '@/src/contexts/NavigationReadyContext';
