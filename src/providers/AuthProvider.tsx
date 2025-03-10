@@ -308,15 +308,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Add delay before navigation to ensure navigator is mounted
       console.log('[AuthProvider] Adding delay before navigation after registration');
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay for stability
+
+      // Ensure health data is always initialized
+      setHealthDataInitialized(true);
       
-      // Wait for navigator to be mounted and health data to be initialized
-      if (navigatorMounted && healthDataInitialized) {
-        console.log('[AuthProvider] Navigator mounted and health data initialized, proceeding with direct navigation');
+      // Log navigation state for debugging
+      console.log('[AuthProvider] Registration complete, navigation state:', {
+        navigatorMounted,
+        healthDataInitialized: true,
+        sessionInitialized: sessionInitialized.current
+      });
+
+      // Create a safety timeout to force navigation if other methods fail
+      const forceNavigationTimeout = setTimeout(() => {
+        console.log('[AuthProvider] Forcing navigation due to timeout');
         router.replace('/(app)/(home)');
+      }, 2000);
+
+      // Try normal navigation first
+      if (navigatorMounted) {
+        console.log('[AuthProvider] Navigator mounted, proceeding with direct navigation');
+        router.replace('/(app)/(home)');
+        clearTimeout(forceNavigationTimeout);
       } else {
-        console.log('[AuthProvider] Navigator not mounted or health data not initialized, queueing navigation');
+        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
         navigationQueue.enqueue('/(app)/(home)', 10);
+        // Keep the timeout as backup
       }
       
     } catch (err) {
