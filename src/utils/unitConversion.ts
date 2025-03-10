@@ -43,8 +43,8 @@ export const formatMetricValue = (
     
     case 'steps':
       return { 
-        value: value >= 1000 ? parseFloat((value / 1000).toFixed(1)) : value, 
-        unit: value >= 1000 ? 'k' : '' 
+        value: value >= 10000 ? parseFloat((value / 1000).toFixed(1)) : value, 
+        unit: value >= 10000 ? 'k' : '' 
       };
       
     case 'calories':

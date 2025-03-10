@@ -41,6 +41,7 @@ export function Profile() {
   const [showProfile, setShowProfile] = useState(true);
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [updatingSystem, setUpdatingSystem] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!user) return;
@@ -225,6 +226,52 @@ export function Profile() {
     }
   };
 
+  const handleUpdateMeasurementSystem = async (useImperial: boolean) => {
+    if (!profile || !user) return;
+    
+    // Prevent multiple simultaneous updates
+    if (updatingSystem) return;
+    
+    try {
+      setUpdatingSystem(true);
+      const newSystem = useImperial ? 'imperial' : 'metric';
+      
+      // First update local state for immediate UI feedback
+      setProfile(prevProfile => prevProfile ? {
+        ...prevProfile,
+        measurement_system: newSystem
+      } : null);
+      
+      // Then update profile in database
+      await leaderboardService.updateUserProfile(user.id, {
+        ...profile,
+        measurement_system: newSystem
+      });
+      
+      // Update user metadata through Supabase
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: { measurementSystem: newSystem }
+      });
+      
+      if (updateError) {
+        console.warn('Failed to update auth metadata:', updateError);
+      }
+      
+    } catch (err) {
+      console.error('Error updating measurement system:', err);
+      
+      // Revert local state change on error
+      setProfile(prevProfile => prevProfile ? {
+        ...prevProfile,
+        measurement_system: prevProfile.measurement_system // Revert to previous value
+      } : null);
+      
+      setError(err instanceof Error ? err : new Error('Failed to update measurement system'));
+    } finally {
+      setUpdatingSystem(false);
+    }
+  };
+
   if (loading && !profile && !error) {
     return (
       <View style={styles.centered}>
@@ -314,43 +361,19 @@ export function Profile() {
         <View style={[styles.settingRow, styles.settingBorder]}>
           <Text style={styles.settingLabel}>Use Imperial Units</Text>
           <Switch
+            disabled={updatingSystem}
             value={profile?.measurement_system === 'imperial'}
-            onValueChange={async (useImperial) => {
-              if (profile && user) {
-                const newSystem = useImperial ? 'imperial' : 'metric';
-                try {
-                  // Update Supabase profile
-                  await leaderboardService.updateUserProfile(user.id, {
-                    ...profile,
-                    measurement_system: newSystem
-                  });
-                  
-                  // Update local state
-                  setProfile({
-                    ...profile,
-                    measurement_system: newSystem
-                  });
-                  
-                  // Update user metadata through Supabase
-                  const { error: updateError } = await supabase.auth.updateUser({
-                    data: { measurementSystem: newSystem }
-                  });
-                  
-                  if (updateError) {
-                    throw updateError;
-                  }
-                  
-                  // Reload profile to ensure consistency
-                  loadProfile();
-                } catch (err) {
-                  console.error('Error updating measurement system:', err);
-                  setError(err instanceof Error ? err : new Error('Failed to update measurement system'));
-                }
-              }
-            }}
+            onValueChange={handleUpdateMeasurementSystem}
             trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
             thumbColor={profile?.measurement_system === 'imperial' ? '#0284c7' : '#F3F4F6'}
           />
+          {updatingSystem && (
+            <ActivityIndicator 
+              size="small" 
+              color="#0284c7" 
+              style={{ marginLeft: 8 }}
+            />
+          )}
         </View>
       </View>
 

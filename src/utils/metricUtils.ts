@@ -62,7 +62,7 @@ export const formatTickValue = (
 ): string => {
   switch (metricType) {
     case 'steps':
-      return value >= 1000 
+      return value >= 10000 
         ? `${(value / 1000).toFixed(1)}k` 
         : value.toString();
     case 'distance':
