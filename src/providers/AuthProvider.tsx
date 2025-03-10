@@ -237,21 +237,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('[AuthProvider] Error creating initial profile:', profileError);
       }
 
-      // Handle avatar upload if provided
+      // Handle avatar selection if provided
       if (data.user && profile.avatarUri) {
         try {
-          // Upload avatar and update profile
-          const avatarUrl = await leaderboardService.uploadAvatar(data.user.id, profile.avatarUri);
-          
-          if (avatarUrl) {
-            await leaderboardService.updateUserProfile(data.user.id, {
-              avatar_url: avatarUrl
-            });
-            console.log('[AuthProvider] Avatar uploaded and profile updated');
-          }
-        } catch (uploadError) {
-          console.error('[AuthProvider] Avatar upload failed:', uploadError);
-          // Continue even if avatar upload fails
+          // For numeric avatar index, use it directly
+          await leaderboardService.updateUserProfile(data.user.id, {
+            avatar_url: profile.avatarUri
+          });
+          console.log('[AuthProvider] Avatar selection saved');
+        } catch (updateError) {
+          console.error('[AuthProvider] Avatar update failed:', updateError);
+          // Continue even if avatar update fails
         }
       }
 

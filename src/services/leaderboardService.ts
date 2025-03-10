@@ -283,6 +283,14 @@ export const leaderboardService = {
 
   async uploadAvatar(userId: string, uri: string): Promise<string> {
     try {
+      // Check if this is an avatar index (simple number string)
+      if (/^\d+$/.test(uri)) {
+        // If it's a numeric index, just return it as is
+        console.log('Using avatar index:', uri);
+        return uri;
+      }
+      
+      // Otherwise proceed with the original file upload logic
       // Convert URI to Blob with explicit type
       const response = await fetch(uri);
       if (!response.ok) throw new Error('Failed to fetch image');

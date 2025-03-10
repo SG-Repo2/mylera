@@ -17,8 +17,6 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { useAuth } from '@/src/providers/AuthProvider';
-import * as ImagePicker from 'expo-image-picker';
-import { leaderboardService } from '@/src/services/leaderboardService';
 
 interface DeviceOptionProps {
   title: string;
@@ -26,6 +24,12 @@ interface DeviceOptionProps {
   isSelected: boolean;
   onSelect: () => void;
   testID?: string;
+}
+
+interface AvatarOptionProps {
+  avatarIndex: number;
+  isSelected: boolean;
+  onSelect: () => void;
 }
 
 const DeviceOption = ({ title, icon, isSelected, onSelect, testID }: DeviceOptionProps) => (
@@ -52,6 +56,37 @@ const DeviceOption = ({ title, icon, isSelected, onSelect, testID }: DeviceOptio
   </Pressable>
 );
 
+const AvatarOption = ({ avatarIndex, isSelected, onSelect }: AvatarOptionProps) => {
+  // Map avatar index to the corresponding image
+  const getAvatarSource = (index: number) => {
+    switch (index) {
+      case 1: return require('@/assets/images/avatars/1.png');
+      case 2: return require('@/assets/images/avatars/2.png');
+      case 3: return require('@/assets/images/avatars/3.png');
+      case 4: return require('@/assets/images/avatars/4.png');
+      case 5: return require('@/assets/images/avatars/5.png');
+      case 6: return require('@/assets/images/avatars/6.png');
+      default: return require('@/assets/images/avatars/1.png');
+    }
+  };
+
+  return (
+    <Pressable 
+      onPress={onSelect} 
+      style={[
+        styles.avatarOption,
+        isSelected && styles.avatarOptionSelected
+      ]}
+      testID={`avatar-option-${avatarIndex}`}
+    >
+      <Image 
+        source={getAvatarSource(avatarIndex)} 
+        style={styles.avatarImage}
+      />
+    </Pressable>
+  );
+};
+
 export default function RegisterScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -66,33 +101,12 @@ export default function RegisterScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [deviceType, setDeviceType] = useState<'os' | 'fitbit' | ''>('');
-  const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('metric');
-  const [avatar, setAvatar] = useState<string | null>(null);
+  const [measurementSystem, setMeasurementSystem] = useState<'metric' | 'imperial'>('imperial');
+  const [selectedAvatar, setSelectedAvatar] = useState<number | null>(null);
   const [localError, setLocalError] = useState<Record<string, string>>({});
 
-  const handleAvatarPick = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        setLocalError({ avatar: 'Permission to access media library was denied' });
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0].uri) {
-        setAvatar(result.assets[0].uri);
-        setLocalError({ ...localError, avatar: '' });
-      }
-    } catch (err) {
-      setLocalError({ ...localError, avatar: 'Failed to select avatar image' });
-    }
-  };
+  // Available avatars (indices 1-6)
+  const avatarOptions = [1, 2, 3, 4, 5, 6];
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -135,6 +149,11 @@ export default function RegisterScreen() {
       hasError = true;
     }
 
+    if (selectedAvatar === null) {
+      errors.avatar = 'Please select an avatar';
+      hasError = true;
+    }
+
     setLocalError(errors);
     if (hasError) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -169,7 +188,7 @@ export default function RegisterScreen() {
         displayName: trimmedDisplayName,
         deviceType: deviceType as 'os' | 'fitbit',
         measurementSystem,
-        avatarUri: avatar,
+        avatarUri: selectedAvatar !== null ? selectedAvatar.toString() : null,
         showProfile: true
       });
 
@@ -341,24 +360,26 @@ export default function RegisterScreen() {
             )}
 
             <Text variant="titleMedium" style={styles.sectionTitle}>
-              Profile Picture (Optional)
+              Select an Avatar
             </Text>
-            <Pressable 
-              testID="avatar-picker"
-              onPress={handleAvatarPick} 
-              style={styles.avatarContainer}
-            >
-              {avatar ? (
-                <Image source={{ uri: avatar }} style={styles.avatar} />
-              ) : (
-                <MaterialCommunityIcons name="camera-plus" size={32} color={theme.colors.primary} />
-              )}
-            </Pressable>
             {localError.avatar && (
               <HelperText type="error" visible={true} style={styles.errorText}>
                 {localError.avatar}
               </HelperText>
             )}
+            <View style={styles.avatarContainer}>
+              {avatarOptions.map((index) => (
+                <AvatarOption
+                  key={index}
+                  avatarIndex={index}
+                  isSelected={selectedAvatar === index}
+                  onSelect={() => {
+                    setSelectedAvatar(index);
+                    setLocalError({ ...localError, avatar: '' });
+                  }}
+                />
+              ))}
+            </View>
 
             <Text variant="titleMedium" style={styles.sectionTitle}>
               Select Your Device
@@ -529,24 +550,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignSelf: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  avatar: {
+  avatarOption: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    marginVertical: 4,
+  },
+  avatarOptionSelected: {
+    borderColor: brandColors.primary,
+    borderWidth: 3,
+  },
+  avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 50,
   },
   sectionTitle: {
-    marginTop: 16,
+    marginTop: 12,
     marginBottom: 8,
     color: brandColors.primary,
     fontSize: 18,
