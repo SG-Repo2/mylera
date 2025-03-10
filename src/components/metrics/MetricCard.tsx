@@ -99,6 +99,7 @@ export const MetricCard = React.memo(function MetricCard({
       style={[
         styles.cardWrapper,
         {
+          backgroundColor: theme.colors.surface,
           transform: [{ scale: scaleAnim }],
           shadowOpacity: glowAnim.interpolate({
             inputRange: [0, 1],

@@ -8,9 +8,9 @@ const createStyles = (theme: MD3Theme) =>
       aspectRatio: 1,
     },
     cardShadowWrapper: {
-      borderRadius: theme.roundness * 2.5,
+      borderRadius: 20,
       height: '100%',
-      shadowColor: theme.colors.shadow || theme.colors.outline,
+      shadowColor: '#000',
       shadowOffset: {
         width: 0,
         height: 2,
@@ -20,16 +20,16 @@ const createStyles = (theme: MD3Theme) =>
       elevation: 3,
     },
     cardContentWrapper: {
-      borderRadius: theme.roundness * 2.5,
+      borderRadius: 20,
       overflow: 'hidden',
       height: '100%',
       backgroundColor: 'transparent',
     },
     detailCardShadow: {
-      borderRadius: theme.roundness * 2.5,
+      borderRadius: 20,
       marginHorizontal: 16,
       marginVertical: 8,
-      shadowColor: theme.colors.shadow || theme.colors.outline,
+      shadowColor: '#000',
       shadowOffset: {
         width: 0,
         height: 2,
@@ -39,12 +39,12 @@ const createStyles = (theme: MD3Theme) =>
       elevation: 3,
     },
     detailCardContent: {
-      borderRadius: theme.roundness * 2.5,
+      borderRadius: 20,
       overflow: 'hidden',
       backgroundColor: 'transparent',
     },
     ripple: {
-      borderRadius: theme.roundness * 2.5,
+      borderRadius: 20,
       height: '100%',
     },
     cardContent: {
@@ -61,11 +61,11 @@ const createStyles = (theme: MD3Theme) =>
     iconContainer: {
       width: 40,
       height: 40,
-      borderRadius: theme.roundness * 1.5,
+      borderRadius: 12,
       justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: 'transparent', // Color is passed as prop
-      shadowColor: theme.colors.shadow || theme.colors.outline,
+      shadowColor: '#000',
       shadowOffset: {
         width: 0,
         height: 2,
@@ -97,7 +97,7 @@ const createStyles = (theme: MD3Theme) =>
     },
     progressBar: {
       height: 6,
-      backgroundColor: theme.colors.surfaceVariant,
+      backgroundColor: 'rgba(0,0,0,0.05)',
       borderRadius: 3,
     },
     progressInfo: {

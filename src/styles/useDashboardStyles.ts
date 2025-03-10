@@ -14,6 +14,7 @@ const createStyles = (theme: MD3Theme) =>
       marginTop: 8,
       borderRadius: theme.roundness * 1.5,
       overflow: 'hidden',
+      backgroundColor: theme.colors.surface,
       ...Platform.select({
         ios: {
           shadowColor: theme.colors.shadow || theme.colors.outline,
