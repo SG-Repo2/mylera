@@ -136,15 +136,10 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   };
 
   const syncHealthData = useCallback(async (force = false) => {
-    // Set initialized immediately to ensure the UI is responsive
-    if (!isInitialized) {
-      dispatch({ type: 'INITIALIZE' });
-    }
-    
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
-      return false; // Return false to indicate sync did not happen
+      return false;
     }
     
     // Check for minimum time between syncs to prevent unnecessary operations
@@ -152,12 +147,12 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     const timeSinceLastSync = now - lastSyncTimeRef.current;
     if (!force && timeSinceLastSync < MIN_SYNC_INTERVAL && isInitialized) {
       console.log(`[useHealthData] Sync skipped - too soon (${timeSinceLastSync}ms since last sync)`);
-      return false; // Return false to indicate sync did not happen
+      return false;
     }
     
     if (!userId) {
       dispatch({ type: 'SYNC_ERROR', error: new Error('User ID is required to sync health data') });
-      return false; // Return false to indicate sync did not happen
+      return false;
     }
     
     isSyncInProgress.current = true;
@@ -170,22 +165,28 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     try {
       try {
         // Use the atomic initialization with permissions with a more robust timeout handling
+        console.log('[useHealthData] Initializing provider with permissions...');
         await Promise.race([
           provider.initializeWithPermissions(userId),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Health provider initialization timeout')), 10000) // Increased timeout to 10s
+            setTimeout(() => reject(new Error('Health provider initialization timeout')), 10000)
           )
         ]);
+        console.log('[useHealthData] Provider initialization successful');
       } catch (initError) {
-        console.error('[useHealthData] Provider initialization error:', initError);
-        // Still mark as initialized and handle error
+        console.error('[useHealthData] Provider initialization error:', 
+                      initError instanceof Error ? {
+                        message: initError.message,
+                        stack: initError.stack,
+                        name: initError.name
+                      } : 'Unknown error');
+        
         dispatch({ 
           type: 'SYNC_ERROR', 
           error: initError instanceof Error ? initError : new Error('Health provider initialization failed')
         });
         isSyncInProgress.current = false;
         
-        // Schedule retry with exponential backoff for network-related errors
         if (initError instanceof Error && 
             (initError.message.includes('network') || initError.message.includes('timeout')) &&
             syncAttempts.current < MAX_SYNC_ATTEMPTS) {
@@ -197,11 +198,10 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
             }
           }, backoffTime);
         } else {
-          // Reset backoff for non-retriable errors
           resetBackoff();
         }
         
-        return false; // Return false to indicate sync did not complete
+        return false;
       }
       
       // Check mount state before continuing
@@ -237,15 +237,21 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       let healthData;
       try {
         healthData = await provider.getMetrics();
+        console.log('[useHealthData] Successfully fetched metrics');
       } catch (metricError) {
-        console.error('[useHealthData] Error fetching metrics:', metricError);
+        console.error('[useHealthData] Error fetching metrics:', 
+                      metricError instanceof Error ? {
+                        message: metricError.message,
+                        stack: metricError.stack,
+                        name: metricError.name
+                      } : 'Unknown error');
+        
         dispatch({ 
           type: 'SYNC_ERROR',
           error: metricError instanceof Error ? metricError : new Error('Failed to fetch health metrics')
         });
         isSyncInProgress.current = false;
         
-        // Schedule retry with exponential backoff for network-related errors
         if (metricError instanceof Error && 
             (metricError.message.includes('network') || metricError.message.includes('timeout')) &&
             syncAttempts.current < MAX_SYNC_ATTEMPTS) {
@@ -257,11 +263,10 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
             }
           }, backoffTime);
         } else {
-          // Reset backoff for non-retriable errors
           resetBackoff();
         }
         
-        return;
+        return false;
       }
       
       // Check mount state before continuing
@@ -305,13 +310,19 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       syncResultsRef.current.metricUpdatesCount += successfulUpdates.length;
       syncResultsRef.current.failuresCount += failedMetrics.length;
       
-      // Log sync status
-      console.log(`[useHealthData] Sync complete - Updated: ${successfulUpdates.join(', ')} - Failed: ${failedMetrics.length > 0 ? failedMetrics.join(', ') : 'none'}`);
+      // Log sync status with more details
+      console.log('[useHealthData] Sync complete:', {
+        successfulUpdates,
+        failedMetrics,
+        totalAttempts: syncAttempts.current,
+        syncDuration: Date.now() - now
+      });
       
       // Reset error state and backoff on successful sync
-      dispatch({ type: 'SYNC_SUCCESS' });
+      dispatch({ type: 'SYNC_SUCCESS' });  // This will also set isInitialized to true
       resetBackoff();
       syncAttempts.current = 0;
+      return true;
     } catch (err) {
       // Preserve original error information
       const originalError = err instanceof Error ? err : new Error('Unknown error during health sync');
@@ -350,7 +361,6 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       }
     } finally {
       if (isMounted.current) {
-        // For state updates in finally, we're already using the reducer
         isSyncInProgress.current = false;
       }
     }
@@ -414,16 +424,12 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
-    // Always set these flags immediately
     isMounted.current = true;
     isSyncInProgress.current = false;
     
-    // Set initialized immediately so UI can render
-    dispatch({ type: 'INITIALIZE' });
-    
     if (!userId) {
       console.warn('useHealthData: No userId available - skipping sync');
-      dispatch({ type: 'SYNC_SUCCESS' }); // Just set loading to false
+      dispatch({ type: 'SYNC_SUCCESS' }); // Set loading to false and mark as initialized
       return;
     }
     
@@ -435,7 +441,6 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     }, 100);
     
     return () => {
-      // Clear all timers and cleanup
       clearTimeout(timer);
       clearBackoffTimer();
       isMounted.current = false;
