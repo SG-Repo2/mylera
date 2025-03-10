@@ -8,7 +8,8 @@ import {
   ActivityIndicator,
   Switch,
   ScrollView,
-  StyleSheet,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../providers/AuthProvider';
@@ -16,18 +17,11 @@ import { useRouter } from 'expo-router';
 import { leaderboardService } from '../../services/leaderboardService';
 import { UserProfile } from '../../types/leaderboard';
 import { ErrorView } from '../shared/ErrorView';
-import { theme } from '../../theme/theme';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../services/supabaseClient';
-
-// Add spacing constants to match theme
-const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-};
+import { profileStyles } from '../../styles/profileStyles';
+import { getAvatarDisplay } from '../../utils/avatarUtils';
+import AvatarDisplay from '../AvatarDisplay';
 
 export function Profile() {
   const router = useRouter();
@@ -42,6 +36,12 @@ export function Profile() {
   const [editingName, setEditingName] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingSystem, setUpdatingSystem] = useState(false);
+
+  // Add state for avatar modal
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+
+  // Available avatars
+  const avatarOptions = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
   const loadProfile = useCallback(async () => {
     if (!user) return;
@@ -174,50 +174,24 @@ export function Profile() {
   const handleAvatarUpdate = async () => {
     if (!user) return;
     
+    setShowAvatarModal(true);
+  };
+
+  const handleAvatarSelect = async (avatarId: number) => {
+    if (!user || !profile) return;
+    
     try {
       setLoading(true);
+      setShowAvatarModal(false);
       
-      // Request permissions first
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        setError(new Error('Permission to access media library was denied'));
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+      // Update profile with selected avatar ID
+      await leaderboardService.updateUserProfile(user.id, {
+        ...profile,
+        avatar_url: String(avatarId)
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const asset = result.assets[0];
-        if (!asset.uri) {
-          throw new Error('No image URI available');
-        }
-
-        try {
-          // Upload the image
-          const publicUrl = await leaderboardService.uploadAvatar(user.id, asset.uri);
-          
-          if (!publicUrl) {
-            throw new Error('Failed to get public URL for uploaded avatar');
-          }
-
-          // Update profile with new avatar URL
-          await leaderboardService.updateUserProfile(user.id, {
-            ...profile,
-            avatar_url: publicUrl
-          });
-
-          // Reload profile
-          await loadProfile();
-        } catch (uploadError) {
-          console.error('Error during avatar upload:', uploadError);
-          throw new Error('Failed to upload avatar. Please try again.');
-        }
-      }
+      // Reload profile
+      await loadProfile();
     } catch (err) {
       console.error('Error updating avatar:', err);
       setError(err instanceof Error ? err : new Error('Failed to update avatar'));
@@ -274,7 +248,7 @@ export function Profile() {
 
   if (loading && !profile && !error) {
     return (
-      <View style={styles.centered}>
+      <View style={profileStyles.centered}>
         <ActivityIndicator size="large" color="#0284c7" />
       </View>
     );
@@ -285,40 +259,41 @@ export function Profile() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <ScrollView style={profileStyles.container} contentContainerStyle={profileStyles.contentContainer}>
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
+      <View style={profileStyles.header}>
+        <Text style={profileStyles.headerTitle}>Profile</Text>
       </View>
 
       {/* Profile Card */}
-      <View style={styles.profileCard}>
+      <View style={profileStyles.profileCard}>
         {/* Avatar Section */}
-        <View style={styles.avatarSection}>
-          <Pressable style={styles.avatarWrapper} onPress={handleAvatarUpdate}>
+        <View style={profileStyles.avatarSection}>
+          <Pressable style={profileStyles.avatarWrapper} onPress={handleAvatarUpdate} testID="avatar-button">
             {profile?.avatar_url ? (
-              <Image 
-                source={{ uri: profile.avatar_url }} 
-                style={styles.avatar}
+              <AvatarDisplay 
+                avatarId={profile.avatar_url}
+                style={profileStyles.avatar}
+                testID="profile-avatar-image"
               />
             ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarText}>
-                  {profile?.display_name?.charAt(0).toUpperCase() ?? '?'}
+              <View style={profileStyles.avatarPlaceholder} testID="avatar-placeholder">
+                <Text style={profileStyles.avatarText}>
+                  {getAvatarDisplay(profile?.display_name, null).firstLetter}
                 </Text>
               </View>
             )}
-            <View style={styles.editAvatarButton}>
-              <MaterialCommunityIcons name="camera" size={16} color="#FFF" />
+            <View style={profileStyles.editAvatarButton}>
+              <MaterialCommunityIcons name="pencil" size={14} color="#ffffff" />
             </View>
           </Pressable>
         </View>
 
         {/* Name Section */}
-        <View style={styles.nameSection}>
+        <View style={profileStyles.nameSection}>
           {editingName ? (
             <TextInput
-              style={styles.input}
+              style={profileStyles.input}
               value={displayName}
               onChangeText={setDisplayName}
               placeholder="Display Name"
@@ -326,12 +301,12 @@ export function Profile() {
               autoFocus
             />
           ) : (
-            <View style={styles.displayNameContainer}>
-              <Text style={styles.displayName}>
+            <View style={profileStyles.displayNameContainer}>
+              <Text style={profileStyles.displayName}>
                 {displayName || 'Anonymous User'}
               </Text>
               <Pressable
-                style={styles.editNameButton}
+                style={profileStyles.editNameButton}
                 onPress={() => setEditingName(!editingName)}
               >
                 <MaterialCommunityIcons
@@ -344,13 +319,13 @@ export function Profile() {
           )}
         </View>
 
-        <Text style={styles.email}>{user?.email}</Text>
+        <Text style={profileStyles.email}>{user?.email}</Text>
       </View>
 
       {/* Settings Card */}
-      <View style={styles.settingsCard}>
-        <View style={styles.settingRow}>
-          <Text style={styles.settingLabel}>Show Profile Publicly</Text>
+      <View style={profileStyles.settingsCard}>
+        <View style={profileStyles.settingRow}>
+          <Text style={profileStyles.settingLabel}>Show Profile Publicly</Text>
           <Switch
             value={showProfile}
             onValueChange={setShowProfile}
@@ -358,8 +333,8 @@ export function Profile() {
             thumbColor={showProfile ? '#0284c7' : '#F3F4F6'}
           />
         </View>
-        <View style={[styles.settingRow, styles.settingBorder]}>
-          <Text style={styles.settingLabel}>Use Imperial Units</Text>
+        <View style={[profileStyles.settingRow, profileStyles.settingBorder]}>
+          <Text style={profileStyles.settingLabel}>Use Imperial Units</Text>
           <Switch
             disabled={updatingSystem}
             value={profile?.measurement_system === 'imperial'}
@@ -378,9 +353,9 @@ export function Profile() {
       </View>
 
       {/* Action Buttons */}
-      <View style={styles.buttonContainer}>
+      <View style={profileStyles.buttonContainer}>
         <Pressable
-          style={[styles.saveButton, saving && styles.buttonDisabled]}
+          style={[profileStyles.saveButton, saving && profileStyles.buttonDisabled]}
           onPress={handleSaveProfile}
           disabled={saving}
         >
@@ -392,202 +367,58 @@ export function Profile() {
                 name="content-save"
                 size={20}
                 color="#FFF"
-                style={styles.buttonIcon}
+                style={profileStyles.buttonIcon}
               />
-              <Text style={styles.buttonText}>Save Changes</Text>
+              <Text style={profileStyles.buttonText}>Save Changes</Text>
             </>
           )}
         </Pressable>
 
-        <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+        <Pressable style={profileStyles.signOutButton} onPress={handleSignOut}>
           <MaterialCommunityIcons
             name="logout"
             size={20}
             color="#FFF"
-            style={styles.buttonIcon}
+            style={profileStyles.buttonIcon}
           />
-          <Text style={styles.buttonText}>Sign Out</Text>
+          <Text style={profileStyles.buttonText}>Sign Out</Text>
         </Pressable>
       </View>
+
+      {/* Avatar Selection Modal */}
+      <Modal
+        visible={showAvatarModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowAvatarModal(false)}
+      >
+        <View style={profileStyles.modalOverlay}>
+          <View style={profileStyles.modalContent}>
+            <View style={profileStyles.modalHeader}>
+              <Text style={profileStyles.modalTitle}>Select Avatar</Text>
+              <Pressable onPress={() => setShowAvatarModal(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#000" />
+              </Pressable>
+            </View>
+            <FlatList
+              data={avatarOptions}
+              numColumns={3}
+              keyExtractor={(item) => item.toString()}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={profileStyles.avatarOption}
+                  onPress={() => handleAvatarSelect(item)}
+                >
+                  <AvatarDisplay
+                    avatarId={String(item)}
+                    style={profileStyles.avatarOptionImage}
+                  />
+                </Pressable>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  settingBorder: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  contentContainer: {
-    paddingBottom: 40,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    marginBottom: spacing.xl,
-  },
-  headerTitle: {
-    ...theme.fonts.headlineMedium,
-    color: theme.colors.onBackground,
-  },
-  errorText: {
-    ...theme.fonts.bodySmall,
-    color: theme.colors.error,
-    marginTop: spacing.xs,
-  },
-  section: {
-    marginBottom: spacing.xl,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: spacing.lg,
-    elevation: 1,
-  },
-  sectionTitle: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
-    marginBottom: spacing.md,
-  },
-  form: {
-    gap: spacing.md,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  profileCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: spacing.lg,
-    elevation: 1,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    padding: spacing.lg,
-    elevation: 1,
-  },
-  avatarWrapper: {
-    position: 'relative',
-  },
-  avatar: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: theme.colors.primary,
-  },
-  avatarPlaceholder: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    ...theme.fonts.headlineMedium,
-    color: theme.colors.onPrimary,
-  },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: theme.colors.primary,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  editNameButton: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  email: {
-    ...theme.fonts.bodyLarge,
-    color: theme.colors.onSurfaceVariant,
-  },
-  settingsCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.roundness,
-    elevation: 1,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
-  },
-  settingLabel: {
-    ...theme.fonts.bodyLarge,
-    color: theme.colors.onSurface,
-  },
-  buttonContainer: {
-    paddingHorizontal: 16,
-    gap: spacing.sm,
-  },
-  saveButton: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.roundness,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  signOutButton: {
-    backgroundColor: theme.colors.error,
-    borderRadius: theme.roundness,
-    padding: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonIcon: {
-    marginRight: spacing.sm,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  displayNameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-  },
-  displayName: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
-  },
-  input: {
-    ...theme.fonts.titleLarge,
-    color: theme.colors.onSurface,
-    borderBottomWidth: 2,
-    borderBottomColor: theme.colors.primary,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    minWidth: 200,
-  },
-});

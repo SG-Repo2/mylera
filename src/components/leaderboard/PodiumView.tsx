@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
-import { theme } from '../../theme/theme';
+import { View } from 'react-native';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
+import { podiumViewStyles } from '../../styles/podiumViewStyles';
 
 interface PodiumProps {
   topThree: LeaderboardEntryType[];
@@ -22,19 +22,19 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
   ].filter(item => item.entry !== null); // Filter out null entries
   
   return (
-    <View style={styles.outerContainer}>
-      <View style={styles.podiumContainer}>
+    <View style={podiumViewStyles.outerContainer}>
+      <View style={podiumViewStyles.podiumContainer}>
         {podiumOrder.map(({ entry, rank }) => (
           <View
             key={entry.user_id}
             style={[
-              styles.podiumItem,
-              rank === 1 && styles.firstPlace,
-              rank === 2 && styles.secondPlace,
-              rank === 3 && styles.thirdPlace,
+              podiumViewStyles.podiumItem,
+              rank === 1 && podiumViewStyles.firstPlace,
+              rank === 2 && podiumViewStyles.secondPlace,
+              rank === 3 && podiumViewStyles.thirdPlace,
             ]}
           >
-            <View style={styles.podiumEntryWrapper}>
+            <View style={podiumViewStyles.podiumEntryWrapper}>
               <LeaderboardEntry
                 entry={entry}
                 highlight={entry.user_id === currentUserId}
@@ -48,61 +48,3 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  outerContainer: {
-    marginHorizontal: 16,
-    marginVertical: 20,
-    backgroundColor: '#1E3A8A',
-    borderRadius: theme.roundness * 2,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  podiumContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    padding: 12,
-    paddingBottom: 18,
-  },
-  podiumItem: {
-    flex: 1,
-    marginHorizontal: 4,
-    minHeight: 120,
-    maxHeight: 160,
-  },
-  podiumEntryWrapper: {
-    flex: 1,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  firstPlace: {
-    transform: [{ translateY: -20 }],
-    zIndex: 3,
-  },
-  secondPlace: {
-    transform: [{ translateY: -10 }],
-    zIndex: 2,
-  },
-  thirdPlace: {
-    zIndex: 1,
-  },
-});

@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { isValidEmail, isValidPassword, doPasswordsMatch } from '@/src/utils/validation';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { authStyles } from '@/src/styles/authStyles';
+import AvatarDisplay from '@/src/components/AvatarDisplay';
 
 interface DeviceOptionProps {
   title: string;
@@ -58,19 +59,6 @@ const DeviceOption = ({ title, icon, isSelected, onSelect, testID }: DeviceOptio
 );
 
 const AvatarOption = ({ avatarIndex, isSelected, onSelect }: AvatarOptionProps) => {
-  // Map avatar index to the corresponding image
-  const getAvatarSource = (index: number) => {
-    switch (index) {
-      case 1: return require('@/assets/images/avatars/1.png');
-      case 2: return require('@/assets/images/avatars/2.png');
-      case 3: return require('@/assets/images/avatars/3.png');
-      case 4: return require('@/assets/images/avatars/4.png');
-      case 5: return require('@/assets/images/avatars/5.png');
-      case 6: return require('@/assets/images/avatars/6.png');
-      default: return require('@/assets/images/avatars/1.png');
-    }
-  };
-
   return (
     <Pressable 
       onPress={onSelect} 
@@ -79,9 +67,11 @@ const AvatarOption = ({ avatarIndex, isSelected, onSelect }: AvatarOptionProps) 
         isSelected && authStyles.avatarOptionSelected
       ]}
       testID={`avatar-option-${avatarIndex}`}
+      accessibilityLabel={`Avatar option ${avatarIndex}`}
+      accessibilityRole="button"
     >
-      <Image 
-        source={getAvatarSource(avatarIndex)} 
+      <AvatarDisplay 
+        avatarId={String(avatarIndex)}
         style={authStyles.avatarImage}
       />
     </Pressable>

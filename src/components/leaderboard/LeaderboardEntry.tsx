@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Animated, Platform } from 'react-native';
+import { View, Text, Image, Animated, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { LeaderboardEntry as LeaderboardEntryType } from '../../types/leaderboard';
-import { theme } from '../../theme/theme';
+import { leaderboardEntryStyles } from '../../styles/leaderboardEntryStyles';
+import AvatarDisplay from '../AvatarDisplay';
 
 const ANIMATION_DURATION = 300;
 const DEFAULT_AVATAR = require('../../../assets/images/favicon.png');
@@ -84,16 +85,18 @@ export function LeaderboardEntry({
 
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
+      // Log the avatar URL for debugging
+      console.log(`[LeaderboardEntry] Rendering avatar for ${display_name}:`, avatar_url);
+      
       return (
-        <Image 
-          source={{ uri: avatar_url }} 
-          defaultSource={DEFAULT_AVATAR}
+        <AvatarDisplay 
+          avatarId={avatar_url}
+          
           style={[
-            styles.avatar,
-            isPodium && position === 1 && styles.firstPlaceAvatar,
-            isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+            leaderboardEntryStyles.avatar,
+            isPodium && position === 1 && leaderboardEntryStyles.firstPlaceAvatar,
+            isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar
           ]}
-          testID="avatar-image"
         />
       );
     }
@@ -101,13 +104,13 @@ export function LeaderboardEntry({
     return (
       <View 
         style={[
-          styles.avatarPlaceholder,
-          isPodium && position === 1 && styles.firstPlaceAvatar,
-          isPodium && (position === 2 || position === 3) && styles.podiumAvatar
+          leaderboardEntryStyles.avatarPlaceholder,
+          isPodium && position === 1 && leaderboardEntryStyles.firstPlaceAvatar,
+          isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar
         ]} 
         testID="avatar-placeholder"
       >
-        <Text style={[styles.avatarLetter, highlight && styles.highlightText]}>
+        <Text style={[leaderboardEntryStyles.avatarLetter, highlight && leaderboardEntryStyles.highlightText]}>
           {display_name?.charAt(0).toUpperCase() ?? '?'}
         </Text>
       </View>
@@ -117,7 +120,7 @@ export function LeaderboardEntry({
   if (variant === 'podium') {
     return (
       <View
-        style={[styles.podiumContainer, highlight && styles.highlightBackground]}
+        style={[leaderboardEntryStyles.podiumContainer, highlight && leaderboardEntryStyles.highlightBackground]}
         testID="leaderboard-entry-podium"
       >
         {position === 1 && (
@@ -125,23 +128,23 @@ export function LeaderboardEntry({
             name="crown"
             size={32}
             color="#FFD700"
-            style={styles.crown}
+            style={leaderboardEntryStyles.crown}
           />
         )}
         <Animated.View 
           style={[
-            styles.podiumContent,
+            leaderboardEntryStyles.podiumContent,
             { transform: [{ scale: scaleAnim }] }
           ]}
         >
-          <View style={styles.podiumAvatarContainer}>
+          <View style={leaderboardEntryStyles.podiumAvatarContainer}>
             {renderAvatar(true)}
           </View>
           <Text 
             style={[
-              styles.podiumDisplayName, 
-              highlight && styles.highlightText,
-              position === 1 && styles.firstPlaceText
+              leaderboardEntryStyles.podiumDisplayName, 
+              highlight && leaderboardEntryStyles.highlightText,
+              position === 1 && leaderboardEntryStyles.firstPlaceText
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -151,9 +154,9 @@ export function LeaderboardEntry({
           </Text>
           <Animated.Text 
             style={[
-              styles.podiumPoints,
-              highlight && styles.highlightText,
-              position === 1 && styles.firstPlacePoints,
+              leaderboardEntryStyles.podiumPoints,
+              highlight && leaderboardEntryStyles.highlightText,
+              position === 1 && leaderboardEntryStyles.firstPlacePoints,
               {
                 transform: [{
                   translateY: pointsAnim.interpolate({
@@ -175,7 +178,7 @@ export function LeaderboardEntry({
 
   return (
     <View 
-      style={[styles.container, highlight && styles.highlightBackground]}
+      style={[leaderboardEntryStyles.container, highlight && leaderboardEntryStyles.highlightBackground]}
       accessibilityRole="text"
       accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
       accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
@@ -183,16 +186,16 @@ export function LeaderboardEntry({
     >
       <Animated.View 
         style={[
-          styles.mainContent,
+          leaderboardEntryStyles.mainContent,
           { transform: [{ scale: scaleAnim }] }
         ]}
       >
         {/* Rank */}
-        <View style={styles.rankContainer}>
+        <View style={leaderboardEntryStyles.rankContainer}>
           <Animated.Text 
             style={[
-              styles.rankText, 
-              highlight && styles.highlightText,
+              leaderboardEntryStyles.rankText, 
+              highlight && leaderboardEntryStyles.highlightText,
               {
                 transform: [{
                   translateY: rankAnim.interpolate({
@@ -209,14 +212,14 @@ export function LeaderboardEntry({
         </View>
 
         {/* Avatar */}
-        <View style={styles.avatarContainer}>
+        <View style={leaderboardEntryStyles.avatarContainer}>
           {renderAvatar()}
         </View>
 
         {/* User Info */}
-        <View style={styles.infoContainer}>
+        <View style={leaderboardEntryStyles.infoContainer}>
           <Text 
-            style={[styles.displayName, highlight && styles.highlightText]}
+            style={[leaderboardEntryStyles.displayName, highlight && leaderboardEntryStyles.highlightText]}
             testID="display-name"
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -226,8 +229,8 @@ export function LeaderboardEntry({
           </Text>
           <Animated.Text 
             style={[
-              styles.pointsText, 
-              highlight && styles.highlightText,
+              leaderboardEntryStyles.pointsText, 
+              highlight && leaderboardEntryStyles.highlightText,
               {
                 transform: [{
                   translateY: pointsAnim.interpolate({
@@ -248,167 +251,3 @@ export function LeaderboardEntry({
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderRadius: theme.roundness * 1.5,
-    backgroundColor: '#FFFFFF',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
-  mainContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  highlightBackground: {
-    backgroundColor: '#BFDBFE',
-  },
-  rankContainer: {
-    marginRight: 12,
-    width: 32,
-    alignItems: 'center',
-  },
-  rankText: {
-    ...theme.fonts.titleLarge,
-    color: '#1E293B',
-    fontWeight: '700',
-    fontSize: 24,
-  },
-  highlightText: {
-    color: '#1E3A8A',
-  },
-  avatarContainer: {
-    width: 56,
-    marginVertical: 8,
-  },
-  podiumAvatarContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginVertical: 8,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  avatarPlaceholder: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarLetter: {
-    ...theme.fonts.titleMedium,
-    color: '#64748B',
-  },
-  infoContainer: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  displayName: {
-    ...theme.fonts.titleMedium,
-    color: '#1E293B',
-    fontWeight: '600',
-    fontSize: 18,
-  },
-  pointsText: {
-    ...theme.fonts.bodyLarge,
-    color: '#64748B',
-    marginTop: 4,
-    fontSize: 16,
-  },
-  // Podium-specific styles
-  crown: {
-    position: 'absolute',
-    top: -16,
-    alignSelf: 'center',
-    zIndex: 1,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
-  },
-  podiumContainer: {
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: theme.roundness * 1.5,
-    backgroundColor: '#FFFFFF',
-    height: '100%',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  podiumContent: {
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 4,
-    paddingBottom: 8,
-    width: '100%',
-  },
-  podiumDisplayName: {
-    ...theme.fonts.titleMedium,
-    color: '#1E293B',
-    textAlign: 'center',
-    fontWeight: '600',
-    fontSize: 16,
-    paddingHorizontal: 4,
-    marginTop: 25,
-  },
-  firstPlaceText: {
-    ...theme.fonts.titleLarge,
-    color: '#1E3A8A',
-    fontWeight: '700',
-    fontSize: 20,
-  },
-  podiumPoints: {
-    ...theme.fonts.titleMedium,
-    color: '#64748B',
-    textAlign: 'center',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  firstPlacePoints: {
-    ...theme.fonts.titleLarge,
-    color: '#1E3A8A',
-    fontWeight: '700',
-    fontSize: 18,
-  },
-  firstPlaceAvatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 3,
-    borderColor: '#FFD700',
-  },
-  podiumAvatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
-  },
-});
