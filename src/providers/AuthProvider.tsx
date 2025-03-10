@@ -159,6 +159,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       showProfile?: boolean;
     }
   ) => {
+    // Track navigation timeout for cleanup
+    let navigationTimeoutId: NodeJS.Timeout | null = null;
+    
     // Prevent multiple parallel auth operations
     if (isAuthNavigationLocked) {
       console.log('[AuthProvider] Auth operation already in progress, ignoring new register request');
@@ -282,19 +285,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
           console.log('[AuthProvider] Health provider initialized successfully');
           
-          // NEW: Fetch initial metrics to ensure data is available
-          try {
-            await provider.getMetrics();
-            setHealthDataInitialized(true);
-          } catch (metricsError) {
-            console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
-            // Mark as initialized anyway to prevent blocking
-            setHealthDataInitialized(true);
+          // Fetch initial metrics only if permissions were granted
+          if (permissionStatus === 'granted') {
+            try {
+              console.log('[AuthProvider] Permissions granted, fetching initial metrics...');
+              await provider.getMetrics();
+              console.log('[AuthProvider] Initial metrics fetched successfully');
+            } catch (metricsError) {
+              console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
+            }
+          } else {
+            console.log('[AuthProvider] Permissions not granted, skipping metrics fetch');
           }
+
+          // Set health data initialized state once after all operations
+          console.log('[AuthProvider] Health initialization complete, marking data as initialized');
+          setHealthDataInitialized(true);
         } catch (healthPermissionError) {
           console.error('[AuthProvider] Error requesting health permissions:', healthPermissionError);
           // Don't block registration on health provider errors
           // Mark health data as initialized to avoid blocking the UI
+          console.log('[AuthProvider] Health permission error, marking data as initialized anyway');
           setHealthDataInitialized(true);
         }
         
@@ -303,6 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('[AuthProvider] Error initializing health provider:', healthError);
         // Don't block registration on health provider errors
         // Mark health data as initialized to avoid blocking the UI
+        console.log('[AuthProvider] Health provider error, marking data as initialized anyway');
         setHealthDataInitialized(true);
       }
       
@@ -310,8 +322,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthProvider] Adding delay before navigation after registration');
       await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay for stability
 
-      // Ensure health data is always initialized
-      setHealthDataInitialized(true);
+      // Final check to ensure health data is always initialized
+      if (!healthDataInitialized) {
+        console.log('[AuthProvider] Final check - ensuring health data is marked as initialized');
+        setHealthDataInitialized(true);
+      }
       
       // Log navigation state for debugging
       console.log('[AuthProvider] Registration complete, navigation state:', {
@@ -320,17 +335,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sessionInitialized: sessionInitialized.current
       });
 
-      // Create a safety timeout to force navigation if other methods fail
-      const forceNavigationTimeout = setTimeout(() => {
+      // Create safety timeout
+      navigationTimeoutId = setTimeout(() => {
         console.log('[AuthProvider] Forcing navigation due to timeout');
         router.replace('/(app)/(home)');
+        navigationTimeoutId = null;
       }, 2000);
 
       // Try normal navigation first
       if (navigatorMounted) {
         console.log('[AuthProvider] Navigator mounted, proceeding with direct navigation');
         router.replace('/(app)/(home)');
-        clearTimeout(forceNavigationTimeout);
+        if (navigationTimeoutId) {
+          clearTimeout(navigationTimeoutId);
+          navigationTimeoutId = null;
+        }
       } else {
         console.log('[AuthProvider] Navigator not mounted, queueing navigation');
         navigationQueue.enqueue('/(app)/(home)', 10);
@@ -345,6 +364,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setHealthDataInitialized(true);
       throw err; // Re-throw to allow caller to handle
     } finally {
+      // Clear any navigation timeout
+      if (navigationTimeoutId) {
+        clearTimeout(navigationTimeoutId);
+      }
+      
       setLoading(false);
       setIsAuthNavigationLocked(false); // Unlock navigation
       console.log('[AuthProvider] Registration process complete. Setting loading to false');
