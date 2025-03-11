@@ -171,6 +171,43 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
+  /**
+   * Safely initializes the health provider and permission manager.
+   * This method ensures both components are properly initialized with the correct user ID.
+   */
+  async safeInitialize(userId: string): Promise<PermissionStatus> {
+    if (!userId || userId === 'temp-user-id') {
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID:', userId);
+      throw new Error('Valid user ID is required for initialization');
+    }
+
+    logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization starting for user: ${userId}`);
+
+    try {
+      // First initialize the provider itself
+      await this.initialize();
+      
+      // Then ensure permission manager is initialized with the correct user ID
+      if (!this.permissionManager) {
+        logger.info(LogCategory.Health, `[GoogleHealthProvider] Initializing permission manager for user: ${userId}`);
+        await this.initializePermissions(userId);
+      }
+      
+      // Check current permission state
+      const permissionState = await this.checkPermissionsStatus();
+      const status = typeof permissionState === 'string' ? permissionState : permissionState.status;
+      
+      logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization completed with permission status: ${status}`);
+      return status as PermissionStatus;
+    } catch (error) {
+      logger.error(
+        LogCategory.Health, 
+        `[GoogleHealthProvider] Safe initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+      throw error;
+    }
+  }
+
   async requestPermissions(): Promise<PermissionStatus> {
     if (!this.permissionManager) {
       console.error('[GoogleHealthProvider] Cannot request permissions - permission manager not initialized');
@@ -361,6 +398,17 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     endDate: Date,
     types: MetricType[]
   ): Promise<RawHealthData> {
+    // Check if permission manager is initialized
+    if (!this.permissionManager) {
+      logger.warn(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Permission manager is null during fetchRawMetrics, attempting to initialize',
+      );
+      
+      // Use a temporary user ID since we can't access the current one
+      await this.initializePermissions('temp-user-id');
+    }
+
     // Check permissions before fetching
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
