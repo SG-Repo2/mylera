@@ -362,9 +362,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
     if (this.permissionManager) {
       try {
         await this.permissionManager.clearCache();
-        this.permissionManager = null;
       } catch (error) {
         logger.error(LogCategory.Health, '[BaseHealthProvider] Error clearing permission cache:');
+      } finally {
+        // Ensure permissionManager is set to null even if there's an error
+        this.permissionManager = null;
       }
     }
   }

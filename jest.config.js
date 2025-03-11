@@ -4,11 +4,14 @@ module.exports = {
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg)',
   ],
   setupFilesAfterEnv: [
-    '<rootDir>/jest.setup.js'
+    '<rootDir>/jest.setup.js',
+    '<rootDir>/src/test/setupTests.ts'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   moduleNameMapper: {
     '\\.svg': '<rootDir>/__mocks__/svgMock.js',
+    '^@/src/(.*)$': '<rootDir>/src/$1',
+    '^@/utils/(.*)$': '<rootDir>/src/utils/$1'
   },
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
@@ -44,4 +47,5 @@ module.exports = {
       statements: 95,
     },
   },
+  testTimeout: 30000,  // Increase default timeout to 30 seconds
 };

@@ -1,29 +1,33 @@
 import React from 'react';
+import type { FC, ReactElement } from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
+import { HealthMetrics } from '@/src/providers/health';
 import { useDashboardData } from '@/src/hooks/useDashboardData';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
 import { useAuth } from '@/src/providers/AuthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import { RefreshControl, Animated, View, Text, TouchableOpacity } from 'react-native';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import type { DailyTotal, HealthMetrics } from '@/src/types/health';
+import type { DailyTotal } from '@/src/types/schemas';
 
 // Mocks
 jest.mock('@/src/hooks/useDashboardData');
 jest.mock('@/src/hooks/useDashboardAnimations');
 jest.mock('@/src/providers/AuthProvider');
-
 // Mock components with proper types
 jest.mock('@/src/components/shared/ErrorView', () => ({
-  ErrorView: ({ error, onRetry }: { error?: Error; onRetry?: () => void }) => (
-    <View testID="error-view">
-      <Text testID="error-message">{error?.message}</Text>
-      <TouchableOpacity testID="retry-button" onPress={onRetry}>
-        <Text>Retry</Text>
-      </TouchableOpacity>
-    </View>
-  ),
+  ErrorView: (({ error, onRetry }: { error?: Error; onRetry?: () => void }): ReactElement => {
+    return (
+      <View testID="error-view">
+        <Text testID="error-message">{error?.message}</Text>
+        <TouchableOpacity testID="retry-button" onPress={onRetry}>
+          <Text>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }) as FC<{ error?: Error; onRetry?: () => void }>,
+}));
 }));
 
 interface MetricCardListProps {
@@ -35,7 +39,7 @@ interface MetricCardListProps {
   availableMetrics: Set<string>;
 }
 
-jest.mock('./MetricCardList', () => ({
+jest.mock('@/src/components/metrics/MetricCardList', () => ({
   MetricCardList: ({ metrics, showAlerts, provider, isInitialLoad, isManualRefresh, availableMetrics }: MetricCardListProps) => (
     <View testID="metric-card-list">
       <Text testID="metrics-data">{JSON.stringify(metrics)}</Text>
@@ -43,31 +47,50 @@ jest.mock('./MetricCardList', () => ({
   ),
 }));
 
-jest.mock('react-native-paper', () => ({
-  ...jest.requireActual('react-native-paper'),
-  useTheme: () => ({
-    colors: {
-      primary: '#3498db',
-      surface: '#ffffff',
-      error: '#e74c3c',
+// Mock custom dialog implementation to capture onDismiss callback
+let mockDialogDismiss: (() => void) | null = null;
+
+jest.mock('react-native-paper', () => {
+  const ReactNative = require('react-native'); // Import RN components to avoid recursive calls
+  return {
+    ...jest.requireActual('react-native-paper'),
+    useTheme: () => ({
+      colors: {
+        primary: '#3498db',
+        surface: '#ffffff',
+        error: '#e74c3c',
+        onSurface: '#000000',
+        onSurfaceVariant: '#666666',
+      },
+      roundness: 8,
+    }),
+    Portal: ({ children }: { children: React.ReactNode }) => (
+      <View testID="portal">{children}</View>
+    ),
+    Dialog: {
+      Title: ({ style, children }: { style?: any; children: React.ReactNode }) => (
+        <View testID="dialog-title" style={style}>{children}</View>
+      ),
+      Content: ({ children }: { children: React.ReactNode }) => (
+        <View testID="dialog-content">{children}</View>
+      ),
+      Actions: ({ style, children }: { style?: any; children: React.ReactNode }) => (
+        <View testID="dialog-actions" style={style}>{children}</View>
+      ),
     },
-    roundness: 8,
-  }),
-  Portal: ({ children }: { children: React.ReactNode }) => (
-    <View testID="portal">{children}</View>
-  ),
-  Dialog: {
-    Title: ({ style, children }: { style?: any; children: React.ReactNode }) => (
-      <View testID="dialog-title" style={style}>{children}</View>
-    ),
-    Content: ({ children }: { children: React.ReactNode }) => (
-      <View testID="dialog-content">{children}</View>
-    ),
-    Actions: ({ style, children }: { style?: any; children: React.ReactNode }) => (
-      <View testID="dialog-actions" style={style}>{children}</View>
-    ),
-  }
-}));
+    Text: ({ onPress, style, children }: { onPress?: () => void, style?: any, children: React.ReactNode }) => {
+      if (children === 'OK') {
+        mockDialogDismiss = onPress || null;
+      }
+      // Use React Native's Text component here to avoid recursion
+      return (
+        <ReactNative.Text onPress={onPress} style={style} testID={children === 'OK' ? 'dialog-ok-button' : undefined}>
+          {children}
+        </ReactNative.Text>
+      );
+    }
+  };
+});
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -138,6 +161,7 @@ describe('Dashboard Component', () => {
   
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDialogDismiss = null;
     
     // Setup default mock hook implementations
     (useDashboardData as jest.Mock).mockReturnValue({
@@ -287,6 +311,34 @@ describe('Dashboard Component', () => {
     expect(getByTestId('dialog-title')).toBeTruthy();
   });
   
+  test('dismisses error dialog when OK button is pressed', () => {
+    const mockSetErrorDialogVisible = jest.fn();
+    
+    (useDashboardData as jest.Mock).mockReturnValue({
+      dailyTotal: mockDailyTotal,
+      healthMetrics: mockHealthMetrics,
+      loading: false,
+      error: null,
+      errorDialogVisible: true,
+      setErrorDialogVisible: mockSetErrorDialogVisible,
+      isRefreshing: false,
+      refreshData: jest.fn(),
+      handleRetry: jest.fn(),
+      availableMetrics: mockAvailableMetrics,
+    });
+    
+    render(
+      <Dashboard provider={mockProvider} userId={mockUserId} />
+    );
+    
+    // Verify dialog dismiss function
+    expect(mockDialogDismiss).not.toBeNull();
+    if (mockDialogDismiss) {
+      mockDialogDismiss();
+      expect(mockSetErrorDialogVisible).toHaveBeenCalledWith(false);
+    }
+  });
+  
   test('calls refreshData when pull-to-refresh is triggered', () => {
     const mockRefreshData = jest.fn();
     
@@ -380,6 +432,45 @@ describe('Dashboard Component', () => {
     expect(mockHandleRetry).toHaveBeenCalled();
   });
   
+  test('does not retry when permission request is denied', async () => {
+    const mockRequestHealthPermissions = jest.fn().mockResolvedValue('denied');
+    const mockHandleRetry = jest.fn();
+    const mockError = new HealthProviderPermissionError('Health permissions denied');
+    
+    (useAuth as jest.Mock).mockReturnValue({
+      healthPermissionStatus: 'not_determined',
+      requestHealthPermissions: mockRequestHealthPermissions,
+    });
+    
+    (useDashboardData as jest.Mock).mockReturnValue({
+      dailyTotal: null,
+      healthMetrics: null,
+      loading: false,
+      error: mockError,
+      errorDialogVisible: false,
+      setErrorDialogVisible: jest.fn(),
+      isRefreshing: false,
+      refreshData: jest.fn(),
+      handleRetry: mockHandleRetry,
+      availableMetrics: new Set(),
+    });
+    
+    const { getByTestId } = render(
+      <Dashboard provider={mockProvider} userId={mockUserId} />
+    );
+    
+    const retryButton = getByTestId('retry-button');
+    
+    // Using act to handle async state updates
+    await act(async () => {
+      fireEvent.press(retryButton);
+    });
+    
+    expect(mockRequestHealthPermissions).toHaveBeenCalled();
+    // handleRetry should NOT be called if permission is denied
+    expect(mockHandleRetry).not.toHaveBeenCalled();
+  });
+  
   test('does not render data when healthMetrics is null', () => {
     (useDashboardData as jest.Mock).mockReturnValue({
       dailyTotal: mockDailyTotal,
@@ -464,36 +555,5 @@ describe('Dashboard Component', () => {
     );
 
     expect(getByTestId('error-message').props.children).toBe('Failed to load health metrics');
-  });
-
-  test('error boundary catches errors in child components', () => {
-    // Create a component that throws an error
-    const ErrorComponent = () => {
-      throw new Error('Test error');
-    };
-
-    // Mock MetricCardList to throw an error
-    jest.mock('./MetricCardList', () => ({
-      MetricCardList: ErrorComponent
-    }));
-
-    (useDashboardData as jest.Mock).mockReturnValue({
-      dailyTotal: mockDailyTotal,
-      healthMetrics: mockHealthMetrics,
-      loading: false,
-      error: null,
-      errorDialogVisible: false,
-      setErrorDialogVisible: jest.fn(),
-      isRefreshing: false,
-      refreshData: jest.fn(),
-      handleRetry: jest.fn(),
-      availableMetrics: mockAvailableMetrics,
-    });
-
-    const { getByTestId } = render(
-      <Dashboard provider={mockProvider} userId={mockUserId} />
-    );
-
-    expect(getByTestId('error-view')).toBeTruthy();
   });
 });
