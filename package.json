@@ -1,7 +1,7 @@
 {
   "name": "mylera",
   "main": "expo-router/entry",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",

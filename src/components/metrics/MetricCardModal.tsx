@@ -367,7 +367,9 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
                     metricType={metricType}
                     userId={userId}
                     date={date}
-                    provider={provider} measurementSystem={'metric'}                />
+                    provider={provider}
+                    measurementSystem={measurementSystem}
+                />
               )}
             </View>
 

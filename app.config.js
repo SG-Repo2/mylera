@@ -10,7 +10,7 @@ module.exports = {
   expo: {
     name: "mylera",
     slug: "mylera",
-    version: "1.0.3",
+    version: "1.0.5",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "mylera",
