@@ -28,6 +28,7 @@ export const useDashboardData = (
   const fetchIdRef = useRef(0);
   const isFetchingRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
+  const isMountedRef = useRef(true);
   
   // Use our renamed hook
   const {
@@ -81,10 +82,10 @@ export const useDashboardData = (
    * Fetch metrics data from API
    */
   const fetchData = useCallback(async (requestId: number) => {
-    if (!isInitialized || !userId || isFetchingRef.current) return;
+    if (!isInitialized || !userId || isFetchingRef.current || !isMountedRef.current) return;
     
     isFetchingRef.current = true;
-    setIsRefreshing(true);
+    if (isMountedRef.current) setIsRefreshing(true);
     
     try {
       console.log('Fetching health metrics data for:', { userId, date, requestId });
@@ -94,9 +95,9 @@ export const useDashboardData = (
         leaderboardService.getUserRank(userId, date)
       ]);
       
-      // Check if this response is stale
-      if (requestId !== fetchIdRef.current) {
-        console.log('Stale data response, ignoring');
+      // Check if this response is stale or component unmounted
+      if (requestId !== fetchIdRef.current || !isMountedRef.current) {
+        console.log('Stale data response or component unmounted, ignoring');
         return;
       }
       
@@ -111,31 +112,58 @@ export const useDashboardData = (
         updated_at: new Date().toISOString()
       };
       
-      setDailyTotal(userTotal);
-      setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
-      setUserRank(rank);
-      setFetchError(null);
+      if (isMountedRef.current) {
+        setDailyTotal(userTotal);
+        setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
+        setUserRank(rank);
+        setFetchError(null);
+      }
     } catch (err) {
-      // Only handle errors from current request
-      if (requestId !== fetchIdRef.current) return;
+      // Only handle errors from current request and if component is mounted
+      if (requestId !== fetchIdRef.current || !isMountedRef.current) return;
       console.error('Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
       setErrorDialogVisible(true);
     } finally {
-      if (requestId === fetchIdRef.current) {
+      if (requestId === fetchIdRef.current && isMountedRef.current) {
         setIsRefreshing(false);
-        isFetchingRef.current = false;
       }
+      isFetchingRef.current = false;
     }
   }, [userId, date, isInitialized, transformMetricsToHealthMetrics]);
 
   /**
    * Refresh metrics data manually
    */
-  const refreshData = useCallback(() => {
-    fetchIdRef.current += 1;
-    syncHealthData();
-    fetchData(fetchIdRef.current);
+  const refreshData = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    
+    try {
+      fetchIdRef.current += 1;
+      const currentFetchId = fetchIdRef.current;
+      
+      // Start refreshing indicator
+      if (isMountedRef.current) setIsRefreshing(true);
+      
+      // Sync health data first
+      await syncHealthData();
+      
+      // Only proceed if component is still mounted and request is still valid
+      if (isMountedRef.current && currentFetchId === fetchIdRef.current) {
+        await fetchData(currentFetchId);
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        console.error('Error refreshing data:', err);
+        setFetchError(err instanceof Error ? err : new Error('Failed to refresh metrics'));
+        setErrorDialogVisible(true);
+      }
+    } finally {
+      // Always ensure refreshing state is reset if component is mounted
+      if (isMountedRef.current) {
+        setIsRefreshing(false);
+      }
+    }
   }, [syncHealthData, fetchData]);
 
   /**
@@ -152,6 +180,7 @@ export const useDashboardData = (
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (
+        isMountedRef.current &&
         appStateRef.current.match(/inactive|background/) && 
         nextAppState === 'active'
       ) {
@@ -171,11 +200,20 @@ export const useDashboardData = (
    * Initial data fetch
    */
   useEffect(() => {
-    if (isInitialized) {
+    if (isInitialized && isMountedRef.current) {
       fetchIdRef.current += 1;
       fetchData(fetchIdRef.current);
     }
   }, [fetchData, isInitialized]);
+
+  /**
+   * Cleanup on component unmount
+   */
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   return {
     dailyTotal,

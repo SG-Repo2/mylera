@@ -103,9 +103,18 @@ export function ToggleableLeaderboard() {
 
   const onRefresh = useCallback(async () => {
     if (!isMountedRef.current) return;
+    
     setRefreshing(true);
-    await loadData(false);
-    if (isMountedRef.current) setRefreshing(false);
+    
+    try {
+      await loadData(false);
+    } catch (error) {
+      console.error("Error during refresh:", error);
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
   }, [loadData]);
 
   useEffect(() => {
@@ -159,6 +168,8 @@ export function ToggleableLeaderboard() {
           refreshing={refreshing}
           onRefresh={onRefresh}
           tintColor="#1E3A8A"
+          colors={["#1E3A8A"]}
+          progressBackgroundColor="#F0F9FF"
         />
       }
     >
