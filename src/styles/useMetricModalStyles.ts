@@ -105,6 +105,9 @@ const createStyles = (theme: MD3Theme) => {
     trendDown: {
       color: theme.colors.error,
     },
+    trendNeutral: {
+      color: theme.colors.onSurfaceVariant,
+    },
     chartContainer: {
       alignItems: 'center',
       marginVertical: screenWidth > 380 ? 24 : 16,

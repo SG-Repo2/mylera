@@ -10,6 +10,7 @@ const createStyles = (theme: MD3Theme) =>
     cardShadowWrapper: {
       borderRadius: 20,
       height: '100%',
+      backgroundColor: theme.colors.surface, // Added solid background color
       shadowColor: '#000',
       shadowOffset: {
         width: 0,

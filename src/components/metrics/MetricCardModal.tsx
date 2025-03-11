@@ -33,6 +33,11 @@ interface HealthTip {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }
 
+interface TrendData {
+  direction: 'up' | 'down' | 'neutral';
+  percentage: number;
+}
+
 const getHealthTip = (metricType: MetricType): HealthTip => {
   const tips: Record<MetricType, HealthTip> = {
     steps: {
@@ -67,6 +72,100 @@ const getHealthTip = (metricType: MetricType): HealthTip => {
   return tips[metricType];
 };
 
+// Group metrics by day and calculate daily totals
+const groupMetricsByDay = (metrics: any[]): Record<string, number> => {
+  const dailyTotals: Record<string, number> = {};
+  
+  metrics.forEach(metric => {
+    const date = new Date(metric.timestamp);
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    if (!dailyTotals[dateStr]) {
+      dailyTotals[dateStr] = 0;
+    }
+    
+    dailyTotals[dateStr] += metric.value;
+  });
+  
+  return dailyTotals;
+};
+
+// Calculate trend by comparing current value with historical data
+const calculateTrend = async (
+  provider: HealthProvider,
+  metricType: MetricType,
+  currentValue: number
+): Promise<TrendData> => {
+  try {
+    // Get current date and date range for the past 7 days (excluding today)
+    const today = new Date();
+    const endDateTime = new Date(today);
+    endDateTime.setDate(endDateTime.getDate() - 1); // Yesterday
+    
+    const startDateTime = new Date(today);
+    startDateTime.setDate(startDateTime.getDate() - 7); // 7 days ago
+    
+    console.log(`[calculateTrend] Fetching data from ${startDateTime.toISOString()} to ${endDateTime.toISOString()}`);
+    
+    // Fetch historical data
+    const rawData = await provider.fetchRawMetrics(
+      startDateTime,
+      endDateTime,
+      [metricType]
+    );
+    
+    // Normalize the data
+    const normalizedData = provider.normalizeMetrics(rawData, metricType);
+    console.log(`[calculateTrend] Found ${normalizedData.length} metrics for trend calculation`);
+    
+    if (normalizedData.length === 0) {
+      console.log('[calculateTrend] No historical data found, returning neutral trend');
+      return { direction: 'neutral', percentage: 0 };
+    }
+    
+    // Group metrics by day to get daily totals
+    const dailyTotals = groupMetricsByDay(normalizedData);
+    const dailyValues = Object.values(dailyTotals);
+    console.log(`[calculateTrend] Daily totals: ${JSON.stringify(dailyTotals)}`);
+    
+    if (dailyValues.length === 0) {
+      console.log('[calculateTrend] No daily values after grouping, returning neutral trend');
+      return { direction: 'neutral', percentage: 0 };
+    }
+    
+    // Calculate average of previous days
+    const totalValue = dailyValues.reduce((sum, value) => sum + value, 0);
+    const avgValue = totalValue / dailyValues.length;
+    console.log(`[calculateTrend] Average value from historical data: ${avgValue}`);
+    
+    // Skip if average is zero to avoid division by zero
+    if (avgValue === 0) {
+      console.log('[calculateTrend] Average is zero, returning neutral trend');
+      return { direction: 'neutral', percentage: 0 };
+    }
+    
+    // Calculate percentage change
+    const percentChange = ((currentValue - avgValue) / avgValue) * 100;
+    console.log(`[calculateTrend] Current value: ${currentValue}, Percent change: ${percentChange.toFixed(2)}%`);
+    
+    // Determine trend direction
+    let direction: 'up' | 'down' | 'neutral';
+    if (Math.abs(percentChange) < 5) {
+      direction = 'neutral';
+    } else {
+      direction = percentChange > 0 ? 'up' : 'down';
+    }
+    
+    return {
+      direction,
+      percentage: Math.abs(Math.round(percentChange))
+    };
+  } catch (error) {
+    console.error('[calculateTrend] Error calculating trend:', error);
+    return { direction: 'neutral', percentage: 0 };
+  }
+};
+
 export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   visible,
   onClose,
@@ -84,7 +183,7 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   const { user } = useAuth();
   const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
   const [isLoading, setIsLoading] = useState(true);
-  const [trend, setTrend] = useState<{ direction: 'up' | 'down' | 'neutral', percentage: number } | null>(null);
+  const [trend, setTrend] = useState<TrendData | null>(null);
   
   const translateY = React.useRef(new Animated.Value(500)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -107,21 +206,39 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
     [metricConfig.defaultGoal, metricType, measurementSystem]
   );
 
-  // Effect with cleanup for loading simulation
+  // Effect with cleanup for loading and trend calculation
   useEffect(() => {
     if (visible) {
       setIsLoading(true);
-      const timer = setTimeout(() => {
-        setTrend({
-          direction: Math.random() > 0.5 ? 'up' : 'down',
-          percentage: Math.round(Math.random() * 20)
-        });
-        setIsLoading(false);
-      }, 1000);
       
-      return () => clearTimeout(timer);
+      const fetchTrend = async () => {
+        try {
+          // Initialize provider if needed
+          await provider.initialize();
+          
+          // Calculate trend based on historical data
+          const numericValue = typeof value === 'string' ? parseFloat(value) : value;
+          console.log(`[MetricCardModal] Calculating trend for ${metricType} with current value: ${numericValue}`);
+          
+          const trendData = await calculateTrend(provider, metricType, numericValue);
+          console.log(`[MetricCardModal] Trend calculated: ${trendData.direction} ${trendData.percentage}%`);
+          
+          setTrend(trendData);
+          setIsLoading(false);
+        } catch (error) {
+          console.error('[MetricCardModal] Error fetching trend data:', error);
+          setTrend({ direction: 'neutral', percentage: 0 });
+          setIsLoading(false);
+        }
+      };
+      
+      fetchTrend();
+      
+      return () => {
+        // Cleanup if needed
+      };
     }
-  }, [visible]);
+  }, [visible, provider, metricType, value]);
 
   // Enhanced pulse animation for the value
   const pulseValue = useCallback(() => {
@@ -308,15 +425,31 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
                 {!isLoading && trend && (
                   <View style={styles.trendContainer}>
                     <MaterialCommunityIcons
-                      name={trend.direction === 'up' ? 'trending-up' : 'trending-down'}
+                      name={
+                        trend.direction === 'up' 
+                          ? 'trending-up' 
+                          : trend.direction === 'down' 
+                            ? 'trending-down' 
+                            : 'trending-neutral'
+                      }
                       size={20}
-                      color={trend.direction === 'up' ? brandColors.primary : theme.colors.error}
+                      color={
+                        trend.direction === 'up' 
+                          ? brandColors.primary 
+                          : trend.direction === 'down' 
+                            ? theme.colors.error 
+                            : theme.colors.onSurfaceVariant
+                      }
                     />
                     <Text style={[
                       styles.trendText,
-                      trend.direction === 'up' ? styles.trendUp : styles.trendDown
+                      trend.direction === 'up' 
+                        ? styles.trendUp 
+                        : trend.direction === 'down' 
+                          ? styles.trendDown 
+                          : styles.trendNeutral
                     ]}>
-                      {trend.percentage}%
+                      {trend.percentage > 0 ? `${trend.percentage}%` : 'No change'}
                     </Text>
                   </View>
                 )}

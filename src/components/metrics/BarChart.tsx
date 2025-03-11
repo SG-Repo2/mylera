@@ -365,7 +365,8 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     <View style={[styles.container, { 
       backgroundColor: error 
         ? theme.colors.errorContainer 
-        : theme.colors.surface 
+        : theme.colors.surface,
+      overflow: 'visible' // Explicitly set overflow to avoid shadow clipping
     }]}>
       {renderContent()}
     </View>

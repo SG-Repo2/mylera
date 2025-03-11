@@ -86,6 +86,24 @@ jest.mock('react-native-health-connect', () => ({
         ]
       });
     }
+    if (recordType === 'ExerciseSession') {
+      return Promise.resolve({
+        records: [
+          {
+            metadata: { id: 'exercise-1' },
+            startTime: '2023-01-01T08:00:00.000Z',
+            endTime: '2023-01-01T08:30:00.000Z',
+            exerciseType: 'running'
+          },
+          {
+            metadata: { id: 'exercise-2' },
+            startTime: '2023-01-01T16:00:00.000Z',
+            endTime: '2023-01-01T16:45:00.000Z',
+            exerciseType: 'walking'
+          }
+        ]
+      });
+    }
     return Promise.resolve({ records: [] });
   })
 }));
@@ -727,12 +745,40 @@ describe('GoogleHealthProvider', () => {
       const startDate = new Date('2023-01-01T00:00:00.000Z');
       const endDate = new Date('2023-01-01T23:59:59.999Z');
       
-      // Execute - this method currently returns empty array
+      // Mock exercise session data
+      const mockExerciseSessions = [
+        {
+          metadata: { id: 'exercise-1' },
+          startTime: '2023-01-01T08:00:00.000Z',
+          endTime: '2023-01-01T08:30:00.000Z',
+          exerciseType: 'running'
+        },
+        {
+          metadata: { id: 'exercise-2' },
+          startTime: '2023-01-01T16:00:00.000Z',
+          endTime: '2023-01-01T16:45:00.000Z',
+          exerciseType: 'walking'
+        }
+      ];
+      
+      // Mock readRecords to return exercise sessions
+      (readRecords as jest.Mock).mockImplementation((recordType, options) => {
+        if (recordType === 'ExerciseSession') {
+          return Promise.resolve(mockExerciseSessions);
+        }
+        return Promise.resolve([]);
+      });
+      
+      // Execute
       const result = await (provider as any).fetchExerciseWithDailyAggregation(startDate, endDate);
       
       // Verify
       expect(Array.isArray(result)).toBe(true);
-      expect(result).toHaveLength(0);
+      expect(result).toHaveLength(1); // One day of data
+      expect(result[0].value).toBe(75); // 30 + 45 minutes
+      expect(result[0].unit).toBe('minutes');
+      expect(result[0].startDate).toBe('2023-01-01T00:00:00.000Z');
+      expect(result[0].endDate).toBe('2023-01-01T23:59:59.999Z');
     });
   });
 

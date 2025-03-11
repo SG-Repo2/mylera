@@ -63,6 +63,15 @@ interface HeartRateRecord {
   }>;
 }
 
+interface ExerciseSessionRecord {
+  startTime: string;
+  endTime: string;
+  metadata: {
+    id: string;
+  };
+  exerciseType: number;
+}
+
 export class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
   private androidVersion: number | null = null;
@@ -312,6 +321,13 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         permissionResults.floorsClimbed = true;
       } catch (error) {
         console.warn('[GoogleHealthProvider] FloorsClimbed permission verification failed:', error);
+      }
+
+      try {
+        const exerciseResult = await readRecords('ExerciseSession', { timeRangeFilter: testRange });
+        permissionResults.exercise = true;
+      } catch (error) {
+        console.warn('[GoogleHealthProvider] ExerciseSession permission verification failed:', error);
       }
 
       // Log the results for debugging
@@ -792,14 +808,86 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
-  // New helper method to fetch exercise time with daily aggregation
   private async fetchExerciseWithDailyAggregation(
     startDate: Date,
     endDate: Date
   ): Promise<RawHealthMetric[]> {
-    // Currently Google Health Connect doesn't have a direct equivalent for exercise time.
-    // You could potentially use ExerciseSession records here in the future.
-    return [];
+    try {
+      const timeRangeFilter = {
+        operator: 'between',
+        startTime: startDate.toISOString(),
+        endTime: endDate.toISOString(),
+      };
+
+      // Fetch exercise sessions from Health Connect
+      const exerciseSessionsResult = await this.retryOperation(
+        () => readRecords('ExerciseSession', { 
+          timeRangeFilter: {
+            operator: 'between',
+            startTime: startDate.toISOString(),
+            endTime: endDate.toISOString(),
+          } 
+        })
+      );
+      
+      const exerciseSessions = (exerciseSessionsResult?.records as unknown) as ExerciseSessionRecord[] || [];
+
+      if (exerciseSessions.length === 0) {
+        return [];
+      }
+
+      logger.debug(
+        LogCategory.Health,
+        `[GoogleHealthProvider] Fetched ${exerciseSessions.length} exercise sessions`
+      );
+
+      // Group sessions by day and calculate total duration for each day
+      const dailyExerciseDurations = new Map<string, number>();
+
+      for (const session of exerciseSessions) {
+        const startDateTime = new Date(session.startTime);
+        const endDateTime = new Date(session.endTime);
+        
+        // Calculate duration in minutes
+        const durationMinutes = (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60);
+        
+        // Use date string as key (YYYY-MM-DD)
+        const dateKey = DateUtils.getLocalDateString(startDateTime);
+        
+        // Add duration to the appropriate day
+        const currentDuration = dailyExerciseDurations.get(dateKey) || 0;
+        dailyExerciseDurations.set(dateKey, currentDuration + durationMinutes);
+      }
+
+      // Convert to RawHealthMetric array
+      const metrics: RawHealthMetric[] = [];
+      
+      for (const [dateStr, durationMinutes] of dailyExerciseDurations.entries()) {
+        const date = new Date(dateStr);
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+        
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        metrics.push({
+          startDate: startOfDay.toISOString(),
+          endDate: endOfDay.toISOString(),
+          value: durationMinutes,
+          unit: METRIC_UNITS.EXERCISE, // 'minutes'
+          sourceBundle: 'com.google.android.apps.healthdata'
+        });
+      }
+
+      return metrics;
+    } catch (error) {
+      logger.error(
+        LogCategory.Health,
+        `[GoogleHealthProvider] Error fetching exercise sessions:`,
+        (error as Error).message
+      );
+      return [];
+    }
   }
 
   // New helper method to fetch floors climbed with daily aggregation
