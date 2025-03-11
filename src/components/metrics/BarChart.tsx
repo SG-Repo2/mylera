@@ -80,27 +80,6 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     [metricType, chartMetrics.maxValue, measurementSystem]
   );
 
-  // Enhanced day name function with better context
-  const getDayNameWithContext = (dateStr: string): { name: string, isToday: boolean } => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const d = new Date(dateStr);
-    const dayName = days[d.getDay()];
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize to start of day
-    
-    const dateToCheck = new Date(dateStr);
-    dateToCheck.setHours(0, 0, 0, 0); // Normalize to start of day
-    
-    const diffTime = today.getTime() - dateToCheck.getTime();
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return { name: `${dayName}\nToday`, isToday: true };
-    if (diffDays === 1) return { name: `${dayName}\nYest.`, isToday: false };
-    
-    return { name: dayName, isToday: false };
-  };
-
   useEffect(() => {
     let mounted = true;
     setLoading(true);
@@ -123,8 +102,7 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
 
         console.log('Date range:', { startDateStr, endDateStr });
 
-        // Get native health data for the full range ONLY
-        // Skip stored metrics completely
+        // Get native health data for the full range
         const rawData = await provider.fetchRawMetrics(
           startDateTime,
           endDateTime,
@@ -142,12 +120,11 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
           nativeDataMap.set(day, currentTotal + metric.value);
         });
 
-        // Enhanced logging to debug data availability
         console.log('Native data by day:', Object.fromEntries(nativeDataMap.entries()));
 
         // Fill data starting from current day going back 6 days
         const filledData: DataPoint[] = [];
-        for (let i = 0; i >= -6; i--) {
+        for (let i = -6; i <= 0; i++) {
           const d = new Date();
           d.setDate(d.getDate() + i);
           const dateStr = d.toLocaleDateString('en-CA');
@@ -155,21 +132,24 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
           // Get value directly from native data
           const value = nativeDataMap.get(dateStr) || 0;
           
-          const dayInfo = getDayNameWithContext(dateStr);
+          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const dayName = days[d.getDay()];
+          
+          const isToday = i === 0;
+          const isYesterday = i === -1;
           
           filledData.push({
             date: dateStr,
             value,
-            dayName: dayInfo.name,
-            isToday: dayInfo.isToday,
+            dayName: isToday ? `${dayName}\nToday` : 
+                    isYesterday ? `${dayName}\nYest.` : 
+                    dayName,
+            isToday,
             isEmpty: value === 0,
             animation: new Animated.Value(0)
           });
-          console.log(`${dayInfo.name} (${dateStr}): ${value}`);
+          console.log(`${dayName} (${dateStr}): ${value}`);
         }
-
-        // Reverse the array so most recent day is on the right
-        filledData.reverse();
 
         setData(filledData);
         setLoading(false);
@@ -286,13 +266,11 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
           <View style={styles.barsContainer}>
             {chartMetrics.validData.map((point, index) => {
               const normalizedValue = (point.value - chartMetrics.yMin) / chartMetrics.range;
-              // Ensure minimum bar height for visibility even with zero values
               const barHeight = Math.max(
                 Math.min(normalizedValue * chartHeight, chartHeight),
-                point.isEmpty ? 2 : 4 // Minimum height for bars with zero values
+                point.isEmpty ? 2 : 4
               );
               
-              // Use the appropriate metric color from healthMetrics configuration
               const color = point.isEmpty 
                 ? theme.colors.surfaceDisabled 
                 : healthMetrics[metricType].color;
@@ -303,10 +281,9 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                     <Text variant="bodySmall" style={[styles.barValue, { 
                       color: theme.colors.onSurface,
                       opacity: point.isToday ? 1 : 0.9,
-                      // Hide zero values in the label
                       display: point.isEmpty ? 'none' : 'flex'
                     }]}>
-                      {Math.round(point.value)}
+                      {formatTickValue(point.value, metricType, measurementSystem)}
                     </Text>
                   </View>
                   <Animated.View style={[styles.barContainer, {
@@ -315,10 +292,6 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                       outputRange: [0, barHeight],
                     }),
                     width: barWidth,
-                    // Use different background color for empty bars
-                    backgroundColor: point.isEmpty 
-                      ? theme.colors.surfaceDisabled + '80' // Lighter color for empty bars
-                      : color + '1A', // 10% opacity version for container
                     transform: [{
                       scaleY: point.animation.interpolate({
                         inputRange: [0, 0.8, 0.9, 1],
@@ -327,6 +300,17 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                     }],
                     transformOrigin: 'bottom'
                   }]}>
+                    <View 
+                      style={[
+                        styles.barOverlay, 
+                        {
+                          backgroundColor: point.isEmpty 
+                            ? theme.colors.surfaceDisabled + '80'
+                            : color + '1A',
+                        }
+                      ]} 
+                    />
+                    
                     <Svg height="100%" width="100%">
                       <Rect
                         x="0"

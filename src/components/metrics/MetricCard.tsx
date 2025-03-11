@@ -157,10 +157,22 @@ export const MetricCard = React.memo(function MetricCard({
                   style={styles.progressBar}
                 />
                 <View style={styles.progressInfo}>
-                  <Text variant="labelSmall" style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text 
+                    variant="labelSmall" 
+                    style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
                     {percentage}% of goal
                   </Text>
-                  <Text variant="labelSmall" style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}>
+                  <Text 
+                    variant="labelSmall" 
+                    style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
                     {points} pts {getPointsText} {displayUnit}
                   </Text>
                 </View>

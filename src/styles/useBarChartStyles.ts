@@ -10,6 +10,7 @@ const useBarChartStyles = () => {
       justifyContent: 'center',
       alignItems: 'center',
       borderRadius: 16,
+      backgroundColor: '#FFFFFF', // Add explicit solid background color
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -71,6 +72,7 @@ const useBarChartStyles = () => {
     barContainer: {
       marginBottom: 8,
       borderRadius: 4,
+      backgroundColor: '#FFFFFF', // Add solid background color
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -79,6 +81,14 @@ const useBarChartStyles = () => {
       shadowOpacity: 0.1,
       shadowRadius: 2,
       elevation: 2,
+    },
+    barOverlay: {  // New style for the semi-transparent overlay
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderRadius: 4,
     },
     dayLabel: {
       fontSize: 12,

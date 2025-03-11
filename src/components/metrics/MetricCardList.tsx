@@ -76,10 +76,7 @@ export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
   provider,
-  isInitialLoad = false,
-  isManualRefresh = false,
-  availableMetrics,
-  hasMinimumMetrics
+  isManualRefresh = false
 }: MetricCardListProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
   const [modalVisible, setModalVisible] = useState(false);

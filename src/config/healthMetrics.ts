@@ -105,6 +105,20 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
       maxPoints: 50
     }
   },
+  flights_climbed: {
+    id: 'flights_climbed',
+    title: 'Flights Climbed',
+    icon: 'stairs',
+    defaultGoal: 10,
+    unit: METRIC_UNITS.COUNT,
+    color: '#5856D6',
+    formatValue: formatters.flights_climbed,
+    calculateProgress: progressCalculators.flights_climbed,
+    pointIncrement: {
+      value: 0.5, // 2 points per flight
+      maxPoints: 20
+    }
+  },
   heart_rate: {
     id: 'heart_rate',
     title: 'Heart Rate',
@@ -146,21 +160,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
       value: 20, // 1 point per 20 calories
       maxPoints: 90
     }
-  },
-  flights_climbed: {
-    id: 'flights_climbed',
-    title: 'Flights Climbed',
-    icon: 'stairs',
-    defaultGoal: 10,
-    unit: METRIC_UNITS.COUNT,
-    color: '#5856D6',
-    formatValue: formatters.flights_climbed,
-    calculateProgress: progressCalculators.flights_climbed,
-    pointIncrement: {
-      value: 0.5, // 2 points per flight
-      maxPoints: 20
-    }
   }
+
 };
 
 export default healthMetrics;

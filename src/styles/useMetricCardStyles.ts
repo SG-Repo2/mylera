@@ -6,11 +6,14 @@ const createStyles = (theme: MD3Theme) =>
     cardWrapper: {
       minHeight: 160,
       aspectRatio: 1,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 20,
+      overflow: 'hidden',
     },
     cardShadowWrapper: {
       borderRadius: 20,
       height: '100%',
-      backgroundColor: theme.colors.surface, // Added solid background color
+      backgroundColor: theme.colors.surface,
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -19,6 +22,7 @@ const createStyles = (theme: MD3Theme) =>
       shadowOpacity: 0.1,
       shadowRadius: 4,
       elevation: 3,
+      overflow: 'hidden',
     },
     cardContentWrapper: {
       borderRadius: 20,
@@ -95,6 +99,7 @@ const createStyles = (theme: MD3Theme) =>
     },
     progressContainer: {
       gap: 6,
+      width: '100%',
     },
     progressBar: {
       height: 6,
@@ -104,6 +109,7 @@ const createStyles = (theme: MD3Theme) =>
     progressInfo: {
       flexDirection: 'column',
       gap: 4,
+      width: '100%',
     },
     progressText: {
       textAlign: 'right',
