@@ -3,17 +3,22 @@ import { Modal, View, Animated, Share, Platform } from 'react-native';
 import { Surface, Text, useTheme, Button } from 'react-native-paper';
 import { FontAwesome } from '@expo/vector-icons';
 import { useStyles } from '@/src/styles/GoalCelebration.styles';
+import { MetricType } from '@/src/types/schemas';
 
 interface GoalCelebrationProps {
   visible: boolean;
   onClose: () => void;
   bonusPoints: number;
+  metricType?: MetricType;
+  metricName?: string;
 }
 
 const GoalCelebration: React.FC<GoalCelebrationProps> = ({
   visible,
   onClose,
   bonusPoints,
+  metricType = 'steps',
+  metricName = 'step',
 }) => {
   const styles = useStyles();
   const theme = useTheme();
@@ -50,7 +55,7 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
   // Handle sharing via different platforms.
   const handleShare = async (platform: string) => {
     const message =
-      "I just reached my daily step goal! 🎉 Join me on my fitness journey!";
+      `I just reached my daily ${metricName} goal! 🎉 Join me on my fitness journey!`;
     const url = "https://yourapp.com/signup";
 
     try {
@@ -137,7 +142,7 @@ const GoalCelebration: React.FC<GoalCelebrationProps> = ({
               Congratulations!
             </Text>
             <Text variant="titleMedium" style={[styles.subtitle, { color: theme.colors.onSurface }]}>
-              You've reached your daily step goal!
+              You've reached your daily {metricName} goal!
             </Text>
             <Text variant="titleLarge" style={[styles.points, { color: theme.colors.primary }]}>
               +{bonusPoints} Bonus Points Earned!

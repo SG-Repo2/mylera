@@ -914,7 +914,13 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       (floorsResponse.records as any[]).forEach(record => {
         const day = new Date(record.startTime).toISOString().split('T')[0];
         const currentTotal = dailyTotals.get(day) || 0;
-        dailyTotals.set(day, currentTotal + record.floors);
+        
+        // Handle different possible field names for floors climbed
+        const floorCount = 
+          typeof record.floorsClimbed !== 'undefined' ? record.floorsClimbed :
+          typeof record.floors !== 'undefined' ? record.floors : 0;
+        
+        dailyTotals.set(day, currentTotal + floorCount);
       });
       
       // Create a complete daily dataset including days with no data
