@@ -12,6 +12,12 @@ export const DISPLAY_UNITS: Record<MetricType, Record<MeasurementSystem, string>
   flights_climbed: { metric: '', imperial: '' }
 };
 
+export interface FormattedMetricValue {
+  value: number;
+  unit: string;
+  rawValue?: number;
+}
+
 /**
  * Formats a metric value according to the user's preferred measurement system
  * @param value The raw metric value
@@ -23,7 +29,7 @@ export const formatMetricValue = (
   value: number, 
   metricType: MetricType, 
   system: MeasurementSystem = 'metric'
-): { value: number; unit: string } => {
+): FormattedMetricValue => {
   if (value === null || value === undefined || isNaN(value)) {
     return { value: 0, unit: DISPLAY_UNITS[metricType][system] };
   }
@@ -42,9 +48,12 @@ export const formatMetricValue = (
       };
     
     case 'steps':
+      // For steps, we want to keep the raw value but indicate if it should be displayed in K format
+      const shouldUseKFormat = value >= 10000;
       return { 
-        value: value >= 10000 ? parseFloat((value / 1000).toFixed(1)) : value, 
-        unit: value >= 10000 ? 'k' : '' 
+        value: shouldUseKFormat ? parseFloat((value / 1000).toFixed(1)) : value,
+        unit: shouldUseKFormat ? 'K' : '',
+        rawValue: value // Keep the raw value for calculations
       };
       
     case 'calories':

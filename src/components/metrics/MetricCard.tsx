@@ -6,7 +6,7 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
 import { useAuth } from '@/src/providers/AuthProvider';
-import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
+import { DISPLAY_UNITS, MeasurementSystem, FormattedMetricValue } from '@/src/utils/unitConversion';
 import { useMetricCardAnimations } from '@/src/hooks/useMetricCardAnimations';
 
 interface MetricCardProps {
@@ -52,14 +52,28 @@ export const MetricCard = React.memo(function MetricCard({
   );
   
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
-  const formattedValue = useMemo(() => 
-    healthMetrics[metricType].formatValue(value ?? 0, measurementSystem),
-    [value, metricType, measurementSystem]
-  );
+  const formattedValue = useMemo(() => {
+    const formatted = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
+    console.log(`[MetricCard] Formatting ${metricType} value:`, {
+      input: value,
+      formatted,
+      measurementSystem
+    });
+    return formatted;
+  }, [value, metricType, measurementSystem]);
+
+  const displayValue = useMemo(() => {
+    if (metricType === 'steps' && formattedValue.unit === 'K') {
+      return `${formattedValue.value}K`;
+    }
+    return formattedValue.value.toLocaleString();
+  }, [metricType, formattedValue]);
+
   const displayUnit = useMemo(() => 
-    DISPLAY_UNITS[metricType][measurementSystem],
-    [metricType, measurementSystem]
+    formattedValue.unit === 'K' ? '' : DISPLAY_UNITS[metricType][measurementSystem],
+    [metricType, measurementSystem, formattedValue]
   );
+
   const percentage = useMemo(() => Math.round(progress * 100), [progress]);
   
   const {
@@ -142,7 +156,7 @@ export const MetricCard = React.memo(function MetricCard({
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: combinedValueChangeAnim }] }}>
                   <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
-                    {formattedValue}
+                    {displayValue}
                   </Text>
                 </Animated.View>
                 <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>

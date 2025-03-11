@@ -707,28 +707,52 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       const heartRateResponse = await this.retryOperation(
         () => readRecords('HeartRate', { 
           timeRangeFilter,
-          ascendingOrder: false,
-          pageSize: 100
+          ascendingOrder: true
         })
       );
+      
+      console.log('[GoogleHealthProvider] Raw heart rate response:', JSON.stringify(heartRateResponse, null, 2));
       
       // Group data by day and calculate average heart rate for each day
       const dailyHeartRates = new Map<string, number[]>();
       
+      if (!heartRateResponse?.records) {
+        console.warn('[GoogleHealthProvider] No heart rate records found');
+        return [];
+      }
+      
       (heartRateResponse.records as HeartRateRecord[]).forEach(record => {
+        console.log('[GoogleHealthProvider] Processing heart rate record:', JSON.stringify(record, null, 2));
+        
+        // Check if record has the expected structure
+        if (!record || !record.samples || !Array.isArray(record.samples)) {
+          console.warn('[GoogleHealthProvider] Invalid heart rate record structure:', record);
+          return;
+        }
+        
         // Filter valid heart rate samples
         const validSamples = record.samples
-          .filter(sample => 
-            typeof sample.beatsPerMinute === 'number' &&
-            !isNaN(sample.beatsPerMinute) &&
-            sample.beatsPerMinute > 30 &&
-            sample.beatsPerMinute < 220
-          )
+          .filter(sample => {
+            const isValid = typeof sample.beatsPerMinute === 'number' &&
+              !isNaN(sample.beatsPerMinute) &&
+              sample.beatsPerMinute > 30 &&
+              sample.beatsPerMinute < 220;
+              
+            if (!isValid) {
+              console.warn('[GoogleHealthProvider] Invalid heart rate sample:', sample);
+            }
+            
+            return isValid;
+          })
           .map(sample => sample.beatsPerMinute);
         
-        if (validSamples.length === 0) return;
+        if (validSamples.length === 0) {
+          console.warn('[GoogleHealthProvider] No valid samples in record');
+          return;
+        }
         
         const day = new Date(record.startTime).toISOString().split('T')[0];
+        console.log(`[GoogleHealthProvider] Adding ${validSamples.length} samples for day ${day}`);
         
         if (!dailyHeartRates.has(day)) {
           dailyHeartRates.set(day, []);
@@ -752,8 +776,14 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         const heartRates = dailyHeartRates.get(dateStr);
         
         if (heartRates && heartRates.length > 0) {
-          // Calculate simple average
-          avgHeartRate = heartRates.reduce((sum, val) => sum + val, 0) / heartRates.length;
+          // Calculate average, removing outliers
+          const sortedRates = [...heartRates].sort((a, b) => a - b);
+          const q1Index = Math.floor(sortedRates.length * 0.25);
+          const q3Index = Math.floor(sortedRates.length * 0.75);
+          const validRates = sortedRates.slice(q1Index, q3Index + 1);
+          
+          avgHeartRate = validRates.reduce((sum, val) => sum + val, 0) / validRates.length;
+          console.log(`[GoogleHealthProvider] Calculated average heart rate for ${dateStr}: ${avgHeartRate} from ${validRates.length} samples`);
         }
         
         result.push({

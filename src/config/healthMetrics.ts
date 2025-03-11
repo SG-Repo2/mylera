@@ -1,24 +1,17 @@
 import { MetricType } from '../types/metrics';
 import { METRIC_UNITS } from '../providers/health/types/metrics';
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
-import { formatMetricValue, MeasurementSystem } from '../utils/unitConversion';
+import { formatMetricValue, FormattedMetricValue, MeasurementSystem } from '../utils/unitConversion';
 
 // Helper functions for formatting values with measurement system support
 const formatters = {
-  steps: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'steps', system).value.toLocaleString(),
-  distance: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'distance', system).value.toString(),
-  calories: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'calories', system).value.toLocaleString(),
-  heart_rate: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'heart_rate', system).value.toString(),
-  exercise: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'exercise', system).value.toString(),
-  basal_calories: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'basal_calories', system).value.toLocaleString(),
-  flights_climbed: (value: number, system: MeasurementSystem = 'metric') => 
-    formatMetricValue(value, 'flights_climbed', system).value.toString(),
+  steps: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'steps', system),
+  distance: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'distance', system),
+  calories: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'calories', system),
+  heart_rate: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'heart_rate', system),
+  exercise: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'exercise', system),
+  basal_calories: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'basal_calories', system),
+  flights_climbed: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'flights_climbed', system),
 };
 
 // Helper functions for calculating progress (0-1)
@@ -48,7 +41,7 @@ export interface MetricConfig {
   defaultGoal: number;
   unit: string;
   color: string;
-  formatValue: (value: any, system?: MeasurementSystem) => string;
+  formatValue: (value: number, system?: MeasurementSystem) => FormattedMetricValue;
   calculateProgress: (value: any, goal: any) => number;
   pointIncrement: {
     value: number;    // Amount of metric value per point

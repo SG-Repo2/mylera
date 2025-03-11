@@ -419,7 +419,7 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: valueScale }] }}>
                   <Text variant="displayMedium" style={[styles.modalValue, { color: metricColor }]}>
-                    {metricConfig.formatValue(value, measurementSystem)} {displayUnit}
+                    {metricConfig.formatValue(typeof value === 'string' ? parseFloat(value) : value, measurementSystem).value} {displayUnit}
                   </Text>
                 </Animated.View>
                 {!isLoading && trend && (

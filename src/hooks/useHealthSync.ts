@@ -454,22 +454,36 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   // Add a safety timeout to prevent infinite loading
   useEffect(() => {
     if (loading) {
+      const SAFETY_TIMEOUT = 15000; // Increase to 15 seconds
       const timer = setTimeout(() => {
         if (isMounted.current && loading) {
-          console.warn('[useHealthData] Safety timeout triggered - forcing loading state to false');
+          console.warn('[useHealthData] Health data sync taking longer than expected');
           
-          dispatch({ 
-            type: 'SYNC_ERROR', 
-            error: error || new Error('Health initialization timed out')
-          });
-          
-          isSyncInProgress.current = false;
+          // Only force error state if we're not in the middle of retrying
+          if (!backoffTimerRef.current) {
+            console.warn('[useHealthData] Safety timeout triggered - no retry in progress');
+            dispatch({ 
+              type: 'SYNC_ERROR', 
+              error: new Error('Health data sync timed out. Please try again.')
+            });
+            
+            isSyncInProgress.current = false;
+            resetBackoff();
+          }
         }
-      }, 5000); // Force loading to end after 5 seconds
+      }, SAFETY_TIMEOUT);
       
       return () => clearTimeout(timer);
     }
-  }, [loading, error]);
+  }, [loading]);
+
+  // Add immediate initialization check
+  useEffect(() => {
+    if (!isInitialized && !loading && !error) {
+      console.log('[useHealthData] Triggering immediate initialization');
+      syncHealthData(true);
+    }
+  }, [isInitialized, loading, error, syncHealthData]);
 
   return { loading, error, syncHealthData, isInitialized };
 };
