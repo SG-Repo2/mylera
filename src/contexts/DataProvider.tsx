@@ -3,8 +3,8 @@ import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { MeasurementSystem } from '@/src/utils/unitConversion';
 
 interface DataContextProps {
-  provider: HealthProvider | null;
-  userId: string | null;
+  provider: HealthProvider;
+  userId: string;
   date: string;
   measurementSystem: MeasurementSystem;
 }
