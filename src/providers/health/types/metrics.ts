@@ -6,27 +6,26 @@ export interface RawHealthMetric {
   endDate: string;
   value: number;
   unit: string;
-  sourceBundle?: string;  // For platform-specific source identification
+  sourceBundle?: string; // For platform-specific source identification
 }
 
 export interface RawHealthData {
   steps?: RawHealthMetric[];
-  distance?: RawHealthMetric[];  // In meters
-  calories?: RawHealthMetric[];  // Active calories burned
-  heart_rate?: RawHealthMetric[];  // BPM readings
-  exercise?: RawHealthMetric[];  // Exercise minutes
-  basal_calories?: RawHealthMetric[];  // Resting calories burned
-  flights_climbed?: RawHealthMetric[];  // Flights of stairs
-
+  distance?: RawHealthMetric[]; // In meters
+  calories?: RawHealthMetric[]; // Active calories burned
+  heart_rate?: RawHealthMetric[]; // BPM readings
+  exercise?: RawHealthMetric[]; // Exercise minutes
+  basal_calories?: RawHealthMetric[]; // Resting calories burned
+  flights_climbed?: RawHealthMetric[]; // Flights of stairs
 }
 
 // Normalized metric with standardized units
 export interface NormalizedMetric {
-  timestamp: string;      // ISO string
+  timestamp: string; // ISO string
   value: number;
-  unit: string;          // Using string literals instead of enum
+  unit: string; // Using string literals instead of enum
   type: MetricType;
-  confidence?: number;   // Optional confidence score (0-1)
+  confidence?: number; // Optional confidence score (0-1)
 }
 
 // Standardized units as string literals
@@ -36,7 +35,7 @@ export const METRIC_UNITS = {
   CALORIES: 'kcal',
   HEART_RATE: 'bpm',
   EXERCISE: 'minutes',
-  COUNT: 'count'
+  COUNT: 'count',
 } as const;
 
 // Aggregated health metrics for storage/display
@@ -71,9 +70,7 @@ export const UNIT_CONVERSIONS: Record<string, UnitConversion[]> = {
   distance: [
     { from: 'miles', to: 'meters', ratio: 1609.34 },
     { from: 'kilometers', to: 'meters', ratio: 1000 },
-    { from: 'feet', to: 'meters', ratio: 0.3048 }
+    { from: 'feet', to: 'meters', ratio: 0.3048 },
   ],
-  calories: [
-    { from: 'joules', to: 'kcal', ratio: 0.000239006 }
-  ]
+  calories: [{ from: 'joules', to: 'kcal', ratio: 0.000239006 }],
 };
