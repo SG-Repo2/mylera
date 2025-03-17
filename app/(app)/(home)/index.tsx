@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { useAuth } from '@/src/providers/AuthProvider';
-import { HealthProviderFactory } from '@/src/providers/health';
+import { useHealth } from '@/src/providers/HealthProvider';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
 import { theme } from '@/src/theme/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,9 +26,12 @@ const LoadingScreen = React.memo(() => {
 });
 
 export default function HomeScreen() {
-  const { user, loading } = useAuth();
-  const provider = useMemo(() => HealthProviderFactory.getProvider(), []);
+  const { user, loading: authLoading } = useAuth();
+  const { getProvider, isLoading: healthLoading } = useHealth();
+  const provider = useMemo(() => getProvider(), [getProvider]);
   const insets = useSafeAreaInsets();
+
+  const loading = authLoading || healthLoading;
 
   if (loading) {
     return <LoadingScreen />;

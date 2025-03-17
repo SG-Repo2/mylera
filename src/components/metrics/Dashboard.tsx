@@ -5,6 +5,7 @@ import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { MetricCardList } from './MetricCardList';
 import { useAuth } from '@/src/providers/AuthProvider';
+import { useHealth } from '@/src/providers/HealthProvider';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
@@ -29,8 +30,6 @@ interface ErrorDialogProps {
   onDismiss: () => void;
   message?: string; // Add customizable error message
 }
-
-// Add prop types validation
 
 // Add loading state customization
 interface LoadingViewProps {
@@ -171,7 +170,7 @@ export const Dashboard = React.memo(function Dashboard({
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { healthPermissionStatus, requestHealthPermissions } = useAuth();
+  const { requestPermissions } = useHealth();
   
   // Use our custom hooks
   const {
@@ -192,14 +191,14 @@ export const Dashboard = React.memo(function Dashboard({
   // Extended retry handler that checks permissions
   const extendedRetryHandler = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
-      const status = await requestHealthPermissions();
+      const status = await requestPermissions();
       if (status === 'granted') {
         handleRetry();
       }
     } else {
       handleRetry();
     }
-  }, [error, requestHealthPermissions, handleRetry]);
+  }, [error, requestPermissions, handleRetry]);
 
   // Enhanced loading state check - ensure we have data before exiting loading state
   const isLoading = loading || (!healthMetrics && !error && !dailyTotal);
@@ -210,9 +209,9 @@ export const Dashboard = React.memo(function Dashboard({
   }
 
   // Render error state with type narrowing
-  if (error || healthPermissionStatus === 'denied') {
+  if (error) {
     return <ErrorView 
-      error={error || new HealthProviderPermissionError('Health permissions denied')} 
+      error={error} 
       onRetry={extendedRetryHandler} 
     />;
   }

@@ -18,6 +18,7 @@ import {
   metricOrder
 } from '@/src/hooks/useMetricCardListAnimations';
 import { useGoalCelebration } from '@/src/hooks/useGoalCelebration';
+
 interface MetricCardListProps {
   metrics: HealthMetrics;
   provider: HealthProvider;

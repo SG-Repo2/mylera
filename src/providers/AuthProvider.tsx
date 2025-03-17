@@ -1,33 +1,19 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useRef, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/src/services/supabaseClient';
 import { PermissionStatus } from '@/src/providers/health/types/permissions';
-import { initializeHealthProviderForUser } from '../utils/healthInitUtils';
-import { mapAuthError } from '../utils/errorUtils';
-import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
+import { standardizeError, logError } from '../utils/errorUtils';
 import { leaderboardService } from '@/src/services/leaderboardService';
-import { router } from 'expo-router';
-import { navigationQueue } from '@/src/utils/NavigationUtils';
 import { useNavigationReady } from '@/src/contexts/NavigationReadyContext';
+import { navigationQueue } from '@/src/utils/NavigationUtils';
+import { authReducer, initialAuthState, authActions, AuthState } from '../reducers/authReducer';
+import { useHealthPermissions } from '../hooks/useHealthPermissions';
+import { useAuthNavigation } from '../hooks/useAuthNavigation';
 
-// Add health data initialization state
-interface AuthContextType {
-  session: Session | null;
-  user: User | null;
-  loading: boolean;
-  error: string | null;
-  healthPermissionStatus: PermissionStatus | null;
-  healthDataInitialized: boolean; // New state to track health data initialization
-  register: (email: string, password: string, profileData?: RegisterProfileData) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-  requestHealthPermissions: () => Promise<PermissionStatus>;
-  needsHealthSetup: () => boolean;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-interface RegisterProfileData {
+/**
+ * Interface for profile data during registration
+ */
+export interface RegisterProfileData {
   displayName: string;
   deviceType: 'os' | 'fitbit';
   measurementSystem: 'metric' | 'imperial';
@@ -35,100 +21,94 @@ interface RegisterProfileData {
   showProfile?: boolean;
 }
 
-type PermissionState = { status: string } | string;
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [healthPermissionStatus, setHealthPermissionStatus] = useState<PermissionStatus | null>(null);
-  const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(false);
-  // Add new state for health data initialization
-  const [healthDataInitialized, setHealthDataInitialized] = useState(false);
+/**
+ * Auth context interface for consuming components
+ */
+export interface AuthContextType {
+  // State
+  session: Session | null;
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+  healthPermissionStatus: PermissionStatus | null;
+  healthDataInitialized: boolean; 
   
-  // Update how we import and use the navigation ready state
-  const { isReady: navigatorMounted, isPermissionsHandled } = useNavigationReady();
+  // Auth methods
+  register: (email: string, password: string, profileData?: RegisterProfileData) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  
+  // Health methods
+  requestHealthPermissions: () => Promise<PermissionStatus>;
+  needsHealthSetup: () => boolean;
+}
 
+// Create the context with undefined default value
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/**
+ * Authentication Provider Component
+ * Handles user authentication state and health permissions
+ */
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Use reducer for state management instead of multiple useState
+  const [state, dispatch] = useReducer(authReducer, initialAuthState);
+  
   // Track session initialization
   const sessionInitialized = useRef(false);
+  
+  // Get navigation ready state
+  const { isReady: navigatorMounted } = useNavigationReady();
+  
+  // Use auth navigation hook for navigation logic
+  const {
+    navigateToHome,
+    navigateToLogin,
+    processQueuedNavigation
+  } = useAuthNavigation();
+  
+  // Use health permissions hook for health-related logic
+  const healthPermissions = useHealthPermissions(state.user?.id || null);
 
+  /**
+   * Handle initial session check and setup auth state change listener
+   */
   useEffect(() => {
     // Check initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session ?? null);
-      setUser(session?.user ?? null);
-      
-      // Initialize health provider if user is logged in
-      if (session?.user) {
-        try {
-          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
-          
-          // Pre-initialize health data for existing sessions
-          const provider = HealthProviderFactory.getProvider();
-          
-          // Try to fetch initial metrics to ensure data will be available
-          // This prevents the dashboard from showing zeros
-          try {
-            await provider.getMetrics();
-            // Mark health data as initialized
-            setHealthDataInitialized(true);
-          } catch (healthDataError) {
-            console.warn('[AuthProvider] Initial health data fetch error:', healthDataError);
-            // Still mark as initialized even if there's an error
-            // The dashboard will handle showing appropriate fallbacks
-            setHealthDataInitialized(true);
-          }
-        } catch (initError) {
-          console.error('[AuthProvider] Health provider initialization error:', initError);
-          // Even on error, continue to mark initialization as complete
-          setHealthDataInitialized(true);
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          dispatch(authActions.setSession(session));
+          dispatch(authActions.setUser(session.user));
         }
+        
+        sessionInitialized.current = true;
+        dispatch(authActions.setLoading(false));
+      } catch (error) {
+        logError('AuthProvider', error, { context: 'initialSessionCheck' });
+        sessionInitialized.current = true;
+        dispatch(authActions.setLoading(false));
       }
-      
-      sessionInitialized.current = true;
-      console.log('[AuthProvider] Initial session check complete. Setting loading to false');
-      setLoading(false);
-    });
+    };
+
+    checkSession();
 
     // Listen for session changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      dispatch(authActions.setSession(session));
+      dispatch(authActions.setUser(session?.user ?? null));
       
-      // Reset health data initialization state on session change
-      setHealthDataInitialized(false);
+      // Reset health data initialization on session change
+      dispatch(authActions.setHealthDataInitialized(false));
       
-      // Handle health permissions on auth state change
-      if (session?.user) {
-        try {
-          await initializeHealthProviderForUser(session.user.id, setHealthPermissionStatus);
-          
-          // Pre-initialize health data for the new session
-          const provider = HealthProviderFactory.getProvider();
-          
-          try {
-            await provider.getMetrics();
-            // Mark health data as initialized
-            setHealthDataInitialized(true);
-          } catch (healthDataError) {
-            console.warn('[AuthProvider] Health data fetch error on auth change:', healthDataError);
-            // Still mark as initialized to avoid blocking the UI
-            setHealthDataInitialized(true);
-          }
-        } catch (error) {
-          console.error('[AuthProvider] Health init error on auth change:', error);
-          // Mark as initialized even on error
-          setHealthDataInitialized(true);
-        }
-      } else {
-        setHealthPermissionStatus(null);
-      }
+      // Update session initialized flag
+      sessionInitialized.current = true;
       
-      console.log('[AuthProvider] Auth state changed:', { session, user: session?.user });
-      setLoading(false);
+      // Finish loading after session change
+      dispatch(authActions.setLoading(false));
     });
 
     return () => {
@@ -136,50 +116,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Wait for navigator to be ready before processing initial navigation
+  // Sync health permissions state with auth state
   useEffect(() => {
-    if (navigatorMounted && sessionInitialized.current && !loading) {
-      console.log('[AuthProvider] Navigator mounted and session initialized - processing any pending navigation');
-      navigationQueue.processAllQueued();
+    dispatch(authActions.setHealthPermissionStatus(healthPermissions.permissionStatus));
+    dispatch(authActions.setHealthDataInitialized(healthPermissions.isInitialized));
+    
+    if (healthPermissions.error) {
+      dispatch(authActions.setError(standardizeError(healthPermissions.error)));
     }
-  }, [navigatorMounted, loading]);
+  }, [
+    healthPermissions.permissionStatus,
+    healthPermissions.isInitialized, 
+    healthPermissions.error
+  ]);
+
+  // Process navigation queue when navigator is mounted and session is initialized
+  useEffect(() => {
+    if (navigatorMounted && sessionInitialized.current && !state.loading) {
+      console.log('[AuthProvider] Navigator mounted and session initialized - processing any pending navigation');
+      processQueuedNavigation();
+    }
+  }, [navigatorMounted, state.loading, processQueuedNavigation]);
+
+  // Update permissions handled flag in navigation queue
+  useEffect(() => {
+    if (state.healthPermissionStatus !== null) {
+      navigationQueue.setPermissionsHandled(true);
+    }
+  }, [state.healthPermissionStatus]);
 
   /**
    * Handle user registration
    */
-  const register = async (
+  const register = useCallback(async (
     email: string, 
     password: string, 
-    profile: {
-      displayName: string;
-      deviceType: 'os' | 'fitbit';
-      measurementSystem: 'metric' | 'imperial';
-      avatarUri?: string | null;
-      showProfile?: boolean;
-    }
+    profile: RegisterProfileData
   ) => {
-    // Track navigation timeout for cleanup
-    let navigationTimeoutId: NodeJS.Timeout | null = null;
-    
     // Prevent multiple parallel auth operations
-    if (isAuthNavigationLocked) {
+    if (state.isAuthNavigationLocked) {
       console.log('[AuthProvider] Auth operation already in progress, ignoring new register request');
       return;
     }
 
+    // Setup navigation timeout for safety
+    let navigationTimeoutId: NodeJS.Timeout | null = null;
+
     try {
       console.log('[AuthProvider] Starting registration process...');
-      setError(null);
-      setLoading(true);
-      setIsAuthNavigationLocked(true); // Lock navigation
-      setHealthDataInitialized(false); // Reset health data initialization state
       
-      // Validate display name first
+      // Start auth operation
+      dispatch(authActions.startAuthOperation());
+      
+      // Validate display name
       if (!profile.displayName?.trim()) {
         throw new Error('Display name is required');
       }
 
-      // First attempt to sign up - only include critical metadata
+      // First sign up with minimal metadata
       console.log('[AuthProvider] Registering user with Supabase...');
       const signUpData = {
         email,
@@ -187,12 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         options: {
           data: {
             displayName: profile.displayName.trim(),
-            // Only include essential fields initially to reduce chance of DB errors
           },
         },
       };
       
-      // Attempt to register the user
+      // Attempt registration
       const { data, error } = await supabase.auth.signUp(signUpData);
       
       if (error) {
@@ -207,53 +200,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       console.log('[AuthProvider] User registered successfully with ID:', data.user.id);
       
-      // Now update the user metadata with additional fields
+      // Update user metadata with full profile
       try {
-        const { error: metadataError } = await supabase.auth.updateUser({
+        const { error: updateError } = await supabase.auth.updateUser({
           data: {
-            deviceType: profile.deviceType, // Keep original value in auth metadata
+            displayName: profile.displayName.trim(),
+            deviceType: profile.deviceType,
             measurementSystem: profile.measurementSystem,
-            showProfile: profile.showProfile ?? true
+            avatarUri: profile.avatarUri,
+            showProfile: profile.showProfile ?? true,
           }
         });
         
-        if (metadataError) {
-          console.warn('[AuthProvider] Failed to update user metadata:', metadataError);
+        if (updateError) {
+          console.warn('[AuthProvider] Error updating user metadata:', updateError);
+        }
+        
+        // Create initial leaderboard profile
+        try {
+          await leaderboardService.updateUserProfile(data.user.id, {
+            display_name: profile.displayName.trim(),
+            device_type: profile.deviceType,
+            measurement_system: profile.measurementSystem,
+            avatar_url: profile.avatarUri || null,
+            show_profile: profile.showProfile ?? true,
+          });
+        } catch (profileError) {
+          console.warn('[AuthProvider] Error creating leaderboard profile:', profileError);
         }
       } catch (metadataError) {
-        console.warn('[AuthProvider] Error updating user metadata:', metadataError);
-      }
-      
-      // Create profile separately through the API
-      try {
-        console.log('[AuthProvider] Creating user profile...');
-        await leaderboardService.createUserProfile(data.user.id, {
-          display_name: profile.displayName.trim(),
-          device_type: profile.deviceType,
-          measurement_system: profile.measurementSystem,
-          show_profile: profile.showProfile ?? true,
-        });
-        
-        console.log('[AuthProvider] Initial profile created successfully');
-      } catch (profileError) {
-        console.error('[AuthProvider] Error creating initial profile:', profileError);
+        console.warn('[AuthProvider] Error updating metadata:', metadataError);
       }
 
-      // Handle avatar selection if provided
-      if (data.user && profile.avatarUri) {
-        try {
-          // For numeric avatar index, use it directly
-          await leaderboardService.updateUserProfile(data.user.id, {
-            avatar_url: profile.avatarUri
-          });
-          console.log('[AuthProvider] Avatar selection saved');
-        } catch (updateError) {
-          console.error('[AuthProvider] Avatar update failed:', updateError);
-          // Continue even if avatar update fails
-        }
-      }
-
-      // Initialize health provider for new user
+      // Auto-login after registration
       try {
         console.log('[AuthProvider] Attempting auto-login...');
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -264,350 +243,197 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (signInError) {
           throw signInError;
         }
-        
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
-        
-        // Initialize health provider based on device type
-        const provider = HealthProviderFactory.getProvider(profile.deviceType);
-        
-        // Auto-request permissions during registration instead of waiting for health-setup
-        try {
-          const permissionStatus = await Promise.race([
-            provider.requestPermissions(),
-            new Promise<PermissionStatus>((resolve) => setTimeout(() => resolve('not_determined'), 5000))
-          ]);
-          
-          console.log('[AuthProvider] Health permissions requested during registration:', permissionStatus);
-          setHealthPermissionStatus(permissionStatus); // Update state immediately
-          
-          // Continue initializing even if permission request times out
-          await initializeHealthProviderForUser(data.user.id, setHealthPermissionStatus);
-          console.log('[AuthProvider] Health provider initialized successfully');
-          
-          // Fetch initial metrics only if permissions were granted
-          if (permissionStatus === 'granted') {
-            try {
-              console.log('[AuthProvider] Permissions granted, fetching initial metrics...');
-              await provider.getMetrics();
-              console.log('[AuthProvider] Initial metrics fetched successfully');
-            } catch (metricsError) {
-              console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
-            }
-          } else {
-            console.log('[AuthProvider] Permissions not granted, skipping metrics fetch');
-          }
-
-          // Set health data initialized state once after all operations
-          console.log('[AuthProvider] Health initialization complete, marking data as initialized');
-          setHealthDataInitialized(true);
-        } catch (healthPermissionError) {
-          console.error('[AuthProvider] Error requesting health permissions:', healthPermissionError);
-          // Don't block registration on health provider errors
-          // Mark health data as initialized to avoid blocking the UI
-          console.log('[AuthProvider] Health permission error, marking data as initialized anyway');
-          setHealthDataInitialized(true);
-        }
-        
-        console.log('[AuthProvider] Registration process completed successfully');
-      } catch (healthError) {
-        console.error('[AuthProvider] Error initializing health provider:', healthError);
-        // Don't block registration on health provider errors
-        // Mark health data as initialized to avoid blocking the UI
-        console.log('[AuthProvider] Health provider error, marking data as initialized anyway');
-        setHealthDataInitialized(true);
+      } catch (loginError) {
+        console.error('[AuthProvider] Auto-login failed:', loginError);
+        throw loginError;
       }
       
-      // Add delay before navigation to ensure navigator is mounted
-      console.log('[AuthProvider] Adding delay before navigation after registration');
-      await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay for stability
-
-      // Final check to ensure health data is always initialized
-      if (!healthDataInitialized) {
-        console.log('[AuthProvider] Final check - ensuring health data is marked as initialized');
-        setHealthDataInitialized(true);
+      // Initialize health provider and request permissions
+      await healthPermissions.initializeHealthProvider(true);
+      try {
+        await healthPermissions.requestPermissions();
+      } catch (permissionsError) {
+        console.warn('[AuthProvider] Error requesting health permissions:', permissionsError);
+        // Continue even if permissions fail
       }
-      
-      // Log navigation state for debugging
-      console.log('[AuthProvider] Registration complete, navigation state:', {
-        navigatorMounted,
-        healthDataInitialized: true,
-        sessionInitialized: sessionInitialized.current
-      });
 
-      // Create safety timeout
+      // Create safety timeout for navigation
       navigationTimeoutId = setTimeout(() => {
         console.log('[AuthProvider] Forcing navigation due to timeout');
-        router.replace('/(app)/(home)');
+        navigateToHome(10);
         navigationTimeoutId = null;
       }, 2000);
 
-      // Try normal navigation first
-      if (navigatorMounted) {
-        console.log('[AuthProvider] Navigator mounted, proceeding with direct navigation');
-        router.replace('/(app)/(home)');
-        if (navigationTimeoutId) {
-          clearTimeout(navigationTimeoutId);
-          navigationTimeoutId = null;
-        }
-      } else {
-        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
-        navigationQueue.enqueue('/(app)/(home)', 10);
-        // Keep the timeout as backup
+      // Try normal navigation
+      navigateToHome(10);
+      
+      // Clear timeout if navigation was triggered
+      if (navigationTimeoutId) {
+        clearTimeout(navigationTimeoutId);
+        navigationTimeoutId = null;
       }
       
     } catch (err) {
-      console.error('[AuthProvider] Registration error:', err);
-      const mappedError = mapAuthError(err);
-      setError(mappedError);
-      // Mark health data as initialized to prevent blocking the UI
-      setHealthDataInitialized(true);
-      throw err; // Re-throw to allow caller to handle
+      logError('AuthProvider', err, { context: 'registration' });
+      
+      const standardErr = standardizeError(err);
+      dispatch(authActions.setError(standardErr));
+      
+      // Mark health data as initialized to avoid blocking UI
+      dispatch(authActions.setHealthDataInitialized(true));
+      
+      // Rethrow for caller handling
+      throw err;
     } finally {
-      // Clear any navigation timeout
+      // Clear navigation timeout
       if (navigationTimeoutId) {
         clearTimeout(navigationTimeoutId);
       }
       
-      setLoading(false);
-      setIsAuthNavigationLocked(false); // Unlock navigation
-      console.log('[AuthProvider] Registration process complete. Setting loading to false');
+      // End auth operation
+      dispatch(authActions.endAuthOperation());
+      console.log('[AuthProvider] Registration process complete');
     }
-  };
+  }, [state.isAuthNavigationLocked, healthPermissions, navigateToHome]);
 
   /**
    * Handle user login
    */
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     // Prevent multiple parallel auth operations
-    if (isAuthNavigationLocked) {
+    if (state.isAuthNavigationLocked) {
       console.log('[AuthProvider] Auth operation already in progress, ignoring new login request');
       return;
     }
 
     try {
-      setError(null);
-      setLoading(true);
-      setIsAuthNavigationLocked(true); // Lock navigation
-      setHealthDataInitialized(false); // Reset health data initialization
+      // Start auth operation
+      dispatch(authActions.startAuthOperation());
 
       console.log('[AuthProvider] Starting login attempt...');
       
-      // Attempt login
+      // Attempt to log in
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
+      
       if (signInError) throw signInError;
 
       console.log('[AuthProvider] Login successful, initializing health provider...');
       
-      // After successful login, initialize health provider and data
-      const provider = HealthProviderFactory.getProvider();
-      try {
-        // First initialize the health provider and permissions
-        await provider.safeInitialize(user?.id || 'default-user-id');
-        
-        // Then attempt to fetch initial metrics
-        try {
-          await provider.getMetrics();
-          setHealthDataInitialized(true);
-          console.log('[AuthProvider] Initial health data loaded successfully');
-        } catch (metricsError) {
-          console.warn('[AuthProvider] Error loading initial health data:', metricsError);
-          // Mark as initialized anyway to prevent blocking
-          setHealthDataInitialized(true);
-        }
-      } catch (healthErr) {
-        console.warn('[AuthProvider] Health initialization error:', healthErr);
-        // Mark as initialized even on errors
-        setHealthDataInitialized(true);
-      }
-
-      // Add delay before navigation to ensure navigator is mounted
-      console.log('[AuthProvider] Adding delay before navigation after login');
+      // Initialize health provider and data
+      await healthPermissions.initializeHealthProvider(true);
+      
+      // Add small delay before navigation
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Update navigation checks in login function
-      if (navigatorMounted && healthDataInitialized) {
-        console.log('[AuthProvider] Navigator mounted and health data initialized, proceeding with direct navigation');
-        router.replace('/(app)/(home)');
-      } else {
-        console.log('[AuthProvider] Navigator not mounted or health data not initialized, queueing navigation');
-        navigationQueue.enqueue('/(app)/(home)', 10);
-      }
+      // Navigate to home when health data is initialized
+      navigateToHome(10);
 
     } catch (err) {
-      console.error('[AuthProvider] Login error:', err);
-      setError(mapAuthError(err));
-      // Ensure health data is marked as initialized even on errors
-      setHealthDataInitialized(true);
+      logError('AuthProvider', err, { context: 'login' });
+      
+      const standardErr = standardizeError(err);
+      dispatch(authActions.setError(standardErr));
+      
+      // Mark health data as initialized to avoid blocking UI
+      dispatch(authActions.setHealthDataInitialized(true));
     } finally {
-      // Use a short delay before unlocking navigation to prevent immediate re-navigation
+      // Use a short delay before ending auth operation
       setTimeout(() => {
-        setLoading(false);
-        setIsAuthNavigationLocked(false); // Unlock navigation
-        console.log('[AuthProvider] Login process complete. Navigation unlocked.');
+        dispatch(authActions.endAuthOperation());
+        console.log('[AuthProvider] Login process complete');
       }, 100);
     }
-  };
+  }, [state.isAuthNavigationLocked, healthPermissions, navigateToHome]);
 
   /**
    * Check if the user needs to set up health permissions
    */
-  const needsHealthSetup = (): boolean => {
-    return !healthPermissionStatus || healthPermissionStatus === 'not_determined';
-  };
+  const needsHealthSetup = useCallback((): boolean => {
+    return healthPermissions.needsHealthSetup();
+  }, [healthPermissions]);
 
   /**
    * Handle user logout
    */
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
-      setError(null);
-      setLoading(true);
-      setHealthDataInitialized(false);
+      // Start auth operation
+      dispatch(authActions.startAuthOperation());
 
-      // Clean up health provider state
-      if (user) {
-        try {
-          const provider = HealthProviderFactory.getProvider();
-          await provider.cleanup?.();
-        } catch (healthError) {
-          console.error('Error cleaning up health provider:', healthError);
-          // Don't block logout on health cleanup error
-        }
-      }
+      // Clean up health provider
+      await healthPermissions.cleanupHealthProvider();
 
       // Sign out from Supabase
       const { error: signOutError } = await supabase.auth.signOut();
       if (signOutError) throw signOutError;
 
-      // Clear all state
-      setSession(null);
-      setUser(null);
-      setHealthPermissionStatus(null);
+      // Reset auth state
+      dispatch(authActions.logout());
       
-      // Add delay before navigation to ensure navigator is mounted
-      console.log('[AuthProvider] Adding delay before navigation after logout');
+      // Add delay before navigation
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Update navigation checks in logout function
-      if (navigatorMounted) {
-        console.log('[AuthProvider] Navigator is mounted, proceeding with direct navigation');
-        router.replace('/(auth)/login');
-      } else {
-        console.log('[AuthProvider] Navigator not mounted, queueing navigation');
-        navigationQueue.enqueue('/(auth)/login', 10);
-      }
+      // Navigate to login
+      navigateToLogin(10);
       
     } catch (err) {
-      console.error('Logout error:', err);
+      logError('AuthProvider', err, { context: 'logout' });
+      
+      const standardErr = standardizeError(err);
+      dispatch(authActions.setError(standardErr));
+      
+      // If there was an error during logout, still reset session state
+      // to ensure user can sign in again
       if (err instanceof Error && err.message.includes('42501')) {
-        // Still clear local state even if there's a permission error
-        setSession(null);
-        setUser(null);
-        setHealthPermissionStatus(null);
+        dispatch(authActions.logout());
       }
-      setError(mapAuthError(err));
     } finally {
-      setLoading(false);
-      console.log('[AuthProvider] setLoading(false) in logout');
+      // End auth operation
+      dispatch(authActions.endAuthOperation());
+      console.log('[AuthProvider] Logout process complete');
     }
-  };
+  }, [healthPermissions, navigateToLogin]);
 
   /**
    * Request health permissions for the current user
    */
-  const requestHealthPermissions = async (): Promise<PermissionStatus> => {
-    if (!user) {
+  const requestHealthPermissions = useCallback(async (): Promise<PermissionStatus> => {
+    if (!state.user) {
       throw new Error('User must be logged in to request health permissions');
     }
 
-    const PERMISSION_TIMEOUT = 6000; // 6 seconds
-    
-    // Update permission request logic to consider isPermissionsHandled
-    if (!navigatorMounted || !isPermissionsHandled) {
-      console.log('[AuthProvider] Waiting for navigator and permissions to be ready');
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
     try {
-      setError(null);
-      setLoading(true);
-      setHealthDataInitialized(false);
-
-      const provider = HealthProviderFactory.getProvider();
+      // Start health operation
+      dispatch(authActions.startHealthOperation());
       
-      // Ensure provider is properly initialized with permissions
-      try {
-        await provider.initializeWithPermissions(user.id);
-      } catch (initError) {
-        console.error('[AuthProvider] Error initializing health provider:', initError);
-        throw initError;
-      }
-      
-      // Create timeout promise with explicit rejection
-      const timeoutPromise = new Promise<PermissionStatus>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          console.warn('[AuthProvider] Permission request timed out after', PERMISSION_TIMEOUT, 'ms');
-          resolve('not_determined');
-        }, PERMISSION_TIMEOUT);
-        
-        // Cleanup timeout if promise is completed before timeout
-        return () => clearTimeout(timeoutId);
-      });
-      
-      // Race between permission request and timeout
-      const status = await Promise.race([
-        provider.requestPermissions(),
-        timeoutPromise
-      ]);
-      
-      console.log('[AuthProvider] Permission request completed with status:', status);
-      setHealthPermissionStatus(status);
-      
-      // Try to fetch initial metrics after permissions are granted
-      if (status === 'granted') {
-        try {
-          await provider.getMetrics();
-          setHealthDataInitialized(true);
-        } catch (metricsError) {
-          console.warn('[AuthProvider] Error loading metrics after permission grant:', metricsError);
-          // Mark as initialized anyway
-          setHealthDataInitialized(true);
-        }
-      } else {
-        // Even with denied permissions, mark as initialized
-        setHealthDataInitialized(true);
-      }
+      // Request health permissions
+      const status = await healthPermissions.requestPermissions();
       
       return status;
-      
     } catch (err) {
-      console.error('[AuthProvider] Health permissions error:', err);
-      const message = err instanceof Error ? err.message : 'Failed to request health permissions';
+      logError('AuthProvider', err, { context: 'requestHealthPermissions' });
       
-      // Standardize error messages for consistent UI handling
-      const userMessage = message.includes('not available') ? 'Health Connect is not available' :
-                         message.includes('42501') ? 'Unable to save health settings' : message;
+      const standardErr = standardizeError(err);
+      dispatch(authActions.setError(standardErr));
       
-      setError(userMessage);
-      setHealthPermissionStatus('denied');
-      // Mark as initialized even on errors
-      setHealthDataInitialized(true);
       return 'denied';
     } finally {
-      setLoading(false);
+      // End health operation
+      dispatch(authActions.endHealthOperation());
     }
-  };
+  }, [state.user, healthPermissions]);
 
-  const value: AuthContextType = {
-    session,
-    user,
-    loading,
-    error,
-    healthPermissionStatus,
-    healthDataInitialized, // Expose this state to consumers
+  // Create context value object
+  const contextValue: AuthContextType = {
+    session: state.session,
+    user: state.user,
+    loading: state.loading,
+    error: state.error?.message || null,
+    healthPermissionStatus: state.healthPermissionStatus,
+    healthDataInitialized: state.healthDataInitialized,
     register: (email: string, password: string, profileData?: RegisterProfileData) => {
       if (!profileData) {
         throw new Error('Profile data is required for registration');
@@ -620,9 +446,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     needsHealthSetup,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 }
 
+/**
+ * Custom hook to use the auth context
+ */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

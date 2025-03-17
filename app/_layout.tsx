@@ -11,11 +11,13 @@ import {
   Animated
 } from 'react-native';
 import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
+import { HealthProvider } from '@/src/providers/HealthProvider';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
 import { isProtectedRoute, isAuthRoute, NavigationConfig } from '@/src/utils/NavigationUtils';
 import { NavigationReadyProvider, useNavigationReady } from '@/src/contexts/NavigationReadyContext';
 import { navigationQueue } from '@/src/utils/NavigationUtils';
+import { useAuthNavigation } from '@/src/hooks/useAuthNavigation';
 
 // Declare the global type with our custom property
 declare global {
@@ -55,9 +57,9 @@ function ProtectedRoutes() {
     healthPermissionStatus // Add this
   } = useAuth();
   
-  const router = useRouter();
   const pathname = usePathname();
-  const { isReady: navigatorMounted, isPermissionsHandled } = useNavigationReady(); // Update this
+  const { isReady: navigatorMounted } = useNavigationReady(); // Update this
+  const { navigateSafely } = useAuthNavigation();
   
   // Debug log when component mounts
   useEffect(() => {
@@ -75,7 +77,6 @@ function ProtectedRoutes() {
     };
     navigationAttempts: number;
     lastNavigationTime: number;
-    pendingNavigationTimeout: ReturnType<typeof setTimeout> | null;
     lastAuthStateChangeTime: number;
   }>({
     isRedirecting: false,
@@ -87,7 +88,6 @@ function ProtectedRoutes() {
     },
     navigationAttempts: 0,
     lastNavigationTime: 0,
-    pendingNavigationTimeout: null,
     lastAuthStateChangeTime: 0
   });
   
@@ -102,60 +102,6 @@ function ProtectedRoutes() {
       useNativeDriver: true,
     }).start();
   }, []);
-  
-  // Create a debounced navigation function with navigator mount check
-  const navigateSafely = useCallback((path: string, priority = 0) => {
-    // Skip navigation if already at this path
-    if (navigationRef.current.lastPathname === path) {
-      console.log('[ProtectedRoutes] Already at path, ignoring navigation to', path);
-      return;
-    }
-    
-    // Track and limit retries
-    const MAX_RETRIES = 5;
-    
-    // Debug log with navigator mounted state
-    console.log(`[ProtectedRoutes] Navigation attempt to ${path}, navigatorMounted=${navigatorMounted}`);
-    
-    // Force navigation after 5 seconds regardless of navigator state
-    // This prevents app from getting stuck if the navigator mount detection fails
-    const timeSinceAppStart = Date.now() - global.appStartTime;
-    const forceNavigationAfterTimeout = timeSinceAppStart > 5000;
-    
-    // Wait for navigator to be mounted, unless we're forcing navigation
-    if (!navigatorMounted && !forceNavigationAfterTimeout) {
-      console.log('[ProtectedRoutes] Navigator not mounted, queueing navigation to', path);
-      
-      // Increment attempts counter
-      navigationRef.current.navigationAttempts += 1;
-      
-      // Stop retrying after MAX_RETRIES
-      if (navigationRef.current.navigationAttempts > MAX_RETRIES) {
-        console.warn(`[ProtectedRoutes] Exceeded max retries (${MAX_RETRIES}) for navigation to ${path}`);
-        navigationRef.current.navigationAttempts = 0;
-        return;
-      }
-      
-      // More aggressive exponential backoff for retries (base 300ms * 2^attempts)
-      const delay = 300 * Math.pow(2, navigationRef.current.navigationAttempts - 1);
-      setTimeout(() => navigateSafely(path, priority + 1), delay);
-      return;
-    }
-    
-    if (forceNavigationAfterTimeout && !navigatorMounted) {
-      console.warn('[ProtectedRoutes] Forcing navigation despite navigator not being mounted - timeout reached');
-    }
-    
-    // Reset navigation attempts counter when navigator is mounted
-    navigationRef.current.navigationAttempts = 0;
-    
-    // Set global navigation ready flag
-    global.navigationReady = true;
-    
-    // Use the navigation queue to handle the actual navigation
-    navigationQueue.enqueue(path, priority);
-    navigationRef.current.lastPathname = path;
-  }, [navigatorMounted]);
   
   // Improved navigation logic with better state tracking and mount checking
   useEffect(() => {
@@ -277,6 +223,17 @@ function ProtectedRoutes() {
   );
 }
 
+// Add HealthProviderWrapper component to integrate HealthProvider with Auth state
+function HealthProviderWrapper({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  
+  return (
+    <HealthProvider userId={user?.id || null}>
+      {children}
+    </HealthProvider>
+  );
+}
+
 export default function RootLayout() {
   const [navigatorMounted, setNavigatorMounted] = useState(false);
   
@@ -303,23 +260,25 @@ export default function RootLayout() {
         value={navigatorMounted}
         permissionsHandled={navigationQueue.isPermissionsHandled()}
       >
-        <PaperProvider theme={theme}>
-          <StatusBar
-            barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
-            backgroundColor={theme.colors.background}
-          />
-          <SafeAreaView 
-            style={[
-              styles.container, 
-              { 
-                backgroundColor: theme.colors.background,
-                paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0
-              }
-            ]}
-          >
-            <ProtectedRoutes />
-          </SafeAreaView>
-        </PaperProvider>
+        <HealthProviderWrapper>
+          <PaperProvider theme={theme}>
+            <StatusBar
+              barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
+              backgroundColor={theme.colors.background}
+            />
+            <SafeAreaView 
+              style={[
+                styles.container, 
+                { 
+                  backgroundColor: theme.colors.background,
+                  paddingTop: Platform.OS === 'android' ? STATUSBAR_HEIGHT : 0
+                }
+              ]}
+            >
+              <ProtectedRoutes />
+            </SafeAreaView>
+          </PaperProvider>
+        </HealthProviderWrapper>
       </NavigationReadyProvider>
     </AuthProvider>
   );
