@@ -10,7 +10,7 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useDataProvider } from '@/src/contexts/DataProvider';
 import { MeasurementSystem, DISPLAY_UNITS } from '@/src/utils/unitConversion';
 import { 
   useMetricCardListAnimations,
@@ -78,7 +78,10 @@ export const MetricCardList = React.memo(function MetricCardList({
   metrics,
   showAlerts = true,
   provider,
-  isManualRefresh = false
+  isInitialLoad = false,
+  isManualRefresh = false,
+  availableMetrics = new Set<string>(),
+  hasMinimumMetrics = false
 }: MetricCardListProps) {
   // Remove all the old celebration state
   const [selectedMetric, setSelectedMetric] = useState<MetricType | null>(null);
@@ -87,8 +90,7 @@ export const MetricCardList = React.memo(function MetricCardList({
   const isFirstRender = useRef(true);
   const { styles, colors: metricColors } = useMetricCardListStyles();
   const theme = useTheme();
-  const { user } = useAuth();
-  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
+  const { measurementSystem } = useDataProvider();
   
   // Create a ref to track which metrics have already been celebrated for today
   const celebratedMetricsRef = useRef<Set<string>>(new Set());
@@ -277,18 +279,18 @@ export const MetricCardList = React.memo(function MetricCardList({
         })}
       </View>
       
-      {selectedMetric && (
-        <MetricModal
-          visible={modalVisible}
-          onClose={() => setModalVisible(false)}
-          title={healthMetrics[selectedMetric].title}
-          value={metrics[selectedMetric] as number || 0}
-          metricType={selectedMetric}
-          userId={metrics.user_id}
-          date={metrics.date}
-          provider={provider}
-        />
-      )}
+          {selectedMetric && (
+            <MetricModal
+              visible={modalVisible}
+              onClose={handleModalClose}
+              title={healthMetrics[selectedMetric].title}
+              value={metrics[selectedMetric] as number || 0}
+              metricType={selectedMetric}
+              userId={metrics.user_id}
+              date={metrics.date}
+              provider={provider}
+            />
+          )}
 
       {/* Only keep this one celebration component */}
       {celebrationState.visible && (

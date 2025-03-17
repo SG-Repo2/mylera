@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { View, Animated, Pressable, ScrollView, Easing } from 'react-native';
 import { Modal, Portal, Text, IconButton, useTheme, Card, ActivityIndicator } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,7 +10,8 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { BarChart } from './BarChart';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useDataProvider } from '@/src/contexts/DataProvider';
+import { useMetricModalData, TrendData } from '@/src/hooks/useMetricModalData';
 import { MeasurementSystem, DISPLAY_UNITS, formatMetricValue } from '@/src/utils/unitConversion';
 
 interface MetricModalProps {
@@ -33,10 +34,6 @@ interface HealthTip {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }
 
-interface TrendData {
-  direction: 'up' | 'down' | 'neutral';
-  percentage: number;
-}
 
 const getHealthTip = (metricType: MetricType): HealthTip => {
   const tips: Record<MetricType, HealthTip> = {
@@ -90,81 +87,6 @@ const groupMetricsByDay = (metrics: any[]): Record<string, number> => {
   return dailyTotals;
 };
 
-// Calculate trend by comparing current value with historical data
-const calculateTrend = async (
-  provider: HealthProvider,
-  metricType: MetricType,
-  currentValue: number
-): Promise<TrendData> => {
-  try {
-    // Get current date and date range for the past 7 days (excluding today)
-    const today = new Date();
-    const endDateTime = new Date(today);
-    endDateTime.setDate(endDateTime.getDate() - 1); // Yesterday
-    
-    const startDateTime = new Date(today);
-    startDateTime.setDate(startDateTime.getDate() - 7); // 7 days ago
-    
-    console.log(`[calculateTrend] Fetching data from ${startDateTime.toISOString()} to ${endDateTime.toISOString()}`);
-    
-    // Fetch historical data
-    const rawData = await provider.fetchRawMetrics(
-      startDateTime,
-      endDateTime,
-      [metricType]
-    );
-    
-    // Normalize the data
-    const normalizedData = provider.normalizeMetrics(rawData, metricType);
-    console.log(`[calculateTrend] Found ${normalizedData.length} metrics for trend calculation`);
-    
-    if (normalizedData.length === 0) {
-      console.log('[calculateTrend] No historical data found, returning neutral trend');
-      return { direction: 'neutral', percentage: 0 };
-    }
-    
-    // Group metrics by day to get daily totals
-    const dailyTotals = groupMetricsByDay(normalizedData);
-    const dailyValues = Object.values(dailyTotals);
-    console.log(`[calculateTrend] Daily totals: ${JSON.stringify(dailyTotals)}`);
-    
-    if (dailyValues.length === 0) {
-      console.log('[calculateTrend] No daily values after grouping, returning neutral trend');
-      return { direction: 'neutral', percentage: 0 };
-    }
-    
-    // Calculate average of previous days
-    const totalValue = dailyValues.reduce((sum, value) => sum + value, 0);
-    const avgValue = totalValue / dailyValues.length;
-    console.log(`[calculateTrend] Average value from historical data: ${avgValue}`);
-    
-    // Skip if average is zero to avoid division by zero
-    if (avgValue === 0) {
-      console.log('[calculateTrend] Average is zero, returning neutral trend');
-      return { direction: 'neutral', percentage: 0 };
-    }
-    
-    // Calculate percentage change
-    const percentChange = ((currentValue - avgValue) / avgValue) * 100;
-    console.log(`[calculateTrend] Current value: ${currentValue}, Percent change: ${percentChange.toFixed(2)}%`);
-    
-    // Determine trend direction
-    let direction: 'up' | 'down' | 'neutral';
-    if (Math.abs(percentChange) < 5) {
-      direction = 'neutral';
-    } else {
-      direction = percentChange > 0 ? 'up' : 'down';
-    }
-    
-    return {
-      direction,
-      percentage: Math.abs(Math.round(percentChange))
-    };
-  } catch (error) {
-    console.error('[calculateTrend] Error calculating trend:', error);
-    return { direction: 'neutral', percentage: 0 };
-  }
-};
 
 export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   visible,
@@ -180,10 +102,10 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useStyles();
-  const { user } = useAuth();
-  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem;
-  const [isLoading, setIsLoading] = useState(true);
-  const [trend, setTrend] = useState<TrendData | null>(null);
+  const { measurementSystem } = useDataProvider();
+  
+  // Use the custom hook for trend data
+  const { isLoading, trend } = useMetricModalData(provider, metricType, value);
   
   const translateY = React.useRef(new Animated.Value(500)).current;
   const backdropOpacity = React.useRef(new Animated.Value(0)).current;
@@ -205,40 +127,6 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
     formatMetricValue(metricConfig.defaultGoal, metricType, measurementSystem),
     [metricConfig.defaultGoal, metricType, measurementSystem]
   );
-
-  // Effect with cleanup for loading and trend calculation
-  useEffect(() => {
-    if (visible) {
-      setIsLoading(true);
-      
-      const fetchTrend = async () => {
-        try {
-          // Initialize provider if needed
-          await provider.initialize();
-          
-          // Calculate trend based on historical data
-          const numericValue = typeof value === 'string' ? parseFloat(value) : value;
-          console.log(`[MetricCardModal] Calculating trend for ${metricType} with current value: ${numericValue}`);
-          
-          const trendData = await calculateTrend(provider, metricType, numericValue);
-          console.log(`[MetricCardModal] Trend calculated: ${trendData.direction} ${trendData.percentage}%`);
-          
-          setTrend(trendData);
-          setIsLoading(false);
-        } catch (error) {
-          console.error('[MetricCardModal] Error fetching trend data:', error);
-          setTrend({ direction: 'neutral', percentage: 0 });
-          setIsLoading(false);
-        }
-      };
-      
-      fetchTrend();
-      
-      return () => {
-        // Cleanup if needed
-      };
-    }
-  }, [visible, provider, metricType, value]);
 
   // Enhanced pulse animation for the value
   const pulseValue = useCallback(() => {

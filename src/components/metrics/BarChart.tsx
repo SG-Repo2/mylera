@@ -1,14 +1,15 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { View, Dimensions, Animated } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { MetricType } from '@/src/types/metrics';
 import { brandColors } from '@/src/theme/theme';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
-import Svg, { Rect, Line } from 'react-native-svg';
+import Svg, { Rect } from 'react-native-svg';
 import healthMetrics from '@/src/config/healthMetrics';
-import { getYAxisConfig, formatTickValue, convertMetricValue } from '../../utils/metricUtils';
+import { getYAxisConfig, formatTickValue } from '../../utils/metricUtils';
 import { MeasurementSystem } from '../../types/metrics';
 import useBarChartStyles from '../../styles/useBarChartStyles';
+import { useBarChartData, DataPoint } from '@/src/hooks/useBarChartData';
 
 interface BarChartProps {
   metricType: MetricType;
@@ -18,169 +19,24 @@ interface BarChartProps {
   measurementSystem: MeasurementSystem;
 }
 
-interface DataPoint {
-  date: string;
-  value: number;
-  animation: Animated.Value;
-  dayName: string;
-  isToday: boolean;
-  isEmpty: boolean;
-}
 
 export const BarChart = React.memo(function BarChart({ metricType, userId, date, provider, measurementSystem }: BarChartProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<DataPoint[]>([]);
   const theme = useTheme();
   const styles = useBarChartStyles();
+  
+  // Use the custom hook for chart data
+  const { loading, error, data, chartMetrics } = useBarChartData(provider, metricType, userId, date);
 
   // Move all useMemo hooks to the top level
   const chartWidth = useMemo(() => Math.max(Dimensions.get('window').width - 48, 100), []);
   const chartHeight = useMemo(() => 220, []);
   const barWidth = useMemo(() => Math.max((chartWidth - 40) / 7 - 8, 20), []); // Use fixed value 7 for data points
 
-  // Calculate chart metrics using useMemo
-  const chartMetrics = useMemo(() => {
-    if (data.length === 0) {
-      return {
-        validData: [],
-        maxValue: 1,
-        minValue: 0,
-        yMin: 0,
-        yMax: 1,
-        range: 1
-      };
-    }
-
-    const validData = data.map(d => ({
-      ...d,
-      value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
-    }));
-
-    const maxValue = Math.max(...validData.map(d => d.value), 1);
-    const minValue = Math.min(...validData.map(d => d.value));
-    const padding = Math.max((maxValue - minValue) * 0.1, 1);
-    const yMax = maxValue + padding;
-    const yMin = Math.max(0, minValue - padding);
-    const range = Math.max(yMax - yMin, 1);
-
-    return {
-      validData,
-      maxValue,
-      minValue,
-      yMin,
-      yMax,
-      range
-    };
-  }, [data]);
-
   // Calculate Y-axis configuration using useMemo
   const yAxisConfig = useMemo(() => 
     getYAxisConfig(metricType, chartMetrics.maxValue, measurementSystem),
     [metricType, chartMetrics.maxValue, measurementSystem]
   );
-
-  useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setError(null);
-
-    const fetchData = async () => {
-      try {
-        console.log('Fetching native health data for:', { userId, metricType });
-        
-        // Initialize provider
-        await provider.initialize();
-
-        // Get current date and date range for the past 7 days
-        const endDateTime = new Date();
-        const startDateTime = new Date();
-        startDateTime.setDate(startDateTime.getDate() - 6);
-
-        const endDateStr = endDateTime.toLocaleDateString('en-CA');
-        const startDateStr = startDateTime.toLocaleDateString('en-CA');
-
-        console.log('Date range:', { startDateStr, endDateStr });
-
-        // Get native health data for the full range
-        const rawData = await provider.fetchRawMetrics(
-          startDateTime,
-          endDateTime,
-          [metricType]
-        );
-
-        const normalizedData = provider.normalizeMetrics(rawData, metricType);
-        console.log('Native health data count:', normalizedData.length);
-
-        // Create a map of daily totals from native data
-        const nativeDataMap = new Map<string, number>();
-        normalizedData.forEach(metric => {
-          const day = new Date(metric.timestamp).toLocaleDateString('en-CA');
-          const currentTotal = nativeDataMap.get(day) || 0;
-          nativeDataMap.set(day, currentTotal + metric.value);
-        });
-
-        console.log('Native data by day:', Object.fromEntries(nativeDataMap.entries()));
-
-        // Fill data starting from current day going back 6 days
-        const filledData: DataPoint[] = [];
-        for (let i = -6; i <= 0; i++) {
-          const d = new Date();
-          d.setDate(d.getDate() + i);
-          const dateStr = d.toLocaleDateString('en-CA');
-          
-          // Get value directly from native data
-          const value = nativeDataMap.get(dateStr) || 0;
-          
-          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const dayName = days[d.getDay()];
-          
-          const isToday = i === 0;
-          const isYesterday = i === -1;
-          
-          filledData.push({
-            date: dateStr,
-            value,
-            dayName: isToday ? `${dayName}\nToday` : 
-                    isYesterday ? `${dayName}\nYest.` : 
-                    dayName,
-            isToday,
-            isEmpty: value === 0,
-            animation: new Animated.Value(0)
-          });
-          console.log(`${dayName} (${dateStr}): ${value}`);
-        }
-
-        setData(filledData);
-        setLoading(false);
-
-        // Enhanced staggered animation sequence
-        const animations = filledData.map((item, index) =>
-          Animated.sequence([
-            Animated.delay(index * 60),
-            Animated.spring(item.animation, {
-              toValue: 1,
-              useNativeDriver: false, // Changed to false because we're animating height
-              stiffness: 180,
-              damping: 12,
-              mass: 0.8,
-            })
-          ])
-        );
-
-        Animated.stagger(40, animations).start();
-
-      } catch (err) {
-        if (!mounted) return;
-        console.error('Error fetching native health data:', err);
-        setError('Failed to load health data');
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    return () => { mounted = false; };
-  }, [metricType, userId, date, provider]);
 
   const renderContent = () => {
     if (loading) {
@@ -194,7 +50,7 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     if (error) {
       return (
         <Text variant="bodyLarge" style={{ color: theme.colors.error }}>
-          {error}
+          {error.message}
         </Text>
       );
     }

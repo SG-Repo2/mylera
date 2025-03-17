@@ -10,6 +10,8 @@ import { HealthProviderPermissionError } from '@/src/providers/health/types/erro
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
 import { useDashboardData } from '@/src/hooks/useDashboardData';
+import { useErrorHandler } from '@/src/hooks/useErrorHandler';
+import { DataProvider } from '@/src/contexts/DataProvider';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import type { DailyTotal } from '@/src/types/schemas';
 
@@ -171,6 +173,8 @@ export const Dashboard = React.memo(function Dashboard({
   const styles = useDashboardStyles();
   const theme = useTheme();
   const { requestPermissions } = useHealth();
+  const { user } = useAuth();
+  const measurementSystem = (user?.user_metadata?.measurementSystem || 'metric');
   
   // Use our custom hooks
   const {
@@ -187,6 +191,7 @@ export const Dashboard = React.memo(function Dashboard({
   } = useDashboardData(provider, userId, date);
   
   const { headerAnimations } = useDashboardAnimations(dailyTotal);
+  const { handleError } = useErrorHandler();
   
   // Extended retry handler that checks permissions
   const extendedRetryHandler = React.useCallback(async () => {
@@ -226,48 +231,55 @@ export const Dashboard = React.memo(function Dashboard({
 
   return (
     <DashboardErrorBoundary>
-      <SafeAreaView 
-        style={[
-          styles.container, 
-          { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
-        ]}
+      <DataProvider 
+        provider={provider} 
+        userId={userId} 
+        date={date}
+        measurementSystem={measurementSystem}
       >
-        {dailyTotal && (
-          <Animated.View style={[styles.headerWrapper, headerAnimations]}>
-            <Header dailyTotal={dailyTotal} />
-          </Animated.View>
-        )}
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={refreshData}
-              colors={[theme.colors.primary]}
-              progressBackgroundColor={theme.colors.surface}
-            />
-          }
+        <SafeAreaView 
+          style={[
+            styles.container, 
+            { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
+          ]}
         >
-          {healthMetrics && (
-            <MetricCardList 
-              metrics={healthMetrics} 
-              showAlerts={showAlerts}
-              provider={provider}
-              isInitialLoad={!dailyTotal}
-              isManualRefresh={isRefreshing}
-              availableMetrics={availableMetrics as Set<string>}
-              hasMinimumMetrics={true}
-            />
+          {dailyTotal && (
+            <Animated.View style={[styles.headerWrapper, headerAnimations]}>
+              <Header dailyTotal={dailyTotal} />
+            </Animated.View>
           )}
-        </ScrollView>
 
-        <ErrorDialog 
-          visible={errorDialogVisible} 
-          onDismiss={() => setErrorDialogVisible(false)} 
-        />
-      </SafeAreaView>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={refreshData}
+                colors={[theme.colors.primary]}
+                progressBackgroundColor={theme.colors.surface}
+              />
+            }
+          >
+            {healthMetrics && (
+              <MetricCardList 
+                metrics={healthMetrics} 
+                provider={provider}
+                showAlerts={showAlerts}
+                isInitialLoad={!dailyTotal}
+                isManualRefresh={isRefreshing}
+                availableMetrics={availableMetrics as Set<string>}
+                hasMinimumMetrics={true}
+              />
+            )}
+          </ScrollView>
+
+          <ErrorDialog 
+            visible={errorDialogVisible} 
+            onDismiss={() => setErrorDialogVisible(false)} 
+          />
+        </SafeAreaView>
+      </DataProvider>
     </DashboardErrorBoundary>
   );
 });

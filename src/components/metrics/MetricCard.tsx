@@ -1,12 +1,12 @@
-import React, { useMemo, useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Animated } from 'react-native';
 import { Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
-import { useAuth } from '@/src/providers/AuthProvider';
-import { DISPLAY_UNITS, MeasurementSystem, FormattedMetricValue } from '@/src/utils/unitConversion';
+import { useDataProvider } from '@/src/contexts/DataProvider';
+import { DISPLAY_UNITS, MeasurementSystem } from '@/src/utils/unitConversion';
 import { useMetricCardAnimations } from '@/src/hooks/useMetricCardAnimations';
 
 interface MetricCardProps {
@@ -44,11 +44,11 @@ export const MetricCard = React.memo(function MetricCard({
 }: MetricCardProps) {
   const styles = useMetricCardStyles();
   const theme = useTheme();
-  const { user } = useAuth();
+  const { measurementSystem: contextMeasurementSystem } = useDataProvider();
   
   const measurementSystem = useMemo(() => 
-    propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem,
-    [propMeasurementSystem, user?.user_metadata?.measurementSystem]
+    propMeasurementSystem || contextMeasurementSystem,
+    [propMeasurementSystem, contextMeasurementSystem]
   );
   
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);

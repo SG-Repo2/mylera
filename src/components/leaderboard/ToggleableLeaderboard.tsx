@@ -1,146 +1,30 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus, Platform, StatusBar, Dimensions } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, Platform, StatusBar, Dimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SegmentedButtons } from 'react-native-paper';
 import { theme } from '../../theme/theme';
-import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import { PodiumView } from './PodiumView';
 import { ErrorView } from '../shared/ErrorView';
 import { useAuth } from '../../providers/AuthProvider';
 import { DateUtils } from '../../utils/DateUtils';
-import type { LeaderboardEntry as LeaderboardEntryType, LeaderboardTimeframe } from '../../types/leaderboard';
+import { useLeaderboardData } from '@/src/hooks/useLeaderboardData';
+import type { LeaderboardTimeframe } from '../../types/leaderboard';
 
 export function ToggleableLeaderboard() {
   const { user } = useAuth();
-  const [timeframe, setTimeframe] = useState<LeaderboardTimeframe>('daily');
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntryType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const appStateRef = useRef(AppState.currentState);
-  const isMountedRef = useRef(true);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  const loadData = useCallback(async (showLoading = true) => {
-    if (!user || !isMountedRef.current) {
-      console.log('No user found in loadData or component unmounted');
-      return;
-    }
-    
-    // Cancel any in-progress requests
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    // Create a new abort controller for this request
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-    
-    if (showLoading && isMountedRef.current) setLoading(true);
-    if (isMountedRef.current) setError(null);
-    
-    try {
-      const today = DateUtils.getLocalDateString();
-      console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
-      
-      const data = timeframe === 'daily' 
-        ? await leaderboardService.getDailyLeaderboard(today)
-        : await leaderboardService.getWeeklyLeaderboard(today);
-        
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return;
-      
-      // Add detailed logging of point values
-      console.log('Fetched leaderboard data:', data.map(entry => ({
-        id: entry.user_id.slice(0, 8),
-        name: entry.display_name,
-        points: entry.total_points,
-        rank: entry.rank
-      })));
-      
-      setLeaderboardData(data);
-    } catch (err) {
-      // Don't update state if the request was aborted or component unmounted
-      if (!isMountedRef.current) return;
-      
-      // Don't treat aborted requests as errors
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('Leaderboard request was aborted');
-        return;
-      }
-      
-      console.error('Error while fetching leaderboard:', err);
-      
-      if (err instanceof Error) {
-        if (err.message.includes('PGRST200')) {
-          setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
-        } else if (err.message.includes('42501')) {
-          setError(new Error('You do not have permission to view the leaderboard.'));
-        } else {
-          setError(err);
-        }
-      } else {
-        setError(new Error('Failed to load leaderboard'));
-      }
-    } finally {
-      // Only update loading state if component is still mounted
-      if (showLoading && isMountedRef.current) setLoading(false);
-    }
-  }, [user, timeframe]);
-
-  const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
-    if (
-      appStateRef.current.match(/inactive|background/) &&
-      nextAppState === 'active' &&
-      isMountedRef.current
-    ) {
-      console.log('App has come to foreground, refreshing leaderboard');
-      loadData(false);
-    }
-    appStateRef.current = nextAppState;
-  }, [loadData]);
-
-  const onRefresh = useCallback(async () => {
-    if (!isMountedRef.current) return;
-    
-    setRefreshing(true);
-    
-    try {
-      await loadData(false);
-    } catch (error) {
-      console.error("Error during refresh:", error);
-    } finally {
-      if (isMountedRef.current) {
-        setRefreshing(false);
-      }
-    }
-  }, [loadData]);
-
-  useEffect(() => {
-    // Set mounted flag
-    isMountedRef.current = true;
-    
-    if (user) {
-      loadData();
-      
-      const subscription = AppState.addEventListener('change', handleAppStateChange);
-      
-      return () => {
-        // Set unmounted flag
-        isMountedRef.current = false;
-        
-        // Cancel any in-progress requests
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          abortControllerRef.current = null;
-        }
-        
-        // Remove app state listener
-        subscription.remove();
-      };
-    }
-  }, [user, loadData, handleAppStateChange, timeframe]);
+  
+  // Use the custom hook for leaderboard data
+  const {
+    timeframe,
+    leaderboardData,
+    loading,
+    error,
+    refreshing,
+    onRefresh,
+    changeTimeframe,
+    loadData
+  } = useLeaderboardData(user?.id);
 
   if (loading && !leaderboardData.length && !error) {
     return (
@@ -176,7 +60,7 @@ export function ToggleableLeaderboard() {
       <View style={styles.toggleContainer}>
         <SegmentedButtons
           value={timeframe}
-          onValueChange={(value) => setTimeframe(value as LeaderboardTimeframe)}
+          onValueChange={(value) => changeTimeframe(value as LeaderboardTimeframe)}
           buttons={[
             { value: 'daily', label: 'Daily' },
             { value: 'weekly', label: 'Weekly' }
