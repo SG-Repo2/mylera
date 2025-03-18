@@ -1,47 +1,72 @@
-import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Image, StyleSheet, View, Text, ImageSourcePropType, ImageStyle, ViewStyle, TextStyle } from 'react-native';
+import { getAvatarSource } from '../utils/avatarUtils';
 
 interface AvatarDisplayProps {
-  avatarId: number | string | null;
-  style?: any; // Using any for style to avoid type conflicts
+  avatarId?: string | number | null;
+  displayName?: string | null;
+  size?: number;
+  style?: ImageStyle;
+  textStyle?: TextStyle;
+  defaultImage?: ImageSourcePropType;
   testID?: string;
 }
 
-const avatarAssets: Record<string, any> = {
-  '1': require('../../assets/images/avatars/1.png'),
-  '2': require('../../assets/images/avatars/2.png'),
-  '3': require('../../assets/images/avatars/3.png'),
-  '4': require('../../assets/images/avatars/4.png'),
-  '5': require('../../assets/images/avatars/5.png'),
-  '6': require('../../assets/images/avatars/6.png'),
-  '7': require('../../assets/images/avatars/7.png'),
-  '8': require('../../assets/images/avatars/8.png'),
-  '9': require('../../assets/images/avatars/9.png'),
-  // Add additional mappings as needed
-};
+// Use a cache for avatar sources to avoid redundant calculations
+const avatarSourceCache = new Map<string, ImageSourcePropType>();
 
-const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }) => {
-  // Debug: log the provided avatarId
-  console.log('[AvatarDisplay] Received avatarId:', avatarId);
-
-  if (avatarId === null || avatarId === undefined) {
-    console.warn('[AvatarDisplay] No avatarId provided');
-    return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
+const AvatarDisplayComponent = ({ 
+  avatarId,
+  displayName,
+  size = 50,
+  style,
+  textStyle,
+  defaultImage,
+  testID,
+}: AvatarDisplayProps) => {
+  // Only log in development to avoid excessive production logging
+  if (__DEV__) {
+    console.log('[AvatarDisplay] Received avatarId:', avatarId);
   }
+  
+  // Memoize the avatar source calculation
+  const avatarSource = useMemo(() => {
+    // Return from cache if available
+    const cacheKey = `${avatarId}-${defaultImage ? 'default' : 'nodefault'}`;
+    if (avatarSourceCache.has(cacheKey)) {
+      return avatarSourceCache.get(cacheKey);
+    }
+    
+    // Calculate source and cache it
+    const source = getAvatarSource(String(avatarId), defaultImage);
+    avatarSourceCache.set(cacheKey, source);
+    return source;
+  }, [avatarId, defaultImage]);
 
-  // Ensure the avatarId is a string for proper mapping
-  const idKey = String(avatarId);
-  const avatarSource = avatarAssets[idKey];
-
-  if (!avatarSource) {
-    console.warn(`[AvatarDisplay] No avatar asset found for id "${idKey}"`);
-    return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
+  // Determine if we should show a letter placeholder
+  const showLetter = !avatarId && displayName && displayName.length > 0;
+  const firstLetter = displayName ? displayName.charAt(0).toUpperCase() : '?';
+  
+  // Apply consistent size
+  const sizeStyle = { width: size, height: size, borderRadius: size / 2 };
+  
+  if (showLetter) {
+    return (
+      <View 
+        style={[styles.letterContainer, sizeStyle, style]} 
+        testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'}
+      >
+        <Text style={[styles.letter, textStyle, { fontSize: size * 0.4 }]}>
+          {firstLetter}
+        </Text>
+      </View>
+    );
   }
-
+  
   return (
     <Image
-      source={avatarSource}
-      style={[styles.avatar, style]}
+      source={avatarSource as ImageSourcePropType}
+      style={[styles.avatar, sizeStyle, style]}
       resizeMode="cover"
       testID={testID}
     />
@@ -50,10 +75,27 @@ const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }
 
 const styles = StyleSheet.create({
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25, // Circular image
+    backgroundColor: '#E5E7EB', // Light gray background
   },
+  letterContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#6366F1', // Indigo color
+  },
+  letter: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  }
 });
 
-export default AvatarDisplay; 
+// Memoize the component with a custom equality function
+const AvatarDisplay = React.memo(AvatarDisplayComponent, (prevProps, nextProps) => {
+  // Only re-render if these specific props change
+  return (
+    prevProps.avatarId === nextProps.avatarId &&
+    prevProps.size === nextProps.size &&
+    prevProps.displayName === nextProps.displayName
+  );
+});
+
+export default AvatarDisplay;
