@@ -22,7 +22,6 @@ const createStyles = (theme: MD3Theme) =>
       shadowOpacity: 0.1,
       shadowRadius: 4,
       elevation: 3,
-      overflow: 'hidden',
     },
     cardContentWrapper: {
       borderRadius: 20,
@@ -121,6 +120,11 @@ const createStyles = (theme: MD3Theme) =>
       fontSize: 12,
       opacity: 0.7,
       fontWeight: '500',
+    },
+    surfaceContainer: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 16,
     }
   });
 

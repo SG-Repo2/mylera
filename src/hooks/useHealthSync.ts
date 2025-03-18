@@ -5,20 +5,41 @@ import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
 import { isValidMetricValue } from '../utils/healthMetricUtils';
+import { standardizeError, ErrorCategory, logError } from '../utils/errorUtils';
 
 /**
  * Returns a user-friendly error message based on the error type
  */
 const getUserFriendlyErrorMessage = (error: Error): string => {
-  if (error.name === 'MetricsAuthError') {
-    return 'Your session has expired. Please sign in again.';
-  } else if (error.message.includes('permission')) {
-    return 'Limited health data access. Some features may be unavailable.';
-  } else if (error.message.includes('network') || error.message.includes('timeout')) {
-    return 'Network error. Check your connection and try again.';
-  } else {
-    return error.message.includes('health') ? error.message :
-      'Unable to sync health data. Please try again later.';
+  // Use standardizeError to get consistent error categorization and messaging
+  const standardError = standardizeError(error);
+  
+  // Return appropriate message based on error category
+  switch (standardError.category) {
+    case ErrorCategory.AUTHENTICATION:
+      return 'Your session has expired. Please sign in again.';
+      
+    case ErrorCategory.AUTHORIZATION:
+      return 'You don\'t have permission to access this health data.';
+      
+    case ErrorCategory.HEALTH_PERMISSION:
+      return 'Limited health data access. Please check your permissions in settings.';
+      
+    case ErrorCategory.HEALTH_DATA:
+      return 'Unable to read health data. Please check your device settings.';
+      
+    case ErrorCategory.NETWORK:
+      return 'Network error. Check your connection and try again.';
+      
+    case ErrorCategory.VALIDATION:
+      // For validation errors, use the original message as it's likely already user-friendly
+      return standardError.message;
+      
+    default:
+      // For unknown errors, provide a generic message with some context if available
+      return error.message.includes('health') 
+        ? `Health data sync issue: ${error.message}`
+        : 'Unable to sync health data. Please try again later.';
   }
 };
 
@@ -327,23 +348,38 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       // Preserve original error information
       const originalError = err instanceof Error ? err : new Error('Unknown error during health sync');
       
+      // Standardize the error for consistent handling
+      const standardError = standardizeError(originalError);
+      
       // Create a user-friendly message
       const userMessage = getUserFriendlyErrorMessage(originalError);
       
-      console.error('[useHealthData] Sync error:', originalError.message);
+      // Log error with consistent format using utility
+      logError('useHealthSync', originalError, {
+        syncAttempt: syncAttempts.current,
+        userId,
+        lastSyncTime: new Date(lastSyncTimeRef.current).toISOString()
+      });
       
-      // Determine if we should retry based on error type
-      const isRetryableError = 
-        !originalError.message.includes('permission') && 
-        !originalError.name.includes('Auth') &&
-        syncAttempts.current < MAX_SYNC_ATTEMPTS;
+      // Determine if we should retry based on error category and type
+      const isRetryableError = (
+        // Network errors are always retryable
+        standardError.category === ErrorCategory.NETWORK ||
+        // Unknown errors without specific auth/permission issues are retryable
+        (standardError.category === ErrorCategory.UNKNOWN && 
+         !originalError.message.includes('permission') && 
+         !originalError.name.includes('Auth')) ||
+        // Health data errors might be temporary
+        (standardError.category === ErrorCategory.HEALTH_DATA &&
+         !originalError.message.includes('permission'))
+      ) && syncAttempts.current < MAX_SYNC_ATTEMPTS;
       
       if (isRetryableError) {
-        console.log(`[useHealthData] Retryable error, will attempt again later (attempt ${syncAttempts.current}/${MAX_SYNC_ATTEMPTS})`);
+        console.log(`[useHealthSync] Retryable error (${standardError.category}), will attempt again later (attempt ${syncAttempts.current}/${MAX_SYNC_ATTEMPTS})`);
         
         // Schedule retry with exponential backoff
         const backoffTime = calculateNextBackoff();
-        console.log(`[useHealthData] Scheduling retry in ${backoffTime}ms`);
+        console.log(`[useHealthSync] Scheduling retry in ${backoffTime}ms`);
         backoffTimerRef.current = setTimeout(() => {
           if (isMounted.current) {
             syncHealthData(true);
@@ -351,12 +387,20 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
         }, backoffTime);
       } else {
         // Only set the error on the final attempt or for non-retryable errors
+        const enhancedError = Object.assign(originalError, { 
+          userMessage,
+          category: standardError.category,
+          retryable: false,
+          syncAttempt: syncAttempts.current
+        });
+        
         dispatch({ 
           type: 'SYNC_ERROR', 
-          error: Object.assign(originalError, { userMessage })
+          error: enhancedError
         });
+        
         syncResultsRef.current.failuresCount += 1;
-        // Reset backoff for non-retriable errors
+        // Reset backoff for non-retryable errors
         resetBackoff();
       }
     } finally {

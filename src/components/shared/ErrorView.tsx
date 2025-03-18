@@ -4,14 +4,22 @@ import { Button, Text, useTheme } from 'react-native-paper';
 import LottieView from 'lottie-react-native';
 
 interface ErrorViewProps {
-  error: Error;
+  error: Error & { userMessage?: string; category?: string };
   onRetry?: () => void;
+  title?: string;
 }
 
-export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
+export const ErrorView: React.FC<ErrorViewProps> = ({ 
+  error, 
+  onRetry,
+  title = 'Oops! Something went wrong'
+}) => {
   const theme = useTheme();
   const lottieRef = React.useRef<LottieView>(null);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+  // Get the most user-friendly message available
+  const displayMessage = error.userMessage || error.message;
 
   React.useEffect(() => {
     if (lottieRef.current) {
@@ -41,14 +49,14 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
         variant="headlineSmall" 
         style={[styles.title, { color: theme.colors.error }]}
       >
-        Oops! Something went wrong
+        {title}
       </Text>
       
       <Text 
         variant="bodyMedium" 
         style={styles.message}
       >
-        {error.message}
+        {displayMessage}
       </Text>
 
       {onRetry && (

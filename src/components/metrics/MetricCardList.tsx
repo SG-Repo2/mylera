@@ -159,28 +159,44 @@ export const MetricCardList = React.memo(function MetricCardList({
       }
     }
   }, [metrics]);
-
-  // Memoize metric values to prevent unnecessary re-renders
+  
+  // Optimize memoized metrics to prevent unnecessary recalculations
   const memoizedMetrics = React.useMemo(() => {
-    console.log('[MetricCardList] Recalculating memoized metrics');
+    // Only log in development
+    if (__DEV__) {
+      console.log('[MetricCardList] Recalculating memoized metrics');
+    }
     
     // Return null values if data is not valid and not first render
     if (!hasValidData && !isFirstRender.current) {
       return metricOrder.map(metricType => ({
-        type: metricType,
+        type: metricType as DisplayedMetricType,
         value: null,
         points: 0,
-        config: healthMetrics[metricType]
+        config: healthMetrics[metricType as MetricType]
       }));
     }
     
-    return metricOrder.map(metricType => ({
-      type: metricType,
-      value: metrics[metricType] as number,
-      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
-      config: healthMetrics[metricType]
-    }));
-  }, [metrics, hasValidData]);
+    return metricOrder.map(metricType => {
+      const metricValue = metrics[metricType as MetricType] as number;
+      return {
+        type: metricType as DisplayedMetricType,
+        value: metricValue,
+        points: calculateMetricPoints(metricType as MetricType, metricValue || 0),
+        config: healthMetrics[metricType as MetricType]
+      };
+    });
+  }, [
+    // Only depend on the specific metric values, not the entire metrics object
+    metrics.steps,
+    metrics.distance,
+    metrics.calories,
+    metrics.exercise,
+    metrics.heart_rate,
+    metrics.basal_calories,
+    metrics.flights_climbed,
+    hasValidData
+  ]);
 
   // Memoize modal handlers
   const handleModalClose = useCallback(() => {

@@ -20,12 +20,15 @@ const areMetricsEqual = (prev: HealthMetrics, next: HealthMetrics): boolean => {
   }) && prev.daily_score === next.daily_score; // Also compare the daily score
 };
 
-// Function to log metric changes
+// Function to log metric changes - now with reduced logging
 const logMetricChanges = (metricOrder: DisplayedMetricType[], prev: HealthMetrics | null, next: HealthMetrics) => {
   if (!prev) {
-    console.log('[MetricCardList] Initial metrics load:', 
-      metricOrder.map(metric => `${metric}: ${next[metric]}`).join(', ')
-    );
+    // Only log initial load in development
+    if (__DEV__) {
+      console.log('[MetricCardList] Initial metrics load:', 
+        metricOrder.map(metric => `${metric}: ${next[metric]}`).join(', ')
+      );
+    }
     return true; // Initial load is always a change
   }
   
@@ -126,13 +129,19 @@ export function useMetricCardListAnimations(
 
   // Check if metrics have changed and trigger animations
   useEffect(() => {
-    // Log metrics changes
+    // Optimize this check to run less frequently
+    if (prevMetricsRef.current === metrics) return;
+    
     if (prevMetricsRef.current !== metrics) {
+      // Only perform the comparison if needed
       const hasChanged = logMetricChanges(metricOrder, prevMetricsRef.current, metrics);
       
       // If metrics have changed, trigger value change animations
       if (prevMetricsRef.current && hasChanged) {
-        console.log('[MetricCardList] Metrics values changed, triggering animations');
+        // Only log if there's an actual change
+        if (__DEV__) {
+          console.log('[MetricCardList] Metrics values changed, triggering animations');
+        }
         
         // Trigger value change animations for each metric
         metricOrder.forEach((metric, index) => {

@@ -54,11 +54,6 @@ export const MetricCard = React.memo(function MetricCard({
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = useMemo(() => {
     const formatted = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
-    console.log(`[MetricCard] Formatting ${metricType} value:`, {
-      input: value,
-      formatted,
-      measurementSystem
-    });
     return formatted;
   }, [value, metricType, measurementSystem]);
 
@@ -128,73 +123,72 @@ export const MetricCard = React.memo(function MetricCard({
         }
       ]}
     >
-      <Surface 
-        style={[
-          styles.cardShadowWrapper, 
-          cardBackgroundColorStyle
-        ]} 
-        elevation={2}
-      >
-        <View style={styles.cardContentWrapper}>
-          <TouchableRipple
-            onPress={onPress}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            style={styles.ripple}
-            borderless
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.headerRow}>
-                <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
-                  <MaterialCommunityIcons name={icon} size={24} color="white" />
-                </Surface>
-                <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
-                  {title}
-                </Text>
-              </View>
-              
-              <View style={styles.valueContainer}>
-                <Animated.View style={{ transform: [{ scale: combinedValueChangeAnim }] }}>
-                  <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
-                    {displayValue}
-                  </Text>
-                </Animated.View>
-                <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
-                  {displayUnit}
-                </Text>
-              </View>
-
-              <View style={styles.progressContainer}>
-                <ProgressBar
-                  progress={progress}
-                  color={color}
-                  style={styles.progressBar}
-                />
-                <View style={styles.progressInfo}>
-                  <Text 
-                    variant="labelSmall" 
-                    style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    {percentage}% of goal
-                  </Text>
-                  <Text 
-                    variant="labelSmall" 
-                    style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    {points} pts {getPointsText} {displayUnit}
+      <View style={styles.surfaceContainer}>
+        <Surface 
+          style={[styles.cardShadowWrapper, cardBackgroundColorStyle]} 
+          elevation={2}
+        >
+          <View style={styles.cardContentWrapper}>
+            <TouchableRipple
+              onPress={onPress}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              style={styles.ripple}
+              borderless
+            >
+              <View style={styles.cardContent}>
+                <View style={styles.headerRow}>
+                  <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
+                    <MaterialCommunityIcons name={icon} size={24} color="white" />
+                  </Surface>
+                  <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
+                    {title}
                   </Text>
                 </View>
+                
+                <View style={styles.valueContainer}>
+                  <Animated.View style={{ transform: [{ scale: combinedValueChangeAnim }] }}>
+                    <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                      {displayValue}
+                    </Text>
+                  </Animated.View>
+                  <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
+                    {displayUnit}
+                  </Text>
+                </View>
+
+                <View style={styles.progressContainer}>
+                  <ProgressBar
+                    progress={progress}
+                    color={color}
+                    style={styles.progressBar}
+                  />
+                  <View style={styles.progressInfo}>
+                    <Text 
+                      variant="labelSmall" 
+                      style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                    >
+                      {percentage}% of goal
+                    </Text>
+                    <Text 
+                      variant="labelSmall" 
+                      style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                    >
+                      {points} pts {getPointsText} {displayUnit}
+                    </Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          </TouchableRipple>
-        </View>
-      </Surface>
+            </TouchableRipple>
+          </View>
+        </Surface>
+      </View>
     </Animated.View>
   );
 });

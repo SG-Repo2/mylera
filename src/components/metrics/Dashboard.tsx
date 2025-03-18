@@ -112,7 +112,7 @@ const ErrorDialog = React.memo(({
         style={styles.errorDialog}
       >
         <Dialog.Title style={styles.errorDialogTitle}>
-          Error
+          Health Data Sync Issue
         </Dialog.Title>
         <Dialog.Content>
           <Text style={styles.errorDialogContent}>

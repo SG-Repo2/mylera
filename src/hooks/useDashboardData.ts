@@ -208,8 +208,11 @@ export const useDashboardData = (
    * Handle retry after error
    */
   const handleRetry = useCallback(() => {
-    syncHealthData();
+    // Reset error states
+    setFetchError(null);
     setErrorDialogVisible(false);
+    // Trigger a new sync
+    syncHealthData(true);
   }, [syncHealthData]);
 
   /**

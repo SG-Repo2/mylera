@@ -54,11 +54,11 @@ function ProtectedRoutes() {
     loading, 
     needsHealthSetup,
     healthDataInitialized,
-    healthPermissionStatus // Add this
+    healthPermissionStatus 
   } = useAuth();
   
   const pathname = usePathname();
-  const { isReady: navigatorMounted } = useNavigationReady(); // Update this
+  const { isReady: navigatorMounted } = useNavigationReady();
   const { navigateSafely } = useAuthNavigation();
   
   // Debug log when component mounts
@@ -73,7 +73,7 @@ function ProtectedRoutes() {
     lastAuthState: { 
       loading: boolean; 
       hasSession: boolean;
-      healthDataReady: boolean; // Add health data readiness to state tracking
+      healthDataReady: boolean;
     };
     navigationAttempts: number;
     lastNavigationTime: number;
@@ -124,6 +124,9 @@ function ProtectedRoutes() {
         healthDataReady: isHealthDataReady
       };
       
+      // Only track the pathname to avoid unexpected redirects
+      nav.lastPathname = pathname;
+      
       // Add a navigation throttle - don't navigate if we just did recently
       const now = Date.now();
       const timeSinceLastNav = now - nav.lastNavigationTime;
@@ -162,8 +165,8 @@ function ProtectedRoutes() {
           nav.lastAuthStateChangeTime = currentTime;
           
           setTimeout(() => {
-            // Only navigate if not already navigating and not recently navigated
-            if (!nav.isRedirecting) {
+            // Only navigate if not already navigating and not already on an app route
+            if (!nav.isRedirecting && !pathname.startsWith('/(app)')) {
               navigateSafely('/(app)/(home)');
             }
           }, 300);
@@ -192,7 +195,8 @@ function ProtectedRoutes() {
             }
           }
           
-          // Only navigate to home if health data is ready or we're not already there
+          // FIX: Only redirect to home if we're on an auth or root route
+          // Don't redirect if already on an app route (including leaderboard)
           if ((pathname === '/' || isAuthRoute(pathname)) && healthDataInitialized) {
             console.log('[ProtectedRoutes] Session exists on auth route, redirecting to home with health data ready');
             navigateSafely('/(app)/(home)');
