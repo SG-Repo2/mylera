@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState } from 'react-native';
+import isEqual from 'lodash/isEqual';
 import type { DailyTotal, DailyMetricScore, MetricType } from '@/src/types/schemas';
 import type { HealthMetrics } from '@/src/providers/health/types/metrics';
 import { metricsService } from '@/src/services/metricsService';
@@ -7,6 +8,25 @@ import { leaderboardService } from '@/src/services/leaderboardService';
 import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useHealthSync } from './useHealthSync';
+
+// Add debounce utility at the top of the file
+const debounce = <T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): ((...args: Parameters<T>) => void) => {
+  let timeout: NodeJS.Timeout | null = null;
+  
+  return (...args: Parameters<T>) => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    
+    timeout = setTimeout(() => {
+      timeout = null;
+      func(...args);
+    }, wait);
+  };
+};
 
 /**
  * Custom hook for fetching and processing health metrics data
@@ -113,9 +133,22 @@ export const useDashboardData = (
       };
       
       if (isMountedRef.current) {
-        setDailyTotal(userTotal);
-        setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
-        setUserRank(rank);
+        // Only update states if data actually changed
+        if (!dailyTotal || 
+            dailyTotal.total_points !== userTotal.total_points || 
+            dailyTotal.metrics_completed !== userTotal.metrics_completed) {
+          setDailyTotal(userTotal);
+        }
+        
+        const newHealthMetrics = transformMetricsToHealthMetrics(metricScores, userTotal, userId, date);
+        if (!healthMetrics || !isEqual(healthMetrics, newHealthMetrics)) {
+          setHealthMetrics(newHealthMetrics);
+        }
+        
+        if (userRank !== rank) {
+          setUserRank(rank);
+        }
+        
         setFetchError(null);
       }
     } catch (err) {
@@ -131,6 +164,11 @@ export const useDashboardData = (
       isFetchingRef.current = false;
     }
   }, [userId, date, isInitialized, transformMetricsToHealthMetrics]);
+
+  // Create debounced version of fetchData
+  const debouncedFetchData = useRef(
+    debounce((requestId: number) => fetchData(requestId), 300)
+  ).current;
 
   /**
    * Refresh metrics data manually
@@ -150,7 +188,7 @@ export const useDashboardData = (
       
       // Only proceed if component is still mounted and request is still valid
       if (isMountedRef.current && currentFetchId === fetchIdRef.current) {
-        await fetchData(currentFetchId);
+        await debouncedFetchData(currentFetchId);
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -164,7 +202,7 @@ export const useDashboardData = (
         setIsRefreshing(false);
       }
     }
-  }, [syncHealthData, fetchData]);
+  }, [syncHealthData, debouncedFetchData]);
 
   /**
    * Handle retry after error

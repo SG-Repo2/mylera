@@ -2,6 +2,16 @@ import type { NormalizedMetric } from '../providers/health/types/metrics';
 import { MetricType } from '../types/schemas';
 import { logger, LogCategory } from './logger';
 
+// Add cache Map at the top after imports
+const pointsCalculationCache = new Map<string, { points: number; goalReached: boolean }>();
+const MAX_CACHE_SIZE = 1000;
+const CACHE_CLEANUP_SIZE = 100;
+
+// Add helper function for cache key generation
+function createPointsCacheKey(value: number, type: MetricType, goal: number): string {
+  return `${value}-${type}-${goal}`;
+}
+
 /**
  * Constants for metric validation
  */
@@ -160,7 +170,13 @@ export function calculatePoints(
   if (!isValidMetricValue(value, type)) {
     return { points: 0, goalReached: false };
   }
-  
+
+  const cacheKey = createPointsCacheKey(value, type, goal);
+  const cached = pointsCalculationCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   // Default result
   let points = 0;
   let goalReached = false;
@@ -243,7 +259,16 @@ export function calculatePoints(
       goalReached
     });
     
-    return { points, goalReached };
+    const result = { points, goalReached };
+
+    // Manage cache size and store result
+    if (pointsCalculationCache.size >= MAX_CACHE_SIZE) {
+      const keysToDelete = Array.from(pointsCalculationCache.keys()).slice(0, CACHE_CLEANUP_SIZE);
+      keysToDelete.forEach(key => pointsCalculationCache.delete(key));
+    }
+    pointsCalculationCache.set(cacheKey, result);
+
+    return result;
   } catch (error) {
     logger.error(LogCategory.Health, '[healthMetricUtils] Error calculating points:', (error as Error).message);
     return { points: 0, goalReached: false };
