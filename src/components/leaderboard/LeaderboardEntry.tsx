@@ -96,7 +96,7 @@ export function LeaderboardEntry({
             leaderboardEntryStyles.avatar,
             isPodium && position === 1 && leaderboardEntryStyles.firstPlaceAvatar,
             isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar
-          ]}
+          ] as any}
         />
       );
     }
