@@ -2,7 +2,7 @@ import { supabase } from './supabaseClient';
 import type { MetricType } from '../types/schemas';
 import { healthMetrics } from '../config/healthMetrics';
 import { calculatePoints, isValidMetricValue, calculateHealthScore } from '../utils/healthMetricUtils';
-import {logger, LogCategory} from '@/src/utils/logger'
+import {logger, LogCategory} from '@/src/utils/logger';
 import { DateUtils } from '../utils/DateUtils';
 
 // Error class for authentication/authorization errors
@@ -483,7 +483,7 @@ export const metricsService = {
   },
   
   /**
-   * Batch update multiple metrics at once
+   * Batch update multiple metrics at once using a single transaction
    * @param userId - The user's ID
    * @param metrics - Object mapping metric types to values
    * @returns Object containing update results
@@ -497,88 +497,86 @@ export const metricsService = {
         userId,
         metricCount: Object.keys(metrics).length
       });
-      
-      // Filter out undefined/null values
+
+      // Filter out undefined/null values and validate
       const validMetrics = Object.entries(metrics)
         .filter(([_, value]) => value !== undefined && value !== null)
         .map(([type, value]) => ({ type: type as MetricType, value: value as number }));
-      
+
       if (validMetrics.length === 0) {
         return { success: true, updatedMetrics: [], failedMetrics: [], results: {} };
       }
-      
-      // Validate all metrics first to fail fast
+
+      // Validate all metrics first
       const invalidMetrics = validMetrics.filter(
         ({ type, value }) => !isValidMetricValue(value, type)
       );
-      
+
       if (invalidMetrics.length > 0) {
         throw new MetricsValidationError(
           `Invalid metric values: ${invalidMetrics.map(m => m.type).join(', ')}`
         );
       }
-      
+
       // Verify auth once for all metrics
       await this.verifyUserAuthentication(userId);
-      
-      // Get user's measurement system once for all metrics
       const measurementSystem = await this.getUserMeasurementSystem(userId);
-      
-      // Process all metrics in parallel using Promise.all
-      const results: Record<string, any> = {};
-      const failedMetrics: string[] = [];
-      
-      // Prepare all metric updates
-      const updatePromises = validMetrics.map(async ({ type, value }) => {
-        try {
-          // Implementation for individual metric updates
-          const metricResult = await this.prepareAndUpdateMetric(
-            userId, type, value, measurementSystem
-          );
-          return { type, success: true, data: metricResult };
-        } catch (error) {
-          return { type, success: false, error };
-        }
-      });
-      
-      // Run all updates in parallel
-      const updateResults = await Promise.all(updatePromises);
-      
-      // Process results
-      for (const result of updateResults) {
-        if (result.success) {
-          results[result.type] = result.data;
-        } else {
-          failedMetrics.push(result.type);
-          logger.error(
-            LogCategory.Metrics, 
-            `Failed to update metric ${result.type}`, 
-            (result.error as Error).message
-          );
-        }
-      }
-      
-      // Update daily totals with a single query if any metrics were successfully updated
       const today = DateUtils.getLocalDateString();
-      
-      if (Object.keys(results).length > 0) {
-        const dailyTotal = await this.updateDailyTotals(userId, today);
-        
-        // Add the daily total to all successful results
-        Object.keys(results).forEach(key => {
-          results[key] = {
-            metric: results[key],
-            dailyTotal
-          };
+
+      // Prepare batch updates
+      const updates = await Promise.all(validMetrics.map(async ({ type, value }) => {
+        const config = healthMetrics[type];
+        const goal = config.defaultGoal;
+        const { points, goalReached } = calculatePoints(value, type, goal);
+
+        return {
+          user_id: userId,
+          date: today,
+          metric_type: type,
+          value,
+          goal,
+          points,
+          goal_reached: goalReached,
+          updated_at: new Date().toISOString(),
+          is_test_data: false
+        };
+      }));
+
+      // Execute batch update in a single transaction
+      const { error } = await supabase
+        .from('daily_metric_scores')
+        .upsert(updates, {
+          onConflict: 'user_id,date,metric_type'
         });
+
+      if (error) {
+        if (error.code === '42501') {
+          throw new MetricsAuthError('Permission denied: Cannot update metrics for this user');
+        }
+        throw new MetricsDatabaseError(`Failed to batch update metrics: ${error.message}`, error.code);
       }
-      
-      return {
-        success: failedMetrics.length === 0,
-        updatedMetrics: Object.keys(results),
-        failedMetrics,
-        results
+
+      // Update daily totals once for all metrics
+      const dailyTotal = await this.updateDailyTotals(userId, today);
+
+      // Prepare success response
+      const updatedTypes = validMetrics.map(m => m.type);
+      const successResponse = {
+        success: true,
+        updatedMetrics: updatedTypes,
+        failedMetrics: [],
+        results: updatedTypes.reduce((acc, type) => {
+          acc[type] = { dailyTotal };
+          return acc;
+        }, {} as Record<string, any>)
       };
+
+      logger.debug(LogCategory.Metrics, 'Batch update completed', undefined, undefined, {
+        updatedCount: updatedTypes.length
+      });
+
+      return successResponse;
+
     } catch (error) {
       if (error instanceof MetricsAuthError || 
           error instanceof MetricsValidationError || 
