@@ -5,8 +5,6 @@ import {
   readRecords,
 } from 'react-native-health-connect';
 import { mapHealthProviderError } from '../../../../utils/errorUtils';
-import { aggregateMetrics, isValidMetricValue } from '../../../../utils/healthMetricUtils';
-import { verifyHealthPermission } from '../../../../utils/healthPermissionUtils';
 import { BaseHealthProvider } from '../../types/provider';
 import { 
   HealthMetrics, 
@@ -21,58 +19,20 @@ import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
 import { HEALTH_PERMISSIONS } from './permissions';
 import { logger, LogCategory } from '@/src/utils/logger';
+import { performInitialization } from './initialization';
+import { retryOperation } from './utils';
+import {
+  fetchStepsWithDailyAggregation,
+  fetchDistanceWithDailyAggregation,
+  fetchCaloriesWithDailyAggregation,
+  fetchHeartRateWithDailyAggregation,
+  fetchBasalCaloriesWithDailyAggregation,
+  fetchFloorsClimbedWithDailyAggregation,
+  fetchExerciseWithDailyAggregation
+} from './metricFetchers';
 
-interface StepsRecord {
-  startTime: string;
-  endTime: string;
-  count: number;
-}
 
-interface DistanceRecord {
-  startTime: string;
-  endTime: string;
-  distance: {
-    inMeters: number;
-  };
-}
-
-interface CaloriesRecord {
-  startTime: string;
-  endTime: string;
-  energy?: {
-    inKilocalories: number;
-  };
-}
-
-interface BasalRecord {
-  startTime: string;
-  endTime: string;
-  metadata: {
-    id: string;
-  };
-  energy: {
-    inKilocalories: number;
-  };
-}
-
-interface HeartRateRecord {
-  startTime: string;
-  endTime: string;
-  samples: Array<{
-    beatsPerMinute: number;
-  }>;
-}
-
-interface ExerciseSessionRecord {
-  startTime: string;
-  endTime: string;
-  metadata: {
-    id: string;
-  };
-  exerciseType: number;
-}
-
-export class GoogleHealthProvider extends BaseHealthProvider {
+export default class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
   private androidVersion: number | null = null;
 
@@ -142,9 +102,10 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
     // Start new initialization
     console.log('[GoogleHealthProvider] Starting new initialization');
-    this.initializationPromise = this.performInitialization();
+    this.initializationPromise = performInitialization();
     try {
       await this.initializationPromise;
+      this.initialized = true;
       console.log('[GoogleHealthProvider] Initialization completed successfully');
     } catch (error) {
       console.error('[GoogleHealthProvider] Initialization failed:', error);
@@ -226,8 +187,12 @@ export class GoogleHealthProvider extends BaseHealthProvider {
       // Log that we're about to request permissions (user interaction required)
       console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
       
-      // Request permissions through Health Connect - this will show the permission dialog
-      await requestPermission(HEALTH_PERMISSIONS);
+      // Request permissions through Health Connect with retry mechanism
+      await retryOperation(
+        () => requestPermission(HEALTH_PERMISSIONS),
+        2, // 2 retries max for user-facing permission request
+        1000
+      );
       
       // After user interaction, verify if permissions were actually granted
       const verificationResult = await this.verifyPermissions();
@@ -262,20 +227,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     }
 
     try {
-      // Check if Health Connect is available
-      if (!this.initialized) {
-        const available = await initialize();
-        if (!available) {
-          const state: PermissionState = {
-            status: 'denied',
-            lastChecked: Date.now(),
-            deniedPermissions: ['HealthConnect']
-          };
-          await this.permissionManager.updatePermissionState('denied', ['HealthConnect']);
-          return state;
-        }
-      }
-      
       // Don't actively verify permissions unless we already have a cached state
       // This prevents security exceptions during initialization
       const state: PermissionState = {
@@ -319,50 +270,71 @@ export class GoogleHealthProvider extends BaseHealthProvider {
 
       // Test each permission individually with proper error handling
       try {
-        const stepsResult = await readRecords('Steps', { timeRangeFilter: testRange });
-        permissionResults.steps = true;
+        const stepsResult = await retryOperation(
+          () => fetchStepsWithDailyAggregation(yesterday, now),
+          1 // Just 1 retry for verification
+        );
+        permissionResults.steps = stepsResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] Steps permission verification failed:', error);
       }
 
       try {
-        const distanceResult = await readRecords('Distance', { timeRangeFilter: testRange });
-        permissionResults.distance = true;
+        const distanceResult = await retryOperation(
+          () => fetchDistanceWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.distance = distanceResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] Distance permission verification failed:', error);
       }
 
       try {
-        const caloriesResult = await readRecords('ActiveCaloriesBurned', { timeRangeFilter: testRange });
-        permissionResults.calories = true;
+        const caloriesResult = await retryOperation(
+          () => fetchCaloriesWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.calories = caloriesResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] Calories permission verification failed:', error);
       }
 
       try {
-        const heartRateResult = await readRecords('HeartRate', { timeRangeFilter: testRange });
-        permissionResults.heartRate = true;
+        const heartRateResult = await retryOperation(
+          () => fetchHeartRateWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.heartRate = heartRateResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] HeartRate permission verification failed:', error);
       }
 
       try {
-        const basalResult = await readRecords('BasalMetabolicRate', { timeRangeFilter: testRange });
-        permissionResults.basal = true;
+        const basalResult = await retryOperation(
+          () => fetchBasalCaloriesWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.basal = basalResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
       }
 
       try {
-        const floorsResult = await readRecords('FloorsClimbed', { timeRangeFilter: testRange });
-        permissionResults.floorsClimbed = true;
+        const floorsResult = await retryOperation(
+          () => fetchFloorsClimbedWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.floorsClimbed = floorsResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] FloorsClimbed permission verification failed:', error);
       }
 
       try {
-        const exerciseResult = await readRecords('ExerciseSession', { timeRangeFilter: testRange });
-        permissionResults.exercise = true;
+        const exerciseResult = await retryOperation(
+          () => fetchExerciseWithDailyAggregation(yesterday, now),
+          1
+        );
+        permissionResults.exercise = exerciseResult.length > 0;
       } catch (error) {
         console.warn('[GoogleHealthProvider] ExerciseSession permission verification failed:', error);
       }
@@ -425,12 +397,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     const normalizedStartDate = DateUtils.getStartOfDay(startDate);
     const normalizedEndDate = DateUtils.getEndOfDay(endDate);
 
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: normalizedStartDate.toISOString(),
-      endTime: normalizedEndDate.toISOString(),
-    };
-
     const rawData: RawHealthData = {};
 
     logger.info(LogCategory.Health, '[GoogleHealthProvider] Fetching health data for time range:', undefined, undefined, {
@@ -444,66 +410,31 @@ export class GoogleHealthProvider extends BaseHealthProvider {
         try {
           switch (type) {
             case 'steps':
-              // Fetch steps with daily aggregation
-              const stepsData = await this.fetchStepsWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.steps = stepsData;
+              rawData.steps = await fetchStepsWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'distance':
-              // Fetch distance with daily aggregation
-              const distanceData = await this.fetchDistanceWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.distance = distanceData;
+              rawData.distance = await fetchDistanceWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'calories':
-              // Fetch calories with daily aggregation
-              const caloriesData = await this.fetchCaloriesWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.calories = caloriesData;
+              rawData.calories = await fetchCaloriesWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'heart_rate':
-              // Fetch heart rate with daily aggregation
-              const heartRateData = await this.fetchHeartRateWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.heart_rate = heartRateData;
+              rawData.heart_rate = await fetchHeartRateWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'basal_calories':
-              // Fetch basal metabolic rate with daily aggregation
-              const basalData = await this.fetchBasalCaloriesWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.basal_calories = basalData;
+              rawData.basal_calories = await fetchBasalCaloriesWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'flights_climbed':
-              // Fetch floors climbed with daily aggregation
-              const floorsData = await this.fetchFloorsClimbedWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.flights_climbed = floorsData;
+              rawData.flights_climbed = await fetchFloorsClimbedWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
 
             case 'exercise':
-              // Fetch exercise time with daily aggregation
-              const exerciseData = await this.fetchExerciseWithDailyAggregation(
-                normalizedStartDate,
-                normalizedEndDate
-              );
-              rawData.exercise = exerciseData;
+              rawData.exercise = await fetchExerciseWithDailyAggregation(normalizedStartDate, normalizedEndDate);
               break;
           }
         } catch (error) {
@@ -519,516 +450,6 @@ export class GoogleHealthProvider extends BaseHealthProvider {
     );
 
     return rawData;
-  }
-
-  // New helper method to fetch steps with daily aggregation
-  private async fetchStepsWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request step data
-      const stepsResponse = await this.retryOperation(
-        () => readRecords('Steps', { timeRangeFilter })
-      );
-      
-      // Group data by day
-      const dailyTotals = new Map<string, number>();
-      
-      (stepsResponse.records as StepsRecord[]).forEach(record => {
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        const currentTotal = dailyTotals.get(day) || 0;
-        dailyTotals.set(day, currentTotal + record.count);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: dailyTotals.get(dateStr) || 0,
-          unit: 'count',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching steps with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
-  }
-
-  // New helper method to fetch distance with daily aggregation
-  private async fetchDistanceWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request distance data
-      const distanceResponse = await this.retryOperation(
-        () => readRecords('Distance', { timeRangeFilter })
-      );
-      
-      // Group data by day (sum distances within each day)
-      const dailyTotals = new Map<string, number>();
-      
-      (distanceResponse.records as DistanceRecord[]).forEach(record => {
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        const currentTotal = dailyTotals.get(day) || 0;
-        dailyTotals.set(day, currentTotal + record.distance.inMeters);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: dailyTotals.get(dateStr) || 0,
-          unit: 'meters',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching distance with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
-  }
-
-  // New helper method to fetch calories with daily aggregation
-  private async fetchCaloriesWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request calories data
-      const caloriesResponse = await this.retryOperation(
-        () => readRecords('ActiveCaloriesBurned', { timeRangeFilter })
-      );
-      
-      // Group data by day (sum calories within each day)
-      const dailyTotals = new Map<string, number>();
-      
-      (caloriesResponse.records as CaloriesRecord[]).forEach(record => {
-        if (!record.energy?.inKilocalories) return;
-        
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        const currentTotal = dailyTotals.get(day) || 0;
-        dailyTotals.set(day, currentTotal + record.energy.inKilocalories);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: Math.round(dailyTotals.get(dateStr) || 0),
-          unit: 'kcal',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching calories with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
-  }
-
-  // New helper method to fetch heart rate with daily aggregation
-  private async fetchHeartRateWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request heart rate data
-      const heartRateResponse = await this.retryOperation(
-        () => readRecords('HeartRate', { 
-          timeRangeFilter,
-          ascendingOrder: true
-        })
-      );
-      
-      console.log('[GoogleHealthProvider] Raw heart rate response:', JSON.stringify(heartRateResponse, null, 2));
-      
-      // Group data by day and calculate average heart rate for each day
-      const dailyHeartRates = new Map<string, number[]>();
-      
-      if (!heartRateResponse?.records) {
-        console.warn('[GoogleHealthProvider] No heart rate records found');
-        return [];
-      }
-      
-      (heartRateResponse.records as HeartRateRecord[]).forEach(record => {
-        console.log('[GoogleHealthProvider] Processing heart rate record:', JSON.stringify(record, null, 2));
-        
-        // Check if record has the expected structure
-        if (!record || !record.samples || !Array.isArray(record.samples)) {
-          console.warn('[GoogleHealthProvider] Invalid heart rate record structure:', record);
-          return;
-        }
-        
-        // Filter valid heart rate samples
-        const validSamples = record.samples
-          .filter(sample => {
-            const isValid = typeof sample.beatsPerMinute === 'number' &&
-              !isNaN(sample.beatsPerMinute) &&
-              sample.beatsPerMinute > 30 &&
-              sample.beatsPerMinute < 220;
-              
-            if (!isValid) {
-              console.warn('[GoogleHealthProvider] Invalid heart rate sample:', sample);
-            }
-            
-            return isValid;
-          })
-          .map(sample => sample.beatsPerMinute);
-        
-        if (validSamples.length === 0) {
-          console.warn('[GoogleHealthProvider] No valid samples in record');
-          return;
-        }
-        
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        console.log(`[GoogleHealthProvider] Adding ${validSamples.length} samples for day ${day}`);
-        
-        if (!dailyHeartRates.has(day)) {
-          dailyHeartRates.set(day, []);
-        }
-        
-        // Add all valid samples to the day's array
-        dailyHeartRates.get(day)!.push(...validSamples);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        // Calculate average heart rate for the day
-        let avgHeartRate = 0;
-        const heartRates = dailyHeartRates.get(dateStr);
-        
-        if (heartRates && heartRates.length > 0) {
-          // Calculate average, removing outliers
-          const sortedRates = [...heartRates].sort((a, b) => a - b);
-          const q1Index = Math.floor(sortedRates.length * 0.25);
-          const q3Index = Math.floor(sortedRates.length * 0.75);
-          const validRates = sortedRates.slice(q1Index, q3Index + 1);
-          
-          avgHeartRate = validRates.reduce((sum, val) => sum + val, 0) / validRates.length;
-          console.log(`[GoogleHealthProvider] Calculated average heart rate for ${dateStr}: ${avgHeartRate} from ${validRates.length} samples`);
-        }
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: Math.round(avgHeartRate),
-          unit: 'bpm',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching heart rate with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
-  }
-
-  // New helper method to fetch basal calories with daily aggregation
-  private async fetchBasalCaloriesWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request basal metabolic rate data
-      const hasPermission = await verifyHealthPermission(this, 'BasalMetabolicRate');
-      if (!hasPermission) {
-        logger.warn(LogCategory.Health, '[GoogleHealthProvider] BasalMetabolicRate permission not granted');
-        return [];
-      }
-      
-      const basalResponse = await this.retryOperation(
-        () => readRecords('BasalMetabolicRate', { timeRangeFilter }),
-        3,  // 3 retries
-        1000  // 1 second delay
-      );
-      
-      // Group data by day (average BMR values within each day)
-      const dailyValues = new Map<string, number[]>();
-      
-      (basalResponse.records as unknown as BasalRecord[]).forEach(record => {
-        if (!record.energy?.inKilocalories) return;
-        
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        
-        if (!dailyValues.has(day)) {
-          dailyValues.set(day, []);
-        }
-        
-        dailyValues.get(day)!.push(record.energy.inKilocalories);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        // Calculate average BMR for the day
-        let bmrValue = 0;
-        const values = dailyValues.get(dateStr);
-        
-        if (values && values.length > 0) {
-          // Use average for multiple values
-          bmrValue = values.reduce((sum, val) => sum + val, 0) / values.length;
-        }
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: Math.round(bmrValue),
-          unit: 'kcal',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching basal calories with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
-  }
-
-  private async fetchExerciseWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    try {
-      const timeRangeFilter = {
-        operator: 'between',
-        startTime: startDate.toISOString(),
-        endTime: endDate.toISOString(),
-      };
-
-      // Fetch exercise sessions from Health Connect
-      const exerciseSessionsResult = await this.retryOperation(
-        () => readRecords('ExerciseSession', { 
-          timeRangeFilter: {
-            operator: 'between',
-            startTime: startDate.toISOString(),
-            endTime: endDate.toISOString(),
-          } 
-        })
-      );
-      
-      const exerciseSessions = (exerciseSessionsResult?.records as unknown) as ExerciseSessionRecord[] || [];
-
-      if (exerciseSessions.length === 0) {
-        return [];
-      }
-
-      logger.debug(
-        LogCategory.Health,
-        `[GoogleHealthProvider] Fetched ${exerciseSessions.length} exercise sessions`
-      );
-
-      // Group sessions by day and calculate total duration for each day
-      const dailyExerciseDurations = new Map<string, number>();
-
-      for (const session of exerciseSessions) {
-        const startDateTime = new Date(session.startTime);
-        const endDateTime = new Date(session.endTime);
-        
-        // Calculate duration in minutes
-        const durationMinutes = (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60);
-        
-        // Use date string as key (YYYY-MM-DD)
-        const dateKey = DateUtils.getLocalDateString(startDateTime);
-        
-        // Add duration to the appropriate day
-        const currentDuration = dailyExerciseDurations.get(dateKey) || 0;
-        dailyExerciseDurations.set(dateKey, currentDuration + durationMinutes);
-      }
-
-      // Convert to RawHealthMetric array
-      const metrics: RawHealthMetric[] = [];
-      
-      for (const [dateStr, durationMinutes] of dailyExerciseDurations.entries()) {
-        const date = new Date(dateStr);
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
-        
-        metrics.push({
-          startDate: startOfDay.toISOString(),
-          endDate: endOfDay.toISOString(),
-          value: durationMinutes,
-          unit: METRIC_UNITS.EXERCISE, // 'minutes'
-          sourceBundle: 'com.google.android.apps.healthdata'
-        });
-      }
-
-      return metrics;
-    } catch (error) {
-      logger.error(
-        LogCategory.Health,
-        `[GoogleHealthProvider] Error fetching exercise sessions:`,
-        (error as Error).message
-      );
-      return [];
-    }
-  }
-
-  // New helper method to fetch floors climbed with daily aggregation
-  private async fetchFloorsClimbedWithDailyAggregation(
-    startDate: Date,
-    endDate: Date
-  ): Promise<RawHealthMetric[]> {
-    const timeRangeFilter = {
-      operator: 'between' as const,
-      startTime: startDate.toISOString(),
-      endTime: endDate.toISOString(),
-    };
-    
-    try {
-      // Request floors climbed data
-      const floorsResponse = await this.retryOperation(
-        () => readRecords('FloorsClimbed', { timeRangeFilter })
-      );
-      
-      // Group data by day (sum floors within each day)
-      const dailyTotals = new Map<string, number>();
-      
-      // Assuming the response format contains a 'floors' property
-      (floorsResponse.records as any[]).forEach(record => {
-        const day = new Date(record.startTime).toISOString().split('T')[0];
-        const currentTotal = dailyTotals.get(day) || 0;
-        
-        // Handle different possible field names for floors climbed
-        const floorCount = 
-          typeof record.floorsClimbed !== 'undefined' ? record.floorsClimbed :
-          typeof record.floors !== 'undefined' ? record.floors : 0;
-        
-        dailyTotals.set(day, currentTotal + floorCount);
-      });
-      
-      // Create a complete daily dataset including days with no data
-      const result: RawHealthMetric[] = [];
-      const currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = DateUtils.getStartOfDay(new Date(currentDate));
-        const dayEnd = DateUtils.getEndOfDay(new Date(currentDate));
-        
-        result.push({
-          startDate: dayStart.toISOString(),
-          endDate: dayEnd.toISOString(),
-          value: dailyTotals.get(dateStr) || 0,
-          unit: 'count',
-          sourceBundle: 'com.google.android.apps.fitness'
-        });
-        
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching floors climbed with daily aggregation:', (error as Error).message);
-      // In case of error, return empty array
-      return [];
-    }
   }
 
   normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[] {

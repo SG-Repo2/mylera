@@ -57,15 +57,31 @@ export default function LoginScreen() {
     
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      // Add delay to ensure navigator is ready
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       await login(email, password);
-
-      // If login is successful (no error from context), navigate directly to home
-      if (!authError) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.replace('/(app)/(home)');
-      }
+      
+      // Don't navigate here - let the AuthProvider handle navigation
+      console.log('[LoginScreen] Login successful, waiting for auth state update');
+      
     } catch (err) {
-      console.error('Login error:', err);
+      console.error('[LoginScreen] Login error:', err);
+      
+      // Handle specific error cases
+      if (err instanceof Error) {
+        if (err.message.includes('Network') || err.message.includes('connect')) {
+          setLocalError('Unable to connect to the server. Please check your internet connection.');
+        } else if (err.message.includes('Invalid login credentials')) {
+          setLocalError('Invalid email or password');
+        } else {
+          setLocalError(err.message);
+        }
+      } else {
+        setLocalError('An unexpected error occurred');
+      }
+      
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
