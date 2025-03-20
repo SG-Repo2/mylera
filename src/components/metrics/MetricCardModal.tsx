@@ -10,7 +10,7 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { metricColors } from '@/src/styles/useMetricCardListStyles';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { BarChart } from './BarChart';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { MeasurementSystem, DISPLAY_UNITS, formatMetricValue } from '@/src/utils/unitConversion';
 
 interface MetricModalProps {

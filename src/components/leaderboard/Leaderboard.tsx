@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useAuth } from '../../providers/AuthProvider';
+import { useAuth } from '../../providers/auth';
 import { ToggleableLeaderboard } from './ToggleableLeaderboard';
 
 /**

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { HealthProviderFactory } from '@/src/providers/health';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
 import { theme } from '@/src/theme/theme';

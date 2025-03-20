@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useAuth } from '../../../src/providers/AuthProvider';
+import { useAuth } from '../../../src/providers/auth';
 import { Leaderboard } from '../../../src/components/leaderboard/Leaderboard';
 
 /**

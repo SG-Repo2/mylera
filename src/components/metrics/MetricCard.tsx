@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import { MetricType } from '@/src/types/metrics';
 import { useMetricCardStyles } from '@/src/styles/useMetricCardStyles';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { DISPLAY_UNITS, MeasurementSystem, FormattedMetricValue } from '@/src/utils/unitConversion';
 import { useMetricCardAnimations } from '@/src/hooks/useMetricCardAnimations';
 

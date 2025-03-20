@@ -10,7 +10,7 @@ import {
   StatusBar,
   Animated
 } from 'react-native';
-import { AuthProvider, useAuth } from '@/src/providers/AuthProvider';
+import { AuthProvider, useAuth } from '@/src/providers/auth';
 import { PaperProvider } from 'react-native-paper';
 import { theme } from '../src/theme/theme';
 import { isProtectedRoute, isAuthRoute, NavigationConfig } from '@/src/utils/NavigationUtils';

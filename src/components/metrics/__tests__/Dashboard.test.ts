@@ -5,7 +5,7 @@ import { Dashboard } from '@/src/components/metrics/Dashboard';
 import { HealthMetrics } from '@/src/providers/health';
 import { useDashboardData } from '@/src/hooks/useDashboardData';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import { RefreshControl, Animated, View, Text, TouchableOpacity } from 'react-native';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
@@ -14,7 +14,7 @@ import type { DailyTotal } from '@/src/types/schemas';
 // Mocks
 jest.mock('@/src/hooks/useDashboardData');
 jest.mock('@/src/hooks/useDashboardAnimations');
-jest.mock('@/src/providers/AuthProvider');
+jest.mock('@/src/providers/auth');
 // Mock components with proper types
 jest.mock('@/src/components/shared/ErrorView', () => ({
   ErrorView: (({ error, onRetry }: { error?: Error; onRetry?: () => void }): ReactElement => {

@@ -10,7 +10,7 @@ import { healthMetrics } from '@/src/config/healthMetrics';
 import { HealthMetrics } from '@/src/providers/health/types/metrics';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useMetricCardListStyles } from '@/src/styles/useMetricCardListStyles';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { MeasurementSystem, DISPLAY_UNITS } from '@/src/utils/unitConversion';
 import { 
   useMetricCardListAnimations,

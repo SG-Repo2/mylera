@@ -7,7 +7,7 @@ import { leaderboardService } from '../../services/leaderboardService';
 import { LeaderboardEntry } from './LeaderboardEntry';
 import { PodiumView } from './PodiumView';
 import { ErrorView } from '../shared/ErrorView';
-import { useAuth } from '../../providers/AuthProvider';
+import { useAuth } from '../../providers/auth';
 import { DateUtils } from '../../utils/DateUtils';
 import type { LeaderboardEntry as LeaderboardEntryType, LeaderboardTimeframe } from '../../types/leaderboard';
 

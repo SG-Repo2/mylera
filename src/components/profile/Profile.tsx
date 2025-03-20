@@ -12,7 +12,7 @@ import {
   FlatList,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useAuth } from '../../providers/AuthProvider';
+import { useAuth } from '../../providers/auth';
 import { useRouter } from 'expo-router';
 import { leaderboardService } from '../../services/leaderboardService';
 import { UserProfile } from '../../types/leaderboard';

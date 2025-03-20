@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { ErrorView } from '@/src/components/shared/ErrorView';
 import { MetricCardList } from './MetricCardList';
-import { useAuth } from '@/src/providers/AuthProvider';
+import { useAuth } from '@/src/providers/auth';
 import { HealthProviderPermissionError } from '@/src/providers/health/types/errors';
 import { useDashboardStyles } from '@/src/styles/useDashboardStyles';
 import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
