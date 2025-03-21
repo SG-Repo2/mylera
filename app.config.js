@@ -28,6 +28,7 @@ module.exports = {
       "expo-health-connect",
       "expo-image-picker",
       "expo-secure-store",
+      "expo-linear-gradient",
       [
         "expo-build-properties",
         {

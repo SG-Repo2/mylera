@@ -3,16 +3,12 @@ import { Animated, Easing } from 'react-native';
 import type { DailyTotal } from '@/src/types/schemas';
 
 export const useEnhancedHeaderAnimations = (dailyTotal: DailyTotal | null) => {
-  // Logo animations
+  // Initialize all animated values with proper defaults
   const logoScale = useRef(new Animated.Value(1)).current;
   const logoOpacity = useRef(new Animated.Value(1)).current;
-  
-  // Points badge animations
   const pointsScale = useRef(new Animated.Value(1)).current;
   const pointsGlow = useRef(new Animated.Value(0)).current;
   const shinePosition = useRef(new Animated.Value(-1)).current;
-  
-  // Message animations
   const messageOpacity = useRef(new Animated.Value(0)).current;
   const messageTranslateY = useRef(new Animated.Value(10)).current;
   
@@ -63,12 +59,12 @@ export const useEnhancedHeaderAnimations = (dailyTotal: DailyTotal | null) => {
         Animated.timing(pointsGlow, {
           toValue: 1,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver: false, // Opacity can't use native driver
         }),
         Animated.timing(pointsGlow, {
           toValue: 0,
           duration: 400,
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ]).start();
       
@@ -80,12 +76,8 @@ export const useEnhancedHeaderAnimations = (dailyTotal: DailyTotal | null) => {
       }).start(() => {
         shinePosition.setValue(-1);
       });
-    }
-  }, [dailyTotal?.total_points, pointsScale, pointsGlow, shinePosition]);
-  
-  // Message animation
-  useEffect(() => {
-    if (dailyTotal) {
+      
+      // Message animation
       Animated.parallel([
         Animated.timing(messageOpacity, {
           toValue: 1,
@@ -101,7 +93,7 @@ export const useEnhancedHeaderAnimations = (dailyTotal: DailyTotal | null) => {
         }),
       ]).start();
     }
-  }, [dailyTotal?.total_points, messageOpacity, messageTranslateY]);
+  }, [dailyTotal?.total_points]);
   
   return {
     logoAnimations: {
@@ -110,15 +102,12 @@ export const useEnhancedHeaderAnimations = (dailyTotal: DailyTotal | null) => {
     },
     pointsAnimations: {
       transform: [{ scale: pointsScale }],
-      glow: pointsGlow,
-      shine: shinePosition.interpolate({
-        inputRange: [-1, 0, 1],
-        outputRange: ['0%', '50%', '100%'],
-      }),
+      opacity: pointsGlow, // Use opacity instead of glow directly
     },
     messageAnimations: {
       opacity: messageOpacity,
       transform: [{ translateY: messageTranslateY }],
     },
+    shine: shinePosition, // Export shine separately
   };
 }; 

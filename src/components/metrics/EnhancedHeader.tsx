@@ -32,7 +32,7 @@ export const EnhancedHeader = React.memo(function EnhancedHeader({
 }: EnhancedHeaderProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
-  const { logoAnimations, pointsAnimations, messageAnimations } = useEnhancedHeaderAnimations(dailyTotal);
+  const { logoAnimations, pointsAnimations, messageAnimations, shine } = useEnhancedHeaderAnimations(dailyTotal);
   
   const gradientColors = useMemo(() => 
     getGradientColors(dailyTotal.total_points, theme),
@@ -68,30 +68,15 @@ export const EnhancedHeader = React.memo(function EnhancedHeader({
             />
           </Animated.View>
           
-          <Animated.View 
-            style={[
-              styles.statItem,
-              pointsAnimations,
-              {
-                shadowColor: theme.colors.primary,
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: pointsAnimations.glow,
-                shadowRadius: 8,
-                elevation: pointsAnimations.glow.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [2, 8],
-                }),
-              }
-            ]}
-          >
+          <Animated.View style={[styles.statItem, pointsAnimations]}>
             <Animated.View
               style={[
                 styles.shineEffect,
                 {
                   transform: [
                     {
-                      translateX: pointsAnimations.shine.interpolate({
-                        inputRange: [0, 1],
+                      translateX: shine.interpolate({
+                        inputRange: [-1, 1],
                         outputRange: ['-100%', '100%'],
                       }),
                     },
