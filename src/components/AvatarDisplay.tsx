@@ -21,11 +21,7 @@ const avatarAssets: Record<string, any> = {
 };
 
 const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }) => {
-  // Debug: log the provided avatarId
-  console.log('[AvatarDisplay] Received avatarId:', avatarId);
-
   if (avatarId === null || avatarId === undefined) {
-    console.warn('[AvatarDisplay] No avatarId provided');
     return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
   }
 
@@ -34,7 +30,6 @@ const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }
   const avatarSource = avatarAssets[idKey];
 
   if (!avatarSource) {
-    console.warn(`[AvatarDisplay] No avatar asset found for id "${idKey}"`);
     return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
   }
 
@@ -56,4 +51,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AvatarDisplay; 
+export default AvatarDisplay;

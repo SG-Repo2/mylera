@@ -85,9 +85,6 @@ export function LeaderboardEntry({
 
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
-      // Log the avatar URL for debugging
-      console.log(`[LeaderboardEntry] Rendering avatar for ${display_name}:`, avatar_url);
-      
       return (
         <AvatarDisplay 
           avatarId={avatar_url}
