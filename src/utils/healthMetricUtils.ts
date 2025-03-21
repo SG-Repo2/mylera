@@ -174,9 +174,10 @@ export function calculatePoints(
         break;
         
       case 'distance':
-        // 10 points per kilometer (or equivalent), max 30 points
-        // Goal is stored in meters
-        points = Math.min(Math.floor(value / (goal / 30)), 30);
+        // Calculate points based on distance in meters
+        // 1 point per 160.934 meters (0.1 miles), max 30 points
+        // This ensures consistent scoring regardless of measurement system
+        points = Math.min(Math.floor(value / 160.934), 30);
         goalReached = value >= goal;
         break;
         

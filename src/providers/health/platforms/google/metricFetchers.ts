@@ -154,14 +154,32 @@ export async function fetchHeartRateWithDailyAggregation(
     const dailyAverages = new Map<string, number>();
     
     dailyHeartRates.forEach((rates, day) => {
-      const sortedRates = [...rates].sort((a, b) => a - b);
-      const q1Index = Math.floor(sortedRates.length * 0.25);
-      const q3Index = Math.floor(sortedRates.length * 0.75);
-      const validRates = sortedRates.slice(q1Index, q3Index + 1);
+      // Sort readings by timestamp (most recent first)
+      const sortedRates = [...rates].sort((a, b) => b - a);
       
-      if (validRates.length > 0) {
-        const average = validRates.reduce((sum, val) => sum + val, 0) / validRates.length;
+      if (sortedRates.length <= 3) {
+        // For 3 or fewer readings, use simple average
+        const average = sortedRates.reduce((sum, val) => sum + val, 0) / sortedRates.length;
         dailyAverages.set(day, Math.round(average));
+      } else {
+        // Use weighted average with more recent readings weighted higher
+        const recentReadings = sortedRates.slice(0, 3);
+        const olderReadings = sortedRates.slice(3);
+        
+        const recentAvg = recentReadings.reduce((sum, val) => sum + val, 0) / recentReadings.length;
+        const olderAvg = olderReadings.reduce((sum, val) => sum + val, 0) / olderReadings.length;
+        
+        // 60% weight to recent readings, 40% to older readings
+        const weightedAvg = (recentAvg * 0.6) + (olderAvg * 0.4);
+        
+        logger.debug(LogCategory.Health, '[GoogleHealthProvider] Heart rate weighted average:', undefined, undefined, { 
+          recentAvg, 
+          olderAvg, 
+          weightedAvg, 
+          rounded: Math.round(weightedAvg) 
+        });
+        
+        dailyAverages.set(day, Math.round(weightedAvg));
       }
     });
     
