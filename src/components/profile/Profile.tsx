@@ -48,41 +48,45 @@ export function Profile() {
     setLoading(true);
     setError(null);
     try {
+      console.log('[Profile] Loading profile for user:', user.id);
       const data = await leaderboardService.getUserProfile(user.id);
       if (data) {
+        console.log('[Profile] Loaded profile with display name:', data.display_name);
         setProfile(data);
         setDisplayName(data.display_name ?? '');
         setShowProfile(data.show_profile);
       } else {
         // Handle case where profile doesn't exist
-        console.log('Creating default profile for new user');
+        console.log('[Profile] Creating default profile for new user');
         try {
           // Get registration data from metadata if available
           const metadata = user.user_metadata || {};
           const defaultProfile = {
             display_name: metadata.displayName || null,
-            show_profile: metadata.showProfile !== undefined ? metadata.showProfile : true, // Default to true
+            show_profile: metadata.showProfile !== undefined ? metadata.showProfile : true,
             avatar_url: metadata.avatarUri || null,
             device_type: metadata.deviceType || null,
             measurement_system: metadata.measurementSystem || 'metric',
           };
 
+          console.log('[Profile] Creating default profile with display name:', defaultProfile.display_name);
           await leaderboardService.updateUserProfile(user.id, defaultProfile);
           
           // Retry loading the profile
           const newProfile = await leaderboardService.getUserProfile(user.id);
           if (newProfile) {
+            console.log('[Profile] Successfully loaded newly created profile');
             setProfile(newProfile);
             setDisplayName(newProfile.display_name ?? '');
             setShowProfile(newProfile.show_profile);
           }
         } catch (createErr) {
-          console.error('Error creating default profile:', createErr);
+          console.error('[Profile] Error creating default profile:', createErr);
           throw createErr;
         }
       }
     } catch (err) {
-      console.error('Profile error:', err);
+      console.error('[Profile] Profile error:', err);
       if (err instanceof Error) {
         if (err.message.includes('42501')) {
           setError(new Error('Unable to access profile. Please check your permissions.'));
@@ -110,12 +114,21 @@ export function Profile() {
     try {
       // Validate display name
       const trimmedName = displayName.trim();
+      if (!trimmedName) {
+        throw new Error('Display name is required');
+      }
       if (trimmedName.length > 50) {
         throw new Error('Display name must be 50 characters or less');
       }
+      if (trimmedName.length < 2) {
+        throw new Error('Display name must be at least 2 characters');
+      }
 
+      console.log('[Profile] Saving profile with display name:', trimmedName);
+
+      // Update profile in database
       await leaderboardService.updateUserProfile(user.id, {
-        display_name: trimmedName || null,
+        display_name: trimmedName,
         show_profile: showProfile,
       });
 
@@ -123,29 +136,32 @@ export function Profile() {
         // Update user metadata to maintain name consistency
         const { error: updateError } = await supabase.auth.updateUser({
           data: { 
-            displayName: trimmedName || null,
+            displayName: trimmedName,
             showProfile: showProfile
           }
         });
         
         if (updateError) {
-          console.warn('Failed to update auth metadata:', updateError);
+          console.warn('[Profile] Failed to update auth metadata:', updateError);
+          // Don't throw here - the profile was updated successfully
+        } else {
+          console.log('[Profile] Successfully updated auth metadata with new display name');
         }
         
         await loadProfile(); // Reload to confirm changes
         setEditingName(false);
       } catch (reloadErr) {
-        console.warn('Profile saved but reload failed:', reloadErr);
+        console.warn('[Profile] Profile saved but reload failed:', reloadErr);
         // Don't throw here - the save was successful even if reload failed
         // Just update local state
         setProfile(prev => prev ? {
           ...prev,
-          display_name: trimmedName || null,
+          display_name: trimmedName,
           show_profile: showProfile,
         } : null);
       }
     } catch (err) {
-      console.error('Error saving profile:', err);
+      console.error('[Profile] Error saving profile:', err);
       if (err instanceof Error) {
         if (err.message.includes('42501')) {
           setError(new Error('You do not have permission to update this profile.'));

@@ -80,14 +80,20 @@ export async function registerUser(
     throw new Error('Display name is required');
   }
 
-  // First attempt to sign up - only include critical metadata
-  console.log('[authService] Registering user with Supabase...');
+  const trimmedDisplayName = profile.displayName.trim();
+  console.log('[authService] Registering user with display name:', trimmedDisplayName);
+
+  // First attempt to sign up - include all metadata
   const signUpData = {
     email,
     password,
     options: {
       data: {
-        displayName: profile.displayName.trim(),
+        displayName: trimmedDisplayName,
+        deviceType: profile.deviceType,
+        measurementSystem: profile.measurementSystem,
+        showProfile: profile.showProfile ?? true,
+        avatarUri: profile.avatarUri
       },
     },
   };
@@ -107,48 +113,46 @@ export async function registerUser(
   
   console.log('[authService] User registered successfully with ID:', data.user.id);
   
-  // Update the user metadata with additional fields
-  try {
-    const { error: metadataError } = await supabase.auth.updateUser({
-      data: {
-        deviceType: profile.deviceType,
-        measurementSystem: profile.measurementSystem,
-        showProfile: profile.showProfile ?? true
-      }
-    });
-    
-    if (metadataError) {
-      console.warn('[authService] Failed to update user metadata:', metadataError);
-    }
-  } catch (metadataError) {
-    console.warn('[authService] Error updating user metadata:', metadataError);
-  }
-  
   // Create profile through the API
   try {
     console.log('[authService] Creating user profile...');
     await leaderboardService.createUserProfile(data.user.id, {
-      display_name: profile.displayName.trim(),
+      display_name: trimmedDisplayName,
       device_type: profile.deviceType,
       measurement_system: profile.measurementSystem,
       show_profile: profile.showProfile ?? true,
+      avatar_url: profile.avatarUri
     });
     
     console.log('[authService] Initial profile created successfully');
   } catch (profileError) {
     console.error('[authService] Error creating initial profile:', profileError);
+    // Don't throw here - we want to continue even if profile creation fails
   }
 
-  // Handle avatar selection if provided
-  if (data.user && profile.avatarUri) {
-    try {
-      await leaderboardService.updateUserProfile(data.user.id, {
-        avatar_url: profile.avatarUri
+  // Double-check and update auth metadata if needed
+  try {
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (currentUser && currentUser.user_metadata?.displayName !== trimmedDisplayName) {
+      console.log('[authService] Updating auth metadata to ensure display name consistency');
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: {
+          displayName: trimmedDisplayName,
+          deviceType: profile.deviceType,
+          measurementSystem: profile.measurementSystem,
+          showProfile: profile.showProfile ?? true,
+          avatarUri: profile.avatarUri
+        }
       });
-      console.log('[authService] Avatar selection saved');
-    } catch (updateError) {
-      console.error('[authService] Avatar update failed:', updateError);
+      
+      if (metadataError) {
+        console.warn('[authService] Failed to update user metadata:', metadataError);
+      } else {
+        console.log('[authService] Successfully updated auth metadata');
+      }
     }
+  } catch (metadataError) {
+    console.warn('[authService] Error checking/updating user metadata:', metadataError);
   }
 
   return data.user;
@@ -162,6 +166,29 @@ export async function loginUser(email: string, password: string) {
   try {
     const data = await loginWithRetry(email, password);
     console.log('[authService] Login successful');
+
+    // Verify and sync display name if needed
+    if (data.session?.user) {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (currentUser) {
+        const profile = await leaderboardService.getUserProfile(currentUser.id);
+        if (profile?.display_name && currentUser.user_metadata?.displayName !== profile.display_name) {
+          console.log('[authService] Syncing display name from profile to auth metadata');
+          const { error: metadataError } = await supabase.auth.updateUser({
+            data: {
+              displayName: profile.display_name
+            }
+          });
+          
+          if (metadataError) {
+            console.warn('[authService] Failed to sync display name to auth metadata:', metadataError);
+          } else {
+            console.log('[authService] Successfully synced display name to auth metadata');
+          }
+        }
+      }
+    }
+
     return data;
   } catch (error) {
     if (error instanceof Error && error.message.includes('Network request failed')) {

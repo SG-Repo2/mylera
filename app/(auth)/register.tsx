@@ -127,12 +127,20 @@ export default function RegisterScreen() {
       hasError = true;
     }
 
-    if (!displayName.trim()) {
+    // Enhanced display name validation with better logging
+    const trimmedDisplayName = displayName.trim();
+    if (!trimmedDisplayName) {
       errors.displayName = 'Display name is required';
       hasError = true;
-    } else if (displayName.trim().length > 50) {
+      console.log('[RegisterScreen] Display name validation failed: empty or whitespace only');
+    } else if (trimmedDisplayName.length > 50) {
       errors.displayName = 'Display name must be 50 characters or less';
       hasError = true;
+      console.log('[RegisterScreen] Display name validation failed: exceeds 50 characters');
+    } else if (trimmedDisplayName.length < 2) {
+      errors.displayName = 'Display name must be at least 2 characters';
+      hasError = true;
+      console.log('[RegisterScreen] Display name validation failed: less than 2 characters');
     }
 
     if (!deviceType) {
@@ -169,9 +177,12 @@ export default function RegisterScreen() {
       
       const trimmedDisplayName = displayName.trim();
       if (!trimmedDisplayName) {
+        console.error('[RegisterScreen] Display name is empty after validation');
         setLocalError({ displayName: 'Display name is required' });
         return;
       }
+      
+      console.log('[RegisterScreen] Starting registration with display name:', trimmedDisplayName);
       
       // Register the user
       await register(email, password, {
@@ -182,14 +193,11 @@ export default function RegisterScreen() {
         showProfile: true
       });
 
-      // Don't request health permissions here - let the auth flow handle it
-      // The AuthProvider will automatically request permissions after registration
-
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       console.log('[RegisterScreen] Registration successful, waiting for auth state to update');
       setLocalError({});
     } catch (err) {
-      console.error('Registration error:', err);
+      console.error('[RegisterScreen] Registration error:', err);
       if (err instanceof Error) {
         // Handle specific error cases with improved user messages
         if (err.message.includes('already registered') || err.message.includes('already exists')) {
@@ -197,7 +205,6 @@ export default function RegisterScreen() {
             email: 'This email is already registered',
             submit: 'This email is already registered. Please sign in instead.' 
           });
-          // Focus the email input to make it clear what needs to be changed
           setEmail('');
         } else if (err.message.includes('duplicate key')) {
           setLocalError({ 
@@ -208,7 +215,6 @@ export default function RegisterScreen() {
         } else if (err.message.includes('Database error')) {
           setLocalError({ submit: 'Registration failed. Please try again later.' });
         } else if (err.message.includes('password')) {
-          // Handle password validation errors specifically
           setLocalError({ 
             password: 'Please check your password format',
             submit: err.message 

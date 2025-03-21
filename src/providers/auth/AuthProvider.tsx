@@ -150,6 +150,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthNavigationLocked(true); // Lock navigation
       setHealthDataInitialized(false); // Reset health data initialization state
       
+      // Validate display name
+      const trimmedDisplayName = profile.displayName?.trim();
+      if (!trimmedDisplayName) {
+        throw new Error('Display name is required');
+      }
+      
+      console.log('[AuthProvider] Registering user with display name:', trimmedDisplayName);
+      
       // Register the user using the auth service
       const user = await registerUser(email, password, profile);
       
@@ -253,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         console.log('[AuthProvider] Login successful, initializing health provider...');
+        console.log('[AuthProvider] User display name:', data.session.user.user_metadata?.displayName);
         
         // Update session state immediately
         setSession(data.session);
