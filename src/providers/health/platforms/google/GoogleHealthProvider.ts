@@ -169,81 +169,60 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
-  async requestPermissions(): Promise<PermissionStatus> {
+  protected async ensurePermissionsInitialized(): Promise<void> {
     if (!this.permissionManager) {
-      console.error('[GoogleHealthProvider] Cannot request permissions - permission manager not initialized');
-      return 'not_determined';
-    }
-
-    try {
-      await this.ensureInitialized();
-
-      // Check if permissions are already granted
-      const currentState = await this.checkPermissionsStatus();
-      if (currentState.status === 'granted') {
-        return 'granted';
-      }
-
-      // Log that we're about to request permissions (user interaction required)
-      console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
-      
-      // Request permissions through Health Connect with retry mechanism
-      await retryOperation(
-        () => requestPermission(HEALTH_PERMISSIONS),
-        2, // 2 retries max for user-facing permission request
-        1000
-      );
-      
-      // After user interaction, verify if permissions were actually granted
-      const verificationResult = await this.verifyPermissions();
-      const status: PermissionStatus = verificationResult ? 'granted' : 'denied';
-      
-      // Update permission state in cache
-      await this.permissionManager.updatePermissionState(status);
-      console.log(`[GoogleHealthProvider] Permissions ${status === 'granted' ? 'granted' : 'denied'} by user`);
-      return status;
-    } catch (error) {
-      const errorMessage = mapHealthProviderError(error, 'google');
-      console.error('[GoogleHealthProvider]', errorMessage);
-      await this.permissionManager.handlePermissionError('HealthConnect', error);
-      return 'denied';
+      console.log('[GoogleHealthProvider] Initializing permission manager...');
+      const tempId = 'temp-' + Date.now();
+      await this.initializePermissions(tempId);
     }
   }
 
   async checkPermissionsStatus(): Promise<PermissionState> {
-    // Validate permission manager exists
-    if (!this.permissionManager) {
-      console.warn('[GoogleHealthProvider] Permission manager not initialized, returning not_determined');
+    try {
+      await this.ensurePermissionsInitialized();
+      
+      if (!this.permissionManager) {
+        throw new Error('Permission manager initialization failed');
+      }
+
+      // Verify permissions are granted
+      const hasPermissions = await this.verifyPermissions();
+      
+      return {
+        status: hasPermissions ? 'granted' : 'not_determined',
+        lastChecked: Date.now()
+      };
+    } catch (error) {
+      console.warn('[GoogleHealthProvider] Permission check failed:', error);
       return {
         status: 'not_determined',
         lastChecked: Date.now()
       };
     }
+  }
 
-    // First check cached state
-    const cachedState = await this.permissionManager.getPermissionState();
-    if (cachedState) {
-      return cachedState;
-    }
-
+  async requestPermissions(): Promise<PermissionStatus> {
     try {
-      // Don't actively verify permissions unless we already have a cached state
-      // This prevents security exceptions during initialization
-      const state: PermissionState = {
-        status: 'not_determined',
-        lastChecked: Date.now()
-      };
+      await this.ensurePermissionsInitialized();
       
-      await this.permissionManager.updatePermissionState('not_determined');
-      return state;
+      if (!this.permissionManager) {
+        throw new Error('Cannot request permissions - permission manager not initialized');
+      }
+
+      console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
+      
+      // Request permissions using Health Connect
+      const result = await this.verifyPermissions();
+      
+      // Update permission state in manager
+      await this.permissionManager.updatePermissionState(
+        result ? 'granted' : 'denied'
+      );
+
+      return result ? 'granted' : 'denied';
     } catch (error) {
-      const state: PermissionState = {
-        status: 'denied',
-        lastChecked: Date.now(),
-        deniedPermissions: ['HealthConnect']
-      };
-      await this.permissionManager.updatePermissionState('denied', ['HealthConnect']);
-      return state;
+      console.error('[GoogleHealthProvider] Error requesting permissions:', error);
+      return 'denied';
     }
   }
 

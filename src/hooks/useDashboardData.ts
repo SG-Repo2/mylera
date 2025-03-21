@@ -49,6 +49,7 @@ export const useDashboardData = (
   ): HealthMetrics => {
     const now = new Date().toISOString();
     
+    // Create base metrics object
     const result: HealthMetrics = {
       id: `${userId}-${date}`,
       user_id: userId,
@@ -68,13 +69,24 @@ export const useDashboardData = (
       updated_at: now
     };
 
+    // Log incoming metrics for debugging
+    console.log('[useDashboardData] Processing metrics:', metrics);
+
+    // Process each metric
     metrics.forEach(metric => {
       const metricType = metric.metric_type as MetricType;
-      if (metricType in result && typeof metric.value === 'number') {
-        result[metricType] = metric.value;
+      if (metricType in result) {
+        // Ensure value is a number and valid
+        const value = typeof metric.value === 'number' ? metric.value : parseFloat(metric.value as string);
+        if (!isNaN(value)) {
+          result[metricType] = value;
+          console.log(`[useDashboardData] Setting ${metricType}:`, value);
+        }
       }
     });
 
+    // Log final transformed metrics
+    console.log('[useDashboardData] Transformed metrics:', result);
     return result;
   }, []);
 
@@ -88,49 +100,81 @@ export const useDashboardData = (
     if (isMountedRef.current) setIsRefreshing(true);
     
     try {
-      console.log('Fetching health metrics data for:', { userId, date, requestId });
+      console.log('[useDashboardData] Starting metrics fetch for:', { userId, date });
+      
+      // First get the health data from provider
+      const providerMetrics = await provider.getMetrics();
+      
+      // Extract only the metric values for updating
+      if (providerMetrics) {
+        const metricValues: Partial<Record<MetricType, number>> = {
+          steps: providerMetrics.steps || undefined,
+          distance: providerMetrics.distance || undefined,
+          calories: providerMetrics.calories || undefined,
+          heart_rate: providerMetrics.heart_rate || undefined,
+          exercise: providerMetrics.exercise || undefined,
+          basal_calories: providerMetrics.basal_calories || undefined,
+          flights_climbed: providerMetrics.flights_climbed || undefined
+        };
+
+        // Filter out null values
+        const validMetrics = Object.fromEntries(
+          Object.entries(metricValues).filter(([_, value]) => value !== null)
+        ) as Partial<Record<MetricType, number>>;
+
+        // Only update if we have valid metrics
+        if (Object.keys(validMetrics).length > 0) {
+          await metricsService.updateMetrics(userId, validMetrics);
+        }
+
+        console.log('[useDashboardData] Fetched metrics:', {
+          validMetricCount: Object.keys(validMetrics).length
+        });
+      }
+
+      // Then fetch the saved metrics and totals
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
         leaderboardService.getUserRank(userId, date)
       ]);
-      
-      // Check if this response is stale or component unmounted
-      if (requestId !== fetchIdRef.current || !isMountedRef.current) {
-        console.log('Stale data response or component unmounted, ignoring');
-        return;
-      }
-      
-      // Create user total
+
+      if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
+
+      // Create user total from metric scores
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
         date: date,
-        total_points: calculateTotalPoints(metricScores),
+        total_points: calculateTotalPoints(metricScores, 'useDashboardData.fetchData'),
         metrics_completed: metricScores.length,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      
-      if (isMountedRef.current) {
-        setDailyTotal(userTotal);
-        setHealthMetrics(transformMetricsToHealthMetrics(metricScores, userTotal, userId, date));
-        setUserRank(rank);
-        setFetchError(null);
-      }
+
+      const transformedMetrics = transformMetricsToHealthMetrics(
+        metricScores,
+        userTotal,
+        userId,
+        date
+      );
+
+      setDailyTotal(userTotal);
+      setHealthMetrics(transformedMetrics);
+      setUserRank(rank);
+      setFetchError(null);
     } catch (err) {
-      // Only handle errors from current request and if component is mounted
-      if (requestId !== fetchIdRef.current || !isMountedRef.current) return;
+      if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
+      
       console.error('Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
-      setErrorDialogVisible(true);
     } finally {
-      if (requestId === fetchIdRef.current && isMountedRef.current) {
+      if (isMountedRef.current && requestId === fetchIdRef.current) {
         setIsRefreshing(false);
+        isFetchingRef.current = false;
       }
-      isFetchingRef.current = false;
     }
-  }, [userId, date, isInitialized, transformMetricsToHealthMetrics]);
+  }, [userId, date, isInitialized, transformMetricsToHealthMetrics, provider]);
 
   /**
    * Refresh metrics data manually

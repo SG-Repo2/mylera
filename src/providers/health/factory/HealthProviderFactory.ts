@@ -36,6 +36,8 @@ export class HealthProviderFactory {
   private static isInitializing = false;
   private static lastError: HealthProviderError | null = null;
   private static initializationPromise: Promise<HealthProvider> | null = null;
+  private static cleanupTimeout: NodeJS.Timeout | null = null;
+
   /**
    * Validates if the current platform is supported for OS-based health providers.
    * Fitbit is platform-independent and thus always valid.
@@ -54,8 +56,6 @@ export class HealthProviderFactory {
         'UNSUPPORTED_PLATFORM'
       );
     }
-
-
   }
 
   /**
@@ -275,5 +275,38 @@ export class HealthProviderFactory {
    */
   static getLastError(): HealthProviderError | null {
     return this.lastError;
+  }
+
+  static async getInstance(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
+    if (this.instance) {
+      return this.instance;
+    }
+
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+    try {
+      const provider = await this.initializeProvider(deviceType);
+      this.instance = provider;
+      this.scheduleCleanup();
+      return provider;
+    } catch (error) {
+      throw error;
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
+  private static scheduleCleanup() {
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+    }
+    
+    this.cleanupTimeout = setTimeout(() => {
+      if (this.instance) {
+        this.instance.cleanup();
+        this.instance = null;
+      }
+    }, 5 * 60 * 1000); // Cleanup after 5 minutes of inactivity
   }
 }

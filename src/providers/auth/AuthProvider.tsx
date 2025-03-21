@@ -153,48 +153,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Register the user using the auth service
       const user = await registerUser(email, password, profile);
       
-      // Initialize health provider for new user
+      // Auto-login after registration
+      await autoLogin(email, password);
+      console.log('[AuthProvider] Auto-login successful, initializing health provider');
+      
+      // Initialize health provider based on device type
+      const provider = await initializeHealthProvider(
+        user.id,
+        profile.deviceType,
+        setHealthPermissionStatus
+      );
+      
+      // Auto-request permissions during registration
       try {
-        // Auto-login after registration
-        await autoLogin(email, password);
-        console.log('[AuthProvider] Auto-login successful, initializing health provider');
+        const permissionStatus = await requestHealthPermissionsWithTimeout(user.id);
+        console.log('[AuthProvider] Health permissions requested during registration:', permissionStatus);
+        setHealthPermissionStatus(permissionStatus);
         
-        // Initialize health provider based on device type
-        const provider = await initializeHealthProvider(
-          user.id,
-          profile.deviceType,
-          setHealthPermissionStatus
-        );
-        
-        // Auto-request permissions during registration
-        try {
-          const permissionStatus = await Promise.race([
-            provider.requestPermissions(),
-            new Promise<'granted' | 'denied' | 'not_determined'>((resolve) => {
-              setTimeout(() => resolve('not_determined'), 5000);
-            })
-          ]);
-          
-          console.log('[AuthProvider] Health permissions requested during registration:', permissionStatus);
-          setHealthPermissionStatus(permissionStatus as 'granted' | 'denied' | 'not_determined');
-          
-          // Fetch initial metrics only if permissions were granted
-          if (permissionStatus === 'granted') {
-            try {
-              console.log('[AuthProvider] Permissions granted, fetching initial metrics...');
-              await fetchInitialHealthMetrics();
-            } catch (metricsError) {
-              console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
-            }
+        // Fetch initial metrics only if permissions were granted
+        if (permissionStatus === 'granted') {
+          try {
+            console.log('[AuthProvider] Permissions granted, fetching initial metrics...');
+            await fetchInitialHealthMetrics();
+          } catch (metricsError) {
+            console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
           }
-
-          setHealthDataInitialized(true);
-        } catch (healthPermissionError) {
-          console.error('[AuthProvider] Error requesting health permissions:', healthPermissionError);
-          setHealthDataInitialized(true);
         }
+
+        setHealthDataInitialized(true);
       } catch (healthError) {
-        console.error('[AuthProvider] Error initializing health provider:', healthError);
+        console.error('[AuthProvider] Error requesting health permissions:', healthError);
         setHealthDataInitialized(true);
       }
       
@@ -206,13 +194,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setHealthDataInitialized(true);
       }
       
-      // Log navigation state for debugging
-      console.log('[AuthProvider] Registration complete, navigation state:', {
-        navigatorMounted,
-        healthDataInitialized: true,
-        sessionInitialized: sessionInitialized.current
-      });
-
       // Create safety timeout
       navigationTimeoutId = createNavigationSafetyTimeout('/(app)/(home)');
 

@@ -153,7 +153,6 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    // Prevent double-submission
     if (loading) {
       console.log('[RegisterScreen] Registration already in progress, ignoring duplicate submit');
       return;
@@ -168,13 +167,13 @@ export default function RegisterScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       
-      // Ensure display name is properly trimmed
       const trimmedDisplayName = displayName.trim();
       if (!trimmedDisplayName) {
         setLocalError({ displayName: 'Display name is required' });
         return;
       }
       
+      // Register the user
       await register(email, password, {
         displayName: trimmedDisplayName,
         deviceType: deviceType as 'os' | 'fitbit',
@@ -183,13 +182,11 @@ export default function RegisterScreen() {
         showProfile: true
       });
 
-      // Success notification
+      // Don't request health permissions here - let the auth flow handle it
+      // The AuthProvider will automatically request permissions after registration
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Don't manually navigate here - let the auth state change in _layout handle navigation
       console.log('[RegisterScreen] Registration successful, waiting for auth state to update');
-      
-      // Clear any existing errors
       setLocalError({});
     } catch (err) {
       console.error('Registration error:', err);

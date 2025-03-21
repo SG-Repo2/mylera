@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
@@ -201,20 +201,50 @@ export const Dashboard = React.memo(function Dashboard({
     }
   }, [error, requestHealthPermissions, handleRetry]);
 
-  // Enhanced loading state check - ensure we have data before exiting loading state
+  // Enhanced loading state check
   const isLoading = loading || (!healthMetrics && !error && !dailyTotal);
   
+  // Add timeout for initial load
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    if (isLoading) {
+      timeoutId = setTimeout(() => {
+        if (!healthMetrics && !error) {
+          handleRetry();
+        }
+      }, 10000); // 10 second timeout
+    }
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [isLoading, healthMetrics, error, handleRetry]);
+
+  // Add error retry with backoff
+  const retryWithBackoff = useCallback(async () => {
+    try {
+      await refreshData();
+    } catch (error) {
+      console.error('Error retrying data fetch:', error);
+      // Show error dialog with retry option
+      setErrorDialogVisible(true);
+    }
+  }, [refreshData]);
+
   // Render loading state with enhanced check
   if (isLoading) {
     return <LoadingView message="Loading your health data..." showSpinner={true} />;
   }
 
-  // Render error state with type narrowing
-  if (error || healthPermissionStatus === 'denied') {
-    return <ErrorView 
-      error={error || new HealthProviderPermissionError('Health permissions denied')} 
-      onRetry={extendedRetryHandler} 
-    />;
+  // Update error handling
+  if (error) {
+    return (
+      <ErrorView 
+        error={error}
+        onRetry={retryWithBackoff}
+      />
+    );
   }
 
   // Type guard to ensure data exists

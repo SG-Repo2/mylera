@@ -159,25 +159,25 @@ export const MetricCardList = React.memo(function MetricCardList({
 
   // Memoize metric values to prevent unnecessary re-renders
   const memoizedMetrics = React.useMemo(() => {
-    console.log('[MetricCardList] Recalculating memoized metrics');
+    console.log('[MetricCardList] Processing metrics:', metrics);
     
-    // Return null values if data is not valid and not first render
-    if (!hasValidData && !isFirstRender.current) {
-      return metricOrder.map(metricType => ({
-        type: metricType,
-        value: null,
-        points: 0,
-        config: healthMetrics[metricType]
-      }));
+    if (!metrics) {
+      console.log('[MetricCardList] No metrics available');
+      return [];
     }
-    
-    return metricOrder.map(metricType => ({
-      type: metricType,
-      value: metrics[metricType] as number,
-      points: calculateMetricPoints(metricType, metrics[metricType] || 0),
-      config: healthMetrics[metricType]
-    }));
-  }, [metrics, hasValidData]);
+
+    return metricOrder.map(metricType => {
+      const value = metrics[metricType];
+      console.log(`[MetricCardList] Processing ${metricType}:`, value);
+      
+      return {
+        type: metricType,
+        value: typeof value === 'number' ? value : null,
+        points: typeof value === 'number' ? calculateMetricPoints(metricType, value) : 0,
+        config: healthMetrics[metricType]
+      };
+    });
+  }, [metrics]);
 
   // Memoize modal handlers
   const handleModalClose = useCallback(() => {

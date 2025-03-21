@@ -171,6 +171,12 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /** Cache for supported metric types */
   protected supportedMetricTypes: MetricType[] | null = null;
 
+  private permissionCache: Map<string, {
+    state: PermissionState;
+    timestamp: number;
+  }> = new Map();
+  private readonly PERMISSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
   /**
    * Initialize the health provider.
    * Must be implemented by platform-specific providers.
@@ -915,5 +921,69 @@ export abstract class BaseHealthProvider implements HealthProvider {
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
+  }
+
+  protected async getCachedPermissionState(type: string): Promise<PermissionState | null> {
+    const cached = this.permissionCache.get(type);
+    if (cached && Date.now() - cached.timestamp < this.PERMISSION_CACHE_TTL) {
+      return cached.state;
+    }
+    return null;
+  }
+
+  protected setCachedPermissionState(type: string, state: PermissionState): void {
+    this.permissionCache.set(type, {
+      state,
+      timestamp: Date.now()
+    });
+  }
+
+  protected async batchFetchMetrics(
+    startDate: Date,
+    endDate: Date,
+    types: MetricType[],
+    batchSize: number = 7 // Fetch in 7-day chunks
+  ): Promise<RawHealthData> {
+    const chunks = this.getDateChunks(startDate, endDate, batchSize);
+    const results: RawHealthData = {};
+
+    for (const chunk of chunks) {
+      const chunkData = await this.fetchRawMetrics(
+        chunk.start,
+        chunk.end,
+        types
+      );
+      
+      this.mergeResults(results, chunkData);
+    }
+
+    return results;
+  }
+
+  private getDateChunks(startDate: Date, endDate: Date, daysPerChunk: number) {
+    const chunks = [];
+    let currentStart = new Date(startDate);
+    
+    while (currentStart < endDate) {
+      const chunkEnd = new Date(currentStart);
+      chunkEnd.setDate(chunkEnd.getDate() + daysPerChunk);
+      if (chunkEnd > endDate) {
+        chunkEnd.setTime(endDate.getTime());
+      }
+      
+      chunks.push({ start: new Date(currentStart), end: chunkEnd });
+      currentStart = new Date(chunkEnd);
+    }
+    
+    return chunks;
+  }
+  private mergeResults(target: RawHealthData, source: RawHealthData): void {
+    for (const type of Object.keys(source) as Array<keyof RawHealthData>) {
+      if (target[type]) {
+        target[type] = target[type].concat(source[type] ?? []);
+      } else {
+        target[type] = source[type];
+      }
+    }
   }
 }

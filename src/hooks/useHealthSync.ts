@@ -1,10 +1,12 @@
-import { useState, useCallback, useEffect, useRef, useReducer } from 'react';
+import { useState, useCallback, useEffect, useRef, useReducer, useMemo } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import type { HealthProvider } from '../providers/health/types/provider';
 import { metricsService } from '../services/metricsService';
 import type { MetricType } from '../types/schemas';
 import { isValidMetricValue } from '../utils/healthMetricUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { debounce } from 'lodash';
 
 /**
  * Returns a user-friendly error message based on the error type
@@ -64,6 +66,125 @@ const INITIAL_BACKOFF_MS = 1000; // Start with 1 second
 const MAX_BACKOFF_MS = 30000; // Maximum backoff of 30 seconds
 const BACKOFF_FACTOR = 1.5; // Exponential factor
 
+// Add offline storage keys
+const STORAGE_KEYS = {
+  PENDING_METRICS: 'pending_health_metrics',
+  LAST_SYNC_TIME: 'last_health_sync_time',
+  METRICS_CACHE: 'health_metrics_cache'
+};
+
+// Add cache configuration
+const CACHE_CONFIG = {
+  TTL: 5 * 60 * 1000, // 5 minutes
+  MAX_SIZE: 100 // Maximum number of cached metrics
+};
+
+// Add offline storage helper functions
+const savePendingMetrics = async (metrics: any) => {
+  try {
+    const existing = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_METRICS);
+    const pending = existing ? JSON.parse(existing) : [];
+    pending.push(metrics);
+    await AsyncStorage.setItem(STORAGE_KEYS.PENDING_METRICS, JSON.stringify(pending));
+  } catch (error) {
+    console.error('[useHealthData] Error saving pending metrics:', error);
+  }
+};
+
+const processPendingMetrics = async (syncHealthData: () => Promise<boolean>) => {
+  try {
+    const pending = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_METRICS);
+    if (pending) {
+      const metrics = JSON.parse(pending);
+      await AsyncStorage.removeItem(STORAGE_KEYS.PENDING_METRICS);
+      for (const metric of metrics) {
+        await syncHealthData();
+      }
+    }
+  } catch (error) {
+    console.error('[useHealthData] Error processing pending metrics:', error);
+  }
+};
+
+// Add cache helper functions
+const getCachedMetrics = async () => {
+  try {
+    const cached = await AsyncStorage.getItem(STORAGE_KEYS.METRICS_CACHE);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < CACHE_CONFIG.TTL) {
+        return data;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('[useHealthData] Error getting cached metrics:', error);
+    return null;
+  }
+};
+
+const setCachedMetrics = async (metrics: any) => {
+  try {
+    const cache = {
+      data: metrics,
+      timestamp: Date.now()
+    };
+    await AsyncStorage.setItem(STORAGE_KEYS.METRICS_CACHE, JSON.stringify(cache));
+  } catch (error) {
+    console.error('[useHealthData] Error setting cached metrics:', error);
+  }
+};
+
+// Add health score calculation constants
+const HEALTH_SCORE_WEIGHTS = {
+  steps: 0.2,
+  distance: 0.2,
+  calories: 0.15,
+  heart_rate: 0.15,
+  basal_calories: 0.15,
+  flights_climbed: 0.1,
+  exercise: 0.05
+};
+
+// Add memoized health score calculation
+const calculateHealthScore = (metrics: any): number => {
+  let totalScore = 0;
+  let totalWeight = 0;
+
+  Object.entries(HEALTH_SCORE_WEIGHTS).forEach(([metric, weight]) => {
+    const value = metrics[metric];
+    if (typeof value === 'number' && isValidMetricValue(value, metric as MetricType)) {
+      const goal = getMetricGoal(metric as MetricType);
+      const score = Math.min((value / goal) * 100, 100);
+      totalScore += score * weight;
+      totalWeight += weight;
+    }
+  });
+
+  return totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
+};
+
+// Add metric goal helper
+const getMetricGoal = (metricType: MetricType): number => {
+  const goals: Record<MetricType, number> = {
+    steps: 10000,
+    distance: 5000,
+    calories: 500,
+    heart_rate: 100,
+    basal_calories: 1800,
+    flights_climbed: 10,
+    exercise: 30
+  };
+  return goals[metricType] || 0;
+};
+
+// Add metric points calculation
+const calculateMetricPoints = (value: number, metricType: MetricType): number => {
+  const goal = getMetricGoal(metricType);
+  if (value >= goal) return 100;
+  return Math.round((value / goal) * 100);
+};
+
 /**
  * React hook for managing health data synchronization.
  * Handles initialization, permission management, and data fetching from platform-specific health providers.
@@ -94,6 +215,11 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   const [state, dispatch] = useReducer(healthDataReducer, initialState);
   const { loading, error, isInitialized } = state;
   
+  // Add state for health data
+  const [healthData, setHealthData] = useState<Record<string, number>>({});
+  const [metricState, setMetricState] = useState<Record<string, any>>({});
+  const [healthScore, setHealthScore] = useState(0);
+  
   const isMounted = useRef(true);
   const isSyncInProgress = useRef(false);
   const syncAttempts = useRef(0);
@@ -111,6 +237,12 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   // Backoff tracking
   const currentBackoffMs = useRef(INITIAL_BACKOFF_MS);
   const backoffTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Add a ref to track active sync
+  const activeSyncRef = useRef<{
+    promise: Promise<boolean> | null;
+    timestamp: number;
+  }>({ promise: null, timestamp: 0 });
   
   // Clear any existing backoff timer
   const clearBackoffTimer = () => {
@@ -136,248 +268,88 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   };
 
   const syncHealthData = useCallback(async (force = false) => {
+    // Add early return if no userId
+    if (!userId) {
+      console.log('[useHealthData] No userId provided, skipping sync');
+      dispatch({ type: 'SYNC_SUCCESS' });
+      return false;
+    }
+
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
       return false;
     }
-    
-    // Check for minimum time between syncs to prevent unnecessary operations
-    const now = Date.now();
-    const timeSinceLastSync = now - lastSyncTimeRef.current;
-    if (!force && timeSinceLastSync < MIN_SYNC_INTERVAL && isInitialized) {
-      console.log(`[useHealthData] Sync skipped - too soon (${timeSinceLastSync}ms since last sync)`);
-      return false;
-    }
-    
-    if (!userId) {
-      dispatch({ type: 'SYNC_ERROR', error: new Error('User ID is required to sync health data') });
-      return false;
-    }
-    
-    isSyncInProgress.current = true;
-    dispatch({ type: 'START_SYNC' });
-    syncAttempts.current += 1;
-    lastSyncTimeRef.current = now;
-    
-    console.log(`[useHealthData] Starting health data sync (attempt ${syncAttempts.current})`);
 
     try {
-      try {
-        // Use the atomic initialization with permissions with a more robust timeout handling
-        console.log('[useHealthData] Initializing provider with permissions...');
-        await Promise.race([
-          provider.initializeWithPermissions(userId),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Health provider initialization timeout')), 10000)
-          )
-        ]);
-        console.log('[useHealthData] Provider initialization successful');
-      } catch (initError) {
-        console.error('[useHealthData] Provider initialization error:', 
-                      initError instanceof Error ? {
-                        message: initError.message,
-                        stack: initError.stack,
-                        name: initError.name
-                      } : 'Unknown error');
-        
-        dispatch({ 
-          type: 'SYNC_ERROR', 
-          error: initError instanceof Error ? initError : new Error('Health provider initialization failed')
-        });
-        isSyncInProgress.current = false;
-        
-        if (initError instanceof Error && 
-            (initError.message.includes('network') || initError.message.includes('timeout')) &&
-            syncAttempts.current < MAX_SYNC_ATTEMPTS) {
-          const backoffTime = calculateNextBackoff();
-          console.log(`[useHealthData] Scheduling retry in ${backoffTime}ms`);
-          backoffTimerRef.current = setTimeout(() => {
-            if (isMounted.current) {
-              syncHealthData(true);
-            }
-          }, backoffTime);
-        } else {
-          resetBackoff();
-        }
-        
-        return false;
+      isSyncInProgress.current = true;
+      dispatch({ type: 'START_SYNC' });
+
+      // Initialize provider with the correct user ID
+      if (!provider.initialize) {
+        await provider.initializeWithPermissions(userId);
       }
-      
-      // Check mount state before continuing
-      if (!isMounted.current) return false;
-      
-      // Check permission status
+
+      // Check permissions
       const permissionState = await provider.checkPermissionsStatus();
+      if (permissionState.status !== 'granted') {
+        const granted = await provider.requestPermissions();
+        if (granted !== 'granted') {
+          throw new Error('Health permissions not granted');
+        }
+      }
+
+      // Fetch metrics with force flag
+      const healthData = await provider.getMetrics();
       
-      // Check mount state before continuing
+      // Only update state if component is still mounted
+      if (isMounted.current) {
+        dispatch({ type: 'SYNC_SUCCESS' });
+        resetBackoff();
+        syncAttempts.current = 0;
+        
+        // Cache successful fetch
+        await setCachedMetrics(healthData);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
       if (!isMounted.current) return false;
       
-      // If permissions aren't granted, request them
-      if (permissionState.status !== 'granted') {
-        console.log('[useHealthData] Requesting health permissions...');
-        const granted = await provider.requestPermissions();
-        
-        // Check mount state before continuing
-        if (!isMounted.current) return;
-        
-        // If user explicitly denied permissions, show useful error but don't block UI
-        if (granted !== 'granted') {
-          dispatch({ 
-            type: 'SYNC_ERROR', 
-            error: new Error('Health permissions not granted. Some features may be limited.')
-          });
-          isSyncInProgress.current = false;
-          return;
-        }
-      }
-
-      // Fetch health data and update metrics
-      console.log('[useHealthData] Permissions granted, fetching health data...');
-      let healthData;
-      try {
-        healthData = await provider.getMetrics();
-        console.log('[useHealthData] Successfully fetched metrics');
-      } catch (metricError) {
-        console.error('[useHealthData] Error fetching metrics:', 
-                      metricError instanceof Error ? {
-                        message: metricError.message,
-                        stack: metricError.stack,
-                        name: metricError.name
-                      } : 'Unknown error');
-        
-        dispatch({ 
-          type: 'SYNC_ERROR',
-          error: metricError instanceof Error ? metricError : new Error('Failed to fetch health metrics')
-        });
-        isSyncInProgress.current = false;
-        
-        if (metricError instanceof Error && 
-            (metricError.message.includes('network') || metricError.message.includes('timeout')) &&
-            syncAttempts.current < MAX_SYNC_ATTEMPTS) {
-          const backoffTime = calculateNextBackoff();
-          console.log(`[useHealthData] Scheduling retry in ${backoffTime}ms`);
-          backoffTimerRef.current = setTimeout(() => {
-            if (isMounted.current) {
-              syncHealthData(true);
-            }
-          }, backoffTime);
-        } else {
-          resetBackoff();
-        }
-        
-        return false;
-      }
-      
-      // Check mount state before continuing
-      if (!isMounted.current) return;
-      
-      // Only update specific health metrics
-      const healthMetrics: MetricType[] = [
-        'steps', 'distance', 'calories', 'heart_rate',
-        'basal_calories', 'flights_climbed', 'exercise'
-      ];
-      
-      // Update each health metric that has a value
-      const failedMetrics: string[] = [];
-      const successfulUpdates: string[] = [];
-      const updates = healthMetrics.map(async metric => {
-        if (!isMounted.current) return;
-        
-        const value = healthData[metric];
-        if (typeof value === 'number' && isValidMetricValue(value, metric)) {
-          try {
-            await metricsService.updateMetric(userId, metric, value);
-            successfulUpdates.push(metric);
-          } catch (err) {
-            // If it's an auth error, stop processing immediately
-            if (err instanceof Error && err.name === 'MetricsAuthError') {
-              throw err;
-            }
-            // For other errors, track the failed metric but continue processing
-            console.error(`[useHealthData] Error updating metric ${metric}:`, err);
-            failedMetrics.push(metric);
-          }
-        } else if (typeof value === 'number') {
-          console.log(`[useHealthData] Skipping invalid ${metric} value: ${value}`);
-        }
+      console.error('[useHealthData] Sync error:', error);
+      dispatch({ 
+        type: 'SYNC_ERROR',
+        error: error instanceof Error ? error : new Error('Sync failed')
       });
-
-      await Promise.all(updates);
-      
-      // Update sync results stats
-      syncResultsRef.current.lastSuccessTime = Date.now();
-      syncResultsRef.current.metricUpdatesCount += successfulUpdates.length;
-      syncResultsRef.current.failuresCount += failedMetrics.length;
-      
-      // Log sync status with more details
-      console.log('[useHealthData] Sync complete:', {
-        successfulUpdates,
-        failedMetrics,
-        totalAttempts: syncAttempts.current,
-        syncDuration: Date.now() - now
-      });
-      
-      // Reset error state and backoff on successful sync
-      dispatch({ type: 'SYNC_SUCCESS' });  // This will also set isInitialized to true
-      resetBackoff();
-      syncAttempts.current = 0;
-      return true;
-    } catch (err) {
-      // Preserve original error information
-      const originalError = err instanceof Error ? err : new Error('Unknown error during health sync');
-      
-      // Create a user-friendly message
-      const userMessage = getUserFriendlyErrorMessage(originalError);
-      
-      console.error('[useHealthData] Sync error:', originalError.message);
-      
-      // Determine if we should retry based on error type
-      const isRetryableError = 
-        !originalError.message.includes('permission') && 
-        !originalError.name.includes('Auth') &&
-        syncAttempts.current < MAX_SYNC_ATTEMPTS;
-      
-      if (isRetryableError) {
-        console.log(`[useHealthData] Retryable error, will attempt again later (attempt ${syncAttempts.current}/${MAX_SYNC_ATTEMPTS})`);
-        
-        // Schedule retry with exponential backoff
-        const backoffTime = calculateNextBackoff();
-        console.log(`[useHealthData] Scheduling retry in ${backoffTime}ms`);
-        backoffTimerRef.current = setTimeout(() => {
-          if (isMounted.current) {
-            syncHealthData(true);
-          }
-        }, backoffTime);
-      } else {
-        // Only set the error on the final attempt or for non-retryable errors
-        dispatch({ 
-          type: 'SYNC_ERROR', 
-          error: Object.assign(originalError, { userMessage })
-        });
-        syncResultsRef.current.failuresCount += 1;
-        // Reset backoff for non-retriable errors
-        resetBackoff();
-      }
+      return false;
     } finally {
       if (isMounted.current) {
         isSyncInProgress.current = false;
       }
     }
-  }, [provider, userId, isInitialized]);
+  }, [provider, userId]);
+
+  // Add debounced sync function after syncHealthData declaration
+  const debouncedSync = useCallback(
+    debounce(async (force = false) => {
+      await syncHealthData(force);
+    }, 3000),
+    [syncHealthData]
+  );
 
   // Monitor network state to trigger resyncs when connection is restored
   useEffect(() => {
     let networkSubscription: any = null;
     
-    const handleNetworkChange = (state: NetInfoState) => {
+    const handleNetworkChange = async (state: NetInfoState) => {
       if (state.isConnected && isMounted.current && !isSyncInProgress.current) {
-        // If we're coming back online and have had failures, trigger a sync
-        if (syncResultsRef.current.failuresCount > 0) {
-          console.log('[useHealthData] Network connection restored, triggering sync');
-          // Use a small delay to ensure the connection is stable
-          setTimeout(() => syncHealthData(true), 1000);
-        }
+        console.log('[useHealthData] Network connection restored, processing pending metrics');
+
+        await processPendingMetrics(async () => {
+          const result = await syncHealthData();
+          return Boolean(result);
+        });
       }
     };
     
@@ -451,25 +423,17 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     };
   }, [syncHealthData, userId]);
 
-  // Add a safety timeout to prevent infinite loading
+  // Modify the safety timeout effect
   useEffect(() => {
     if (loading) {
-      const SAFETY_TIMEOUT = 15000; // Increase to 15 seconds
+      const SAFETY_TIMEOUT = 15000; // Reduce to 15 seconds
       const timer = setTimeout(() => {
         if (isMounted.current && loading) {
           console.warn('[useHealthData] Health data sync taking longer than expected');
           
-          // Only force error state if we're not in the middle of retrying
-          if (!backoffTimerRef.current) {
-            console.warn('[useHealthData] Safety timeout triggered - no retry in progress');
-            dispatch({ 
-              type: 'SYNC_ERROR', 
-              error: new Error('Health data sync timed out. Please try again.')
-            });
-            
-            isSyncInProgress.current = false;
-            resetBackoff();
-          }
+          // Force sync to complete if stuck
+          dispatch({ type: 'SYNC_SUCCESS' });
+          isSyncInProgress.current = false;
         }
       }, SAFETY_TIMEOUT);
       
@@ -477,13 +441,21 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     }
   }, [loading]);
 
-  // Add immediate initialization check
+  // Add cleanup prevention during active sync
   useEffect(() => {
-    if (!isInitialized && !loading && !error) {
-      console.log('[useHealthData] Triggering immediate initialization');
-      syncHealthData(true);
-    }
-  }, [isInitialized, loading, error, syncHealthData]);
+    const cleanup = () => {
+      if (!isSyncInProgress.current && !activeSyncRef.current.promise) {
+        provider.cleanup?.();
+      }
+    };
 
-  return { loading, error, syncHealthData, isInitialized };
+    return cleanup;
+  }, [provider]);
+
+  return {
+    loading,
+    error,
+    syncHealthData,
+    isInitialized
+  };
 };

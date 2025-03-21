@@ -12,6 +12,14 @@ export const MetricTypeEnum = z.enum([
   'flights_climbed'
 ]);
 
+export interface HealthMetric {
+  type: z.infer<typeof MetricTypeEnum>;
+  value: number;
+  goal: number;
+  points: number;
+  goalReached: boolean;
+}
+
 // Schema for metric updates
 export const MetricUpdateSchema = z.object({
   value: z.number().min(0).finite(),
