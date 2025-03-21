@@ -290,12 +290,21 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
         await provider.initializeWithPermissions(userId);
       }
 
-      // Check permissions
-      const permissionState = await provider.checkPermissionsStatus();
-      if (permissionState.status !== 'granted') {
+      // Check if permissions need to be regranted
+      if (provider.needsPermissionRegranting()) {
+        console.log('[useHealthData] Permissions need to be regranted');
         const granted = await provider.requestPermissions();
         if (granted !== 'granted') {
           throw new Error('Health permissions not granted');
+        }
+      } else {
+        // Verify current permission state
+        const permissionState = await provider.checkPermissionsStatus();
+        if (permissionState.status !== 'granted') {
+          const granted = await provider.requestPermissions();
+          if (granted !== 'granted') {
+            throw new Error('Health permissions not granted');
+          }
         }
       }
 

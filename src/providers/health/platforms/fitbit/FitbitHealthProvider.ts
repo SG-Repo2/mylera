@@ -21,7 +21,7 @@ import {
 import { FitbitProviderState } from './types';
 
 export class FitbitHealthProvider extends BaseHealthProvider {
-  private state: FitbitProviderState = {
+  protected state: FitbitProviderState = {
     accessToken: null,
     refreshToken: null,
     tokenExpiresAt: null,
@@ -30,6 +30,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     initialized: false,
     lastSyncTime: null
   };
+  protected needsPermissionRegrant: boolean = false;
 
   async initialize(): Promise<void> {
     try {
@@ -60,14 +61,26 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       }
     }
 
-    const status = await checkFitbitPermissions();
-    const state: PermissionState = { status, lastChecked: Date.now() };
-    
-    if (this.permissionManager) {
-      await this.permissionManager.updatePermissionState(status);
+    try {
+      const status = await checkFitbitPermissions();
+      const state: PermissionState = { status, lastChecked: Date.now() };
+      
+      // Set the needsPermissionRegrant flag based on permission status
+      this.needsPermissionRegrant = status !== 'granted';
+      
+      if (this.permissionManager) {
+        await this.permissionManager.updatePermissionState(status);
+      }
+      
+      return state;
+    } catch (error) {
+      logger.error(LogCategory.Health, '[FitbitHealthProvider] Error checking permissions:', (error as Error).message);
+      this.needsPermissionRegrant = true;
+      return {
+        status: 'not_determined',
+        lastChecked: Date.now()
+      };
     }
-    
-    return state;
   }
 
   async fetchRawMetrics(
@@ -226,5 +239,10 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     await super.setLastSyncTime(date);
     await SecureStore.setItemAsync(STORAGE_KEYS.LAST_SYNC, date.getTime().toString());
     this.state.lastSyncTime = date;
+  }
+
+  // Add a method to check if permissions need to be regranted
+  public needsPermissionRegranting(): boolean {
+    return this.needsPermissionRegrant;
   }
 } 

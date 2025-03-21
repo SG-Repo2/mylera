@@ -61,6 +61,12 @@ export interface HealthProvider {
   getPermissionManager(): PermissionManager | null;
 
   /**
+   * Check if permissions need to be regranted.
+   * @returns true if permissions need to be regranted, false otherwise
+   */
+  needsPermissionRegranting(): boolean;
+
+  /**
    * Fetch raw health metrics for a specified time range.
    * @param startDate - Start of the time range
    * @param endDate - End of the time range
@@ -170,6 +176,9 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
   /** Cache for supported metric types */
   protected supportedMetricTypes: MetricType[] | null = null;
+
+  /** Flag to track if permissions need to be regranted */
+  protected needsPermissionRegrant: boolean = false;
 
   private permissionCache: Map<string, {
     state: PermissionState;
@@ -985,5 +994,13 @@ export abstract class BaseHealthProvider implements HealthProvider {
         target[type] = source[type];
       }
     }
+  }
+
+  /**
+   * Check if permissions need to be regranted.
+   * @returns true if permissions need to be regranted, false otherwise
+   */
+  public needsPermissionRegranting(): boolean {
+    return this.needsPermissionRegrant;
   }
 }

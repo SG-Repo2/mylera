@@ -273,6 +273,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           undefined,
           setHealthPermissionStatus
         );
+
+        // Check if permissions need to be regranted
+        if (provider.needsPermissionRegranting()) {
+          console.log('[AuthProvider] Health permissions need to be regranted');
+          setHealthPermissionStatus('not_determined');
+          
+          // Request permissions with timeout
+          const status = await requestHealthPermissionsWithTimeout(data.session.user.id);
+          console.log('[AuthProvider] Health permissions requested during login:', status);
+          setHealthPermissionStatus(status);
+          
+          // Try to fetch initial metrics only if permissions were granted
+          if (status === 'granted') {
+            try {
+              console.log('[AuthProvider] Permissions granted, fetching initial metrics...');
+              await fetchInitialHealthMetrics();
+            } catch (metricsError) {
+              console.warn('[AuthProvider] Error fetching initial metrics:', metricsError);
+            }
+          }
+        } else {
+          // Try to fetch metrics if permissions are already granted
+          try {
+            await provider.getMetrics();
+            setHealthDataInitialized(true);
+          } catch (healthDataError) {
+            console.warn('[AuthProvider] Health data fetch error:', healthDataError);
+            setHealthDataInitialized(true);
+          }
+        }
         
         // Mark health data as initialized
         setHealthDataInitialized(true);

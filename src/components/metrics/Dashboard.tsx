@@ -11,6 +11,7 @@ import { useDashboardAnimations } from '@/src/hooks/useDashboardAnimations';
 import { useDashboardData } from '@/src/hooks/useDashboardData';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import type { DailyTotal } from '@/src/types/schemas';
+import { EnhancedHeader } from './EnhancedHeader';
 
 interface DashboardProps {
   provider: HealthProvider;
@@ -37,27 +38,6 @@ interface LoadingViewProps {
   message?: string;
   showSpinner?: boolean;
 }
-
-// Extracted Header component with React.memo for performance
-const Header = React.memo(({ dailyTotal }: HeaderProps) => {
-  const styles = useDashboardStyles();
-  
-  return (
-    <View style={styles.headerContainer}>
-      <View style={styles.headerContent}>
-        <Image
-          source={require('@/assets/images/myLeraBanner.png')}
-          style={styles.logo}
-        />
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-});
 
 // Extracted LoadingView component with React.memo for performance
 const LoadingView = React.memo(({ 
@@ -265,7 +245,7 @@ export const Dashboard = React.memo(function Dashboard({
       >
         {dailyTotal && (
           <Animated.View style={[styles.headerWrapper, headerAnimations]}>
-            <Header dailyTotal={dailyTotal} />
+            <EnhancedHeader dailyTotal={dailyTotal} />
           </Animated.View>
         )}
 
