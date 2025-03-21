@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
-import { AppleHealthProvider } from '../platforms/apple/AppleHealthProvider';
-import GoogleHealthProvider from '../platforms/google/GoogleHealthProvider';
-import { FitbitHealthProvider } from '../platforms/fitbit/FitbitHealthProvider';
+import { AppleHealthProvider } from '../platforms/apple';
+import { GoogleHealthProvider } from '../platforms/google';
+import { FitbitHealthProvider } from '../platforms/fitbit';
 import type { HealthProvider } from '../types';
 import { logger, LogCategory, LogLevel } from '@/src/utils/logger';
 export type HealthPlatform = 'apple' | 'google' | 'fitbit';
