@@ -1,6 +1,58 @@
 import { MD3LightTheme, configureFonts } from 'react-native-paper';
 import { Platform } from 'react-native';
 import type { MD3TypescaleKey } from 'react-native-paper/lib/typescript/types';
+import Color from 'color';
+
+// Standardized shadow utility with elevation levels
+export const createElevation = (level: number = 1) => {
+  const baseOpacity = 0.12;
+  const baseHeight = 1;
+  const baseBlur = 3;
+  
+  // Calculate values based on elevation level
+  const opacity = Math.min(baseOpacity * level, 0.35);
+  const height = Math.min(baseHeight * level, 10);
+  const blur = Math.min(baseBlur * level, 20);
+  
+  return Platform.select({
+    ios: {
+      shadowColor: '#000000',
+      shadowOffset: { 
+        width: 0, 
+        height: height 
+      },
+      shadowOpacity: opacity,
+      shadowRadius: blur,
+    },
+    android: {
+      elevation: level * 2, // Android elevation scale
+    },
+    default: {}
+  });
+};
+
+// Color utility functions for consistent color manipulation
+export const colorUtils = {
+  lighten: (baseColor: string, amount: number = 0.2): string => {
+    return Color(baseColor).lighten(amount).rgb().string();
+  },
+  
+  darken: (baseColor: string, amount: number = 0.2): string => {
+    return Color(baseColor).darken(amount).rgb().string();
+  },
+  
+  withAlpha: (baseColor: string, alpha: number = 0.5): string => {
+    return Color(baseColor).alpha(alpha).rgb().string();
+  },
+  
+  containerize: (baseColor: string): string => {
+    return Color(baseColor).lighten(0.4).alpha(0.12).rgb().string();
+  },
+  
+  highlight: (baseColor: string): string => {
+    return Color(baseColor).lighten(0.3).rgb().string();
+  }
+};
 
 // First, let's define our brand colors with semantic meaning
 export const brandColors = {
