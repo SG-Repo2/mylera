@@ -114,17 +114,19 @@ export class HealthProviderFactory {
    */
   static getProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     if (this.instance) {
+      // If instance exists, delay cleanup timeout to avoid premature cleanup
+      if (this.cleanupTimeout) {
+        clearTimeout(this.cleanupTimeout);
+        this.scheduleCleanup();
+      }
       return this.instance;
     }
 
     if (this.isInitializing) {
       if (this.initializationPromise) {
-        // If initialization is in progress, we should wait for it rather than throwing an error
-        logger.warn(LogCategory.Health, '[HealthProviderFactory] Provider initialization in progress, waiting...');
-        throw new HealthProviderError(
-          'Provider initialization already in progress',
-          'INITIALIZATION_IN_PROGRESS'
-        );
+        // If initialization is in progress, return cached promise instead of throwing
+        logger.info(LogCategory.Health, '[HealthProviderFactory] Provider initialization in progress, returning promise...');
+        return this.instance || this.initializeProvider(deviceType);
       } else {
         // This is an inconsistent state that shouldn't happen
         logger.error(LogCategory.Health, '[HealthProviderFactory] Inconsistent state: isInitializing true but no promise');
@@ -134,6 +136,7 @@ export class HealthProviderFactory {
 
     this.isInitializing = true;
     const provider = this.initializeProvider(deviceType);
+    this.scheduleCleanup();
     return provider;
   }
 
@@ -304,8 +307,15 @@ export class HealthProviderFactory {
     
     this.cleanupTimeout = setTimeout(() => {
       if (this.instance) {
-        this.instance.cleanup();
-        this.instance = null;
+        // Log instead of immediately cleaning up
+        logger.info(LogCategory.Health, '[HealthProviderFactory] Provider instance inactive, scheduled for cleanup');
+        // Only clean up if no active usage
+        this.cleanupTimeout = setTimeout(() => {
+          if (this.instance) {
+            this.instance.cleanup();
+            this.instance = null;
+          }
+        }, 60 * 1000); // Add another minute before actual cleanup
       }
     }, 5 * 60 * 1000); // Cleanup after 5 minutes of inactivity
   }

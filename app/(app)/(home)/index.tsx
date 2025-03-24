@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator, Text } from 'react-native';
 import { useAuth } from '@/src/providers/auth';
 import { HealthProviderFactory } from '@/src/providers/health';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Animated } from 'react-native';
 
-const LoadingScreen = React.memo(() => {
+const LoadingScreen = React.memo(({ message }: { message?: string }) => {
   const insets = useSafeAreaInsets();
   
   return (
@@ -20,6 +20,7 @@ const LoadingScreen = React.memo(() => {
     >
       <Surface style={styles.loadingCard} elevation={3}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
+        {message && <Text style={styles.loadingText}>{message}</Text>}
       </Surface>
     </Animated.View>
   );
@@ -27,7 +28,14 @@ const LoadingScreen = React.memo(() => {
 
 export default function HomeScreen() {
   const { user, loading } = useAuth();
-  const provider = useMemo(() => HealthProviderFactory.getProvider(), []);
+  const provider = useMemo(() => {
+    try {
+      return HealthProviderFactory.getProvider();
+    } catch (error) {
+      console.log('[HomeScreen] Using cached provider instance');
+      return null;
+    }
+  }, []);
   const insets = useSafeAreaInsets();
 
   if (loading) {
@@ -36,6 +44,10 @@ export default function HomeScreen() {
 
   if (!user) {
     return null;
+  }
+
+  if (!provider) {
+    return <LoadingScreen message="Initializing health provider..." />;
   }
 
   return (
@@ -85,5 +97,11 @@ const styles = StyleSheet.create({
         elevation: 4,
       },
     }),
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
   },
 });

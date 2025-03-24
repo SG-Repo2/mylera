@@ -184,7 +184,8 @@ export const Dashboard = React.memo(function Dashboard({
     isRefreshing,
     refreshData,
     handleRetry,
-    availableMetrics
+    availableMetrics,
+    isDataLoaded
   } = useDashboardData(provider, userId, date);
   
   const { headerAnimations } = useDashboardAnimations(dailyTotal);
@@ -202,7 +203,7 @@ export const Dashboard = React.memo(function Dashboard({
   }, [error, requestHealthPermissions, handleRetry]);
 
   // Enhanced loading state check
-  const isLoading = loading || (!healthMetrics && !error && !dailyTotal);
+  const isLoading = loading || (!healthMetrics && !error && !dailyTotal && !isDataLoaded);
   
   // Add timeout for initial load
   useEffect(() => {
@@ -210,7 +211,8 @@ export const Dashboard = React.memo(function Dashboard({
     
     if (isLoading) {
       timeoutId = setTimeout(() => {
-        if (!healthMetrics && !error) {
+        // Only retry if we haven't loaded data yet
+        if (!healthMetrics && !error && !isDataLoaded) {
           handleRetry();
         }
       }, 10000); // 10 second timeout
@@ -219,7 +221,7 @@ export const Dashboard = React.memo(function Dashboard({
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isLoading, healthMetrics, error, handleRetry]);
+  }, [isLoading, healthMetrics, error, handleRetry, isDataLoaded]);
 
   // Add error retry with backoff
   const retryWithBackoff = useCallback(async () => {
@@ -234,7 +236,10 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Render loading state with enhanced check
   if (isLoading) {
-    return <LoadingView message="Loading your health data..." showSpinner={true} />;
+    return <LoadingView 
+      message={isDataLoaded ? "Refreshing your health data..." : "Loading your health data..."} 
+      showSpinner={true} 
+    />;
   }
 
   // Update error handling

@@ -23,6 +23,7 @@ export const useDashboardData = (
   const [errorDialogVisible, setErrorDialogVisible] = useState(false);
   const [userRank, setUserRank] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   
   // Refs to prevent unnecessary re-renders
   const fetchIdRef = useRef(0);
@@ -163,11 +164,13 @@ export const useDashboardData = (
       setHealthMetrics(transformedMetrics);
       setUserRank(rank);
       setFetchError(null);
+      setIsDataLoaded(true);
     } catch (err) {
       if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
       
       console.error('Error fetching metrics:', err);
       setFetchError(err instanceof Error ? err : new Error('Failed to fetch metrics'));
+      setIsDataLoaded(false);
     } finally {
       if (isMountedRef.current && requestId === fetchIdRef.current) {
         setIsRefreshing(false);
@@ -274,6 +277,7 @@ export const useDashboardData = (
       Object.entries(healthMetrics)
         .filter(([key, value]) => value !== null && !['id', 'user_id', 'date', 'created_at', 'updated_at', 'last_updated'].includes(key))
         .map(([key]) => key)
-    ) : new Set()
+    ) : new Set(),
+    isDataLoaded
   };
 };

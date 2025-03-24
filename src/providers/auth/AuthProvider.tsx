@@ -42,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [healthPermissionStatus, setHealthPermissionStatus] = useState(authState.healthPermissionStatus);
   const [healthDataInitialized, setHealthDataInitialized] = useState(authState.healthDataInitialized);
   const [isAuthNavigationLocked, setIsAuthNavigationLocked] = useState(authState.isAuthNavigationLocked);
+  const metricsInitializedRef = useRef(false);
   
   // Get navigation state
   const { isReady: navigatorMounted, isPermissionsHandled } = useNavigationReady();
@@ -64,13 +65,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setHealthPermissionStatus
           );
           
-          // Try to fetch initial metrics
-          try {
-            await provider.getMetrics();
-            setHealthDataInitialized(true);
-          } catch (healthDataError) {
-            console.warn('[AuthProvider] Initial health data fetch error:', healthDataError);
-            setHealthDataInitialized(true);
+          if (!metricsInitializedRef.current) {
+            // Try to fetch initial metrics
+            try {
+              await provider.getMetrics();
+              metricsInitializedRef.current = true;
+              setHealthDataInitialized(true);
+            } catch (healthDataError) {
+              console.warn('[AuthProvider] Initial health data fetch error:', healthDataError);
+              setHealthDataInitialized(true);
+            }
           }
         } catch (initError) {
           console.error('[AuthProvider] Health provider initialization error:', initError);
@@ -98,11 +102,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setHealthPermissionStatus
             );
             
-            try {
-              await provider.getMetrics();
-              setHealthDataInitialized(true);
-            } catch (healthDataError) {
-              console.warn('[AuthProvider] Health data fetch error on auth change:', healthDataError);
+            // Only update health initialization state if not already done
+            if (!metricsInitializedRef.current) {
               setHealthDataInitialized(true);
             }
           } catch (error) {
