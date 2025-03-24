@@ -17,7 +17,7 @@ import { MetricType } from '../../../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
-import { HEALTH_PERMISSIONS } from './permissions';
+import { hasEssentialPermissions, HEALTH_PERMISSIONS } from './permissions';
 import { logger, LogCategory } from '@/src/utils/logger';
 import { performInitialization } from './initialization';
 import { retryOperation } from './utils';
@@ -158,6 +158,17 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
       const permissionState = await this.checkPermissionsStatus();
       const status = typeof permissionState === 'string' ? permissionState : permissionState.status;
       
+      // If permissions are not granted, request them
+      if (status !== 'granted') {
+        logger.info(LogCategory.Health, '[GoogleHealthProvider] Permissions not granted, requesting permissions...');
+        const requestStatus = await this.requestPermissions();
+        
+        if (requestStatus !== 'granted') {
+          logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permission request failed or was denied');
+          return 'denied';
+        }
+      }
+      
       logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization completed with permission status: ${status}`);
       return status as PermissionStatus;
     } catch (error) {
@@ -209,19 +220,20 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         throw new Error('Cannot request permissions - permission manager not initialized');
       }
 
-      console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Requesting Health Connect permissions...');
       
-      // Request permissions using Health Connect
-      const result = await this.verifyPermissions();
+      // Request permissions using Health Connect API
+      const granted = await requestPermission(HEALTH_PERMISSIONS);
       
       // Update permission state in manager
-      await this.permissionManager.updatePermissionState(
-        result ? 'granted' : 'denied'
-      );
-
-      return result ? 'granted' : 'denied';
+      const status = granted ? 'granted' : 'denied';
+      await this.permissionManager.updatePermissionState(status);
+      
+      logger.info(LogCategory.Health, `[GoogleHealthProvider] Permission request completed with status: ${status}`);
+      
+      return status;
     } catch (error) {
-      console.error('[GoogleHealthProvider] Error requesting permissions:', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error requesting permissions:', error instanceof Error ? error.message : 'Unknown error');
       return 'denied';
     }
   }
@@ -248,93 +260,58 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
       };
 
       // Test each permission individually with proper error handling
-      try {
-        const stepsResult = await retryOperation(
-          () => fetchStepsWithDailyAggregation(yesterday, now),
-          1 // Just 1 retry for verification
-        );
-        permissionResults.steps = stepsResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] Steps permission verification failed:', error);
+      for (const permission of HEALTH_PERMISSIONS) {
+        try {
+          const records = await readRecords(permission.recordType, {
+            timeRangeFilter: testRange
+          });
+          if (records.records?.length > 0) {
+            switch (permission.recordType) {
+              case 'Steps':
+                permissionResults.steps = true;
+                break;
+              case 'Distance':
+                permissionResults.distance = true;
+                break;
+              case 'ActiveCaloriesBurned':
+                permissionResults.calories = true;
+                break;
+              case 'HeartRate':
+                permissionResults.heartRate = true;
+                break;
+              case 'FloorsClimbed':
+                permissionResults.floorsClimbed = true;
+                break;
+              case 'BasalMetabolicRate':
+                permissionResults.basal = true;
+                break;
+              case 'ExerciseSession':
+                permissionResults.exercise = true;
+                break;
+            }
+          }
+        } catch (error) {
+          logger.warn(LogCategory.Health, `[GoogleHealthProvider] Error checking ${permission.recordType} permission:`, error instanceof Error ? error.message : 'Unknown error');
+        }
       }
 
-      try {
-        const distanceResult = await retryOperation(
-          () => fetchDistanceWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.distance = distanceResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] Distance permission verification failed:', error);
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Permission verification results:', JSON.stringify(permissionResults));
+
+      // Check if essential permissions are granted
+      const hasEssential = hasEssentialPermissions(
+        Object.entries(permissionResults)
+          .filter(([_, granted]) => granted)
+          .map(([permission]) => permission)
+      );
+
+      if (!hasEssential) {
+        logger.warn(LogCategory.Health, '[GoogleHealthProvider] Insufficient permissions granted');
+        return false;
       }
 
-      try {
-        const caloriesResult = await retryOperation(
-          () => fetchCaloriesWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.calories = caloriesResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] Calories permission verification failed:', error);
-      }
-
-      try {
-        const heartRateResult = await retryOperation(
-          () => fetchHeartRateWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.heartRate = heartRateResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] HeartRate permission verification failed:', error);
-      }
-
-      try {
-        const basalResult = await retryOperation(
-          () => fetchBasalCaloriesWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.basal = basalResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
-      }
-
-      try {
-        const floorsResult = await retryOperation(
-          () => fetchFloorsClimbedWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.floorsClimbed = floorsResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] FloorsClimbed permission verification failed:', error);
-      }
-
-      try {
-        const exerciseResult = await retryOperation(
-          () => fetchExerciseWithDailyAggregation(yesterday, now),
-          1
-        );
-        permissionResults.exercise = exerciseResult.length > 0;
-      } catch (error) {
-        console.warn('[GoogleHealthProvider] ExerciseSession permission verification failed:', error);
-      }
-
-      // Log the results for debugging
-      console.log('[GoogleHealthProvider] Permission verification results:', permissionResults);
-
-      // Consider permissions granted if at least 3 core permissions are available
-      // This allows the app to function with partial permissions
-      const grantedCount = Object.values(permissionResults).filter(Boolean).length;
-      const hasMinimumPermissions = grantedCount >= 3;
-      
-      if (hasMinimumPermissions) {
-        console.log('[GoogleHealthProvider] Minimum required permissions granted');
-      } else {
-        console.warn('[GoogleHealthProvider] Insufficient permissions granted');
-      }
-      
-      return hasMinimumPermissions;
+      return true;
     } catch (error) {
-      console.error('[GoogleHealthProvider] Permission verification failed:', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error verifying permissions:', error instanceof Error ? error.message : 'Unknown error');
       return false;
     }
   }

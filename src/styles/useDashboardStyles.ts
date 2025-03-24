@@ -1,17 +1,24 @@
-import { StyleSheet, Platform, Dimensions } from 'react-native';
+import { StyleSheet, Platform, Dimensions, useWindowDimensions } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const createStyles = (theme: MD3Theme) =>
-  StyleSheet.create({
+const createStyles = (theme: MD3Theme) => {
+  // Calculate responsive values based on screen width
+  const headerHeight = Math.max(44, Math.min(56, SCREEN_WIDTH * 0.12));
+  const headerMargin = Math.max(8, Math.min(16, SCREEN_WIDTH * 0.02));
+  const headerPadding = Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03));
+  const logoHeight = Math.max(24, Math.min(32, SCREEN_WIDTH * 0.06));
+  const logoWidth = Math.max(72, Math.min(96, SCREEN_WIDTH * 0.18));
+  
+  return StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: theme.colors.background,
     },
     headerWrapper: {
-      marginHorizontal: 16,
-      marginTop: 8,
+      marginHorizontal: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03)),
+      marginTop: headerMargin,
       borderRadius: theme.roundness * 1.5,
       overflow: 'hidden',
       backgroundColor: theme.colors.surface,
@@ -28,7 +35,7 @@ const createStyles = (theme: MD3Theme) =>
       }),
     },
     headerContainer: {
-      height: 44,
+      height: headerHeight,
       backgroundColor: theme.colors.surface,
       justifyContent: 'center',
     },
@@ -36,35 +43,35 @@ const createStyles = (theme: MD3Theme) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 12,
+      paddingHorizontal: headerPadding,
     },
     logo: {
-      height: 24,
-      width: 72,
+      height: logoHeight,
+      width: logoWidth,
       resizeMode: 'contain',
     },
     statsContainer: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: Math.max(4, Math.min(8, SCREEN_WIDTH * 0.015)),
     },
     statItem: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.colors.primaryContainer,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+      paddingHorizontal: Math.max(6, Math.min(8, SCREEN_WIDTH * 0.015)),
+      paddingVertical: Math.max(2, Math.min(4, SCREEN_WIDTH * 0.008)),
       borderRadius: theme.roundness * 1.5,
     },
     statText: {
       color: theme.colors.primary,
-      fontSize: 13,
+      fontSize: Math.max(12, Math.min(14, SCREEN_WIDTH * 0.03)),
       fontWeight: '600',
       letterSpacing: 0.25,
     },
     statLabel: {
       color: theme.colors.onSurfaceVariant,
-      fontSize: 13,
+      fontSize: Math.max(12, Math.min(14, SCREEN_WIDTH * 0.03)),
       marginRight: 4,
     },
     loadingContainer: {
@@ -76,7 +83,7 @@ const createStyles = (theme: MD3Theme) =>
     loadingCard: {
       backgroundColor: theme.colors.surface,
       borderRadius: theme.roundness * 3,
-      padding: 24,
+      padding: Math.max(20, Math.min(24, SCREEN_WIDTH * 0.05)),
       width: Math.min(SCREEN_WIDTH * 0.85, 320),
       alignItems: 'center',
       ...Platform.select({
@@ -92,57 +99,59 @@ const createStyles = (theme: MD3Theme) =>
       }),
     },
     loadingText: {
-      marginTop: 16,
+      marginTop: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03)),
       color: theme.colors.onSurfaceVariant,
       textAlign: 'center',
-      fontSize: 16,
+      fontSize: Math.max(14, Math.min(16, SCREEN_WIDTH * 0.035)),
       fontWeight: '500',
     },
     scrollView: {
       flex: 1,
     },
     scrollContent: {
-      paddingHorizontal: 16,
-      paddingTop: 16,
-      paddingBottom: 32,
+      paddingHorizontal: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03)),
+      paddingTop: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03)),
+      paddingBottom: Math.max(24, Math.min(32, SCREEN_WIDTH * 0.06)),
     },
     errorDialog: {
       borderRadius: theme.roundness * 3,
       backgroundColor: theme.colors.surface,
+      margin: Math.max(16, Math.min(24, SCREEN_WIDTH * 0.05)),
     },
     errorDialogTitle: {
       textAlign: 'center',
       color: theme.colors.error,
-      fontSize: 20,
+      fontSize: Math.max(18, Math.min(20, SCREEN_WIDTH * 0.045)),
       fontWeight: '600',
       letterSpacing: 0.5,
     },
     errorDialogContent: {
       textAlign: 'center',
       color: theme.colors.onSurface,
-      fontSize: 16,
-      lineHeight: 24,
+      fontSize: Math.max(14, Math.min(16, SCREEN_WIDTH * 0.035)),
+      lineHeight: Math.max(20, Math.min(24, SCREEN_WIDTH * 0.05)),
       letterSpacing: 0.25,
     },
     errorDialogActions: {
       justifyContent: 'center',
-      paddingBottom: 8,
+      paddingBottom: Math.max(4, Math.min(8, SCREEN_WIDTH * 0.015)),
     },
     errorDialogButton: {
       color: theme.colors.primary,
-      padding: 12,
-      fontSize: 16,
+      padding: Math.max(8, Math.min(12, SCREEN_WIDTH * 0.025)),
+      fontSize: Math.max(14, Math.min(16, SCREEN_WIDTH * 0.035)),
       fontWeight: '600',
       letterSpacing: 0.5,
     },
     partialDataText: {
       color: theme.colors.error,
-      fontSize: 12,
+      fontSize: Math.max(10, Math.min(12, SCREEN_WIDTH * 0.025)),
       textAlign: 'center',
       marginTop: 4,
       fontWeight: '500',
     },
   });
+};
 
 export const useDashboardStyles = () => {
   const theme = useTheme();

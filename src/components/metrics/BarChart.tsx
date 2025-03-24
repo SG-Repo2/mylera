@@ -151,29 +151,36 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
           console.log(`${dayName} (${dateStr}): ${value}`);
         }
 
-        setData(filledData);
-        setLoading(false);
+        if (mounted) {
+          setData(filledData);
+          setLoading(false);
 
-        // Enhanced staggered animation sequence
-        const animations = filledData.map((item, index) =>
-          Animated.sequence([
-            // Dynamic delay based on position for more natural sequence
-            Animated.delay(index * 40),  // Faster initial delay for better rhythm
-            Animated.spring(item.animation, {
-              toValue: 1,
-              useNativeDriver: false, // Required for height animation
-              stiffness: 200,         // Better stiffness for chart animations
-              damping: 14,            // Refined damping for more professional movement
-              mass: 0.7,              // Lighter mass for faster initial animation
-              restDisplacementThreshold: 0.001, // More precise stopping behavior
-              restSpeedThreshold: 0.001,        // More precise stopping behavior
-            })
-          ])
-        );
+          // Store animation references for cleanup
+          const animationSubscriptions = [];
+          
+          // Enhanced staggered animation sequence
+          const animations = filledData.map((item, index) => {
+            // Create animation sequence
+            const sequence = Animated.sequence([
+              Animated.delay(index * 40),
+              Animated.spring(item.animation, {
+                toValue: 1,
+                useNativeDriver: false,
+                stiffness: 200,
+                damping: 14,
+                mass: 0.7,
+                restDisplacementThreshold: 0.001,
+                restSpeedThreshold: 0.001,
+              })
+            ]);
+            
+            return sequence;
+          });
 
-        // Better coordinated staggered animation start
-        Animated.stagger(30, animations).start();
-
+          // Start animations and store subscription
+          const subscription = Animated.stagger(30, animations).start();
+          if (subscription != null) animationSubscriptions.push(subscription);
+        }
       } catch (err) {
         if (!mounted) return;
         console.error('Error fetching native health data:', err);
@@ -183,7 +190,20 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     };
 
     fetchData();
-    return () => { mounted = false; };
+    
+    // Return cleanup function
+    return () => { 
+      mounted = false;
+      
+      // Stop all data point animations
+      if (data && data.length) {
+        data.forEach(point => {
+          if (point.animation) {
+            point.animation.stopAnimation();
+          }
+        });
+      }
+    };
   }, [metricType, userId, date, provider]);
 
   const renderContent = () => {

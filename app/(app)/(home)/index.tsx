@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator, Text } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator, Text, Dimensions } from 'react-native';
 import { useAuth } from '@/src/providers/auth';
 import { HealthProviderFactory } from '@/src/providers/health';
 import { Dashboard } from '@/src/components/metrics/Dashboard';
@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Surface } from 'react-native-paper';
 import { Animated } from 'react-native';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 const LoadingScreen = React.memo(({ message }: { message?: string }) => {
   const insets = useSafeAreaInsets();
   
@@ -15,12 +17,39 @@ const LoadingScreen = React.memo(({ message }: { message?: string }) => {
     <Animated.View 
       style={[
         styles.loadingContainer,
-        { paddingTop: insets.top }
+        { 
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom
+        }
       ]}
     >
-      <Surface style={styles.loadingCard} elevation={3}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-        {message && <Text style={styles.loadingText}>{message}</Text>}
+      <Surface 
+        style={[
+          styles.loadingCard,
+          {
+            width: Math.min(SCREEN_WIDTH * 0.85, 320),
+            padding: Math.max(20, Math.min(24, SCREEN_WIDTH * 0.05))
+          }
+        ]} 
+        elevation={3}
+      >
+        <ActivityIndicator 
+          size={Platform.OS === 'ios' ? 'large' : Math.max(36, Math.min(48, SCREEN_WIDTH * 0.1))} 
+          color={theme.colors.primary} 
+        />
+        {message && (
+          <Text 
+            style={[
+              styles.loadingText,
+              {
+                fontSize: Math.max(14, Math.min(16, SCREEN_WIDTH * 0.035)),
+                marginTop: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03))
+              }
+            ]}
+          >
+            {message}
+          </Text>
+        )}
       </Surface>
     </Animated.View>
   );
@@ -56,7 +85,8 @@ export default function HomeScreen() {
         styles.container, 
         {
           backgroundColor: theme.colors.background,
-          paddingTop: Platform.OS === 'android' ? insets.top : 0
+          paddingTop: Platform.OS === 'android' ? insets.top : 0,
+          paddingBottom: insets.bottom
         }
       ]}
     >
@@ -81,10 +111,7 @@ const styles = StyleSheet.create({
   },
   loadingCard: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 24,
-    padding: 24,
-    width: '85%',
-    maxWidth: 320,
+    borderRadius: Math.max(20, Math.min(24, SCREEN_WIDTH * 0.05)),
     alignItems: 'center',
     ...Platform.select({
       ios: {
@@ -99,9 +126,8 @@ const styles = StyleSheet.create({
     }),
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: theme.colors.primary,
+    textAlign: 'center',
   },
 });

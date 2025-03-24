@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect } from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { ErrorView } from '@/src/components/shared/ErrorView';
@@ -67,29 +67,104 @@ const LoadingView = React.memo(({
   const styles = useDashboardStyles();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { loadingAnimations } = useDashboardAnimations(null);
+  
+  // Enhanced animation references
+  const pulseAnim = useRef(new Animated.Value(0.9)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const textOpacityAnim = useRef(new Animated.Value(0)).current;
+  
+  // Set up enhanced animations
+  useEffect(() => {
+    // Create pulse animation sequence
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.9,
+          duration: 800,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true
+        })
+      ])
+    ).start();
+    
+    // Create rotation animation
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.linear,
+        useNativeDriver: true
+      })
+    ).start();
+    
+    // Fade in text with slight delay
+    Animated.timing(textOpacityAnim, {
+      toValue: 1,
+      duration: 600,
+      delay: 300,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic)
+    }).start();
+    
+    return () => {
+      // Clean up animations
+      pulseAnim.stopAnimation();
+      rotateAnim.stopAnimation();
+      textOpacityAnim.stopAnimation();
+    };
+  }, []);
   
   return (
     <View style={[
       styles.loadingContainer,
       { paddingTop: insets.top }
     ]}>
-      <View style={styles.loadingCard}>
-        <Animated.View style={{
-          transform: [
-            { scale: loadingAnimations.scale },
-            { rotate: loadingAnimations.rotate }
-          ]
-        }}>
-          <ActivityIndicator
-            size={Platform.OS === 'ios' ? 'large' : 48}
-            color={theme.colors.primary}
-          />
-        </Animated.View>
-        <Text style={styles.loadingText}>
+      <Animated.View style={[
+        styles.loadingCard,
+        { 
+          transform: [{ scale: pulseAnim }],
+          shadowOpacity: pulseAnim.interpolate({
+            inputRange: [0.9, 1.05],
+            outputRange: [0.12, 0.2]
+          })
+        }
+      ]}>
+        {showSpinner && (
+          <Animated.View style={{
+            transform: [{ 
+              rotate: rotateAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '360deg']
+              })
+            }]
+          }}>
+            <ActivityIndicator
+              size={Platform.OS === 'ios' ? 'large' : 48}
+              color={theme.colors.primary}
+            />
+          </Animated.View>
+        )}
+        <Animated.Text style={[
+          styles.loadingText,
+          { 
+            opacity: textOpacityAnim,
+            transform: [{
+              translateY: textOpacityAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [10, 0]
+              })
+            }]
+          }
+        ]}>
           {message}
-        </Text>
-      </View>
+        </Animated.Text>
+      </Animated.View>
     </View>
   );
 });

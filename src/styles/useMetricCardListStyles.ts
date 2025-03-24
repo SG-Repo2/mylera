@@ -1,37 +1,47 @@
-import { StyleSheet, Dimensions } from 'react-native';
+import { StyleSheet, Dimensions, useWindowDimensions } from 'react-native';
 import { useTheme, MD3Theme } from 'react-native-paper';
 import { brandColors } from '@/src/theme/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Helper function for responsive cards
-const getOptimalCardSize = (screenWidth: number, margin: number = 16, gap: number = 12) => {
-  // Calculate available width after margins
-  const availableWidth = screenWidth - (margin * 2);
+const getOptimalCardSize = (screenWidth: number) => {
+  // Calculate base spacing values
+  const baseMargin = Math.max(12, Math.min(16, screenWidth * 0.03));
+  const baseGap = Math.max(8, Math.min(12, screenWidth * 0.02));
   
-  // For smaller screens, use a more compact layout
+  // Calculate available width after margins
+  const availableWidth = screenWidth - (baseMargin * 2);
+  
+  // For smaller screens (iPhone SE, etc.)
   if (screenWidth < 360) {
     return {
-      width: (availableWidth - gap) / 2,
-      minWidth: 140,
-      maxWidth: 180,
+      width: (availableWidth - baseGap) / 2,
+      minWidth: Math.max(120, Math.min(140, screenWidth * 0.35)),
+      maxWidth: Math.max(140, Math.min(160, screenWidth * 0.45)),
+      gap: baseGap,
+      margin: baseMargin,
     };
   }
   
-  // For medium screens, standard layout
+  // For medium screens (most phones)
   if (screenWidth < 600) {
     return {
       width: '48%', // Using percentage for flexibility
-      minWidth: 150,
-      maxWidth: 200,
+      minWidth: Math.max(130, Math.min(150, screenWidth * 0.35)),
+      maxWidth: Math.max(150, Math.min(180, screenWidth * 0.45)),
+      gap: baseGap,
+      margin: baseMargin,
     };
   }
   
-  // For larger screens/tablets, show more cards in a row
+  // For larger screens/tablets
   return {
-    width: (availableWidth - gap * 2) / 3, // 3 cards per row
-    minWidth: 160,
-    maxWidth: 220,
+    width: (availableWidth - baseGap * 2) / 3, // 3 cards per row
+    minWidth: Math.max(140, Math.min(160, screenWidth * 0.25)),
+    maxWidth: Math.max(160, Math.min(200, screenWidth * 0.3)),
+    gap: baseGap,
+    margin: baseMargin,
   };
 };
 
@@ -41,27 +51,28 @@ const createStyles = (theme: MD3Theme) => {
   return StyleSheet.create({
     container: {
       flex: 1,
-      paddingTop: 8,
+      paddingTop: Math.max(4, Math.min(8, SCREEN_WIDTH * 0.015)),
       backgroundColor: theme.colors.background,
     },
     grid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 12,
+      gap: cardSize.gap,
       justifyContent: SCREEN_WIDTH < 600 ? 'space-between' : 'flex-start',
       alignItems: 'flex-start',
+      paddingHorizontal: cardSize.margin,
     },
     cell: {
       width: cardSize.width as number,
       minWidth: cardSize.minWidth,
       maxWidth: cardSize.maxWidth,
-      marginBottom: 12, // Consistent spacing
+      marginBottom: Math.max(8, Math.min(12, SCREEN_WIDTH * 0.02)),
     },
     lastCell: {
       width: cardSize.width as number,
       minWidth: cardSize.minWidth,
       maxWidth: cardSize.maxWidth,
-      marginBottom: 16,
+      marginBottom: Math.max(12, Math.min(16, SCREEN_WIDTH * 0.03)),
     }
   });
 };

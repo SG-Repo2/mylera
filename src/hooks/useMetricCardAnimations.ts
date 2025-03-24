@@ -107,6 +107,18 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
     return valueChangeAnim || valueChangePulseAnim;
   }, [valueChangeAnim, valueChangePulseAnim]);
 
+  // Add cleanup effect to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      // Stop all animations when component unmounts
+      scaleAnim.stopAnimation();
+      glowAnim.stopAnimation();
+      valueChangePulseAnim.stopAnimation();
+      if (valueChangeAnim) valueChangeAnim.stopAnimation();
+      if (backgroundColorAnim) backgroundColorAnim.stopAnimation();
+    };
+  }, []); // Empty dependency array ensures this runs only on mount/unmount
+
   return {
     scaleAnim,
     glowAnim,
