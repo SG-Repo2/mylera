@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
+import { View, Animated, StyleSheet, Easing } from 'react-native';
 import { Text, useTheme, Surface, TouchableRipple, ProgressBar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { healthMetrics } from '@/src/config/healthMetrics';
@@ -108,6 +108,19 @@ export const MetricCard = React.memo(function MetricCard({
     return `(1 per ${increment})`;
   }, [metricType]);
 
+  // Add progress animation ref
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Add progress animation effect
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: progress,
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false, // Required for width/backgroundColor animations
+    }).start();
+  }, [progress]);
+
   return (
     <Animated.View 
       style={[
@@ -165,11 +178,32 @@ export const MetricCard = React.memo(function MetricCard({
               </View>
 
               <View style={styles.progressContainer}>
-                <ProgressBar
-                  progress={progress}
-                  color={color}
-                  style={styles.progressBar}
-                />
+                <View style={styles.progressBarContainer}>
+                  <View 
+                    style={[
+                      styles.progressBarBackground,
+                      { backgroundColor: theme.colors.surfaceVariant }
+                    ]} 
+                  />
+                  <Animated.View 
+                    style={[
+                      styles.progressBarFill,
+                      { 
+                        width: progressAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%'] 
+                        }),
+                        backgroundColor: color,
+                        opacity: progressAnim.interpolate({
+                          inputRange: [0, 0.4, 1],
+                          outputRange: [0.7, 0.85, 1]
+                        })
+                      }
+                    ]} 
+                  >
+                    <View style={styles.progressBarHighlight} />
+                  </Animated.View>
+                </View>
                 <View style={styles.progressInfo}>
                   <Text 
                     variant="labelSmall" 

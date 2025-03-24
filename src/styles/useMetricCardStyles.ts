@@ -101,9 +101,32 @@ const createStyles = (theme: MD3Theme) =>
       gap: 6,
       width: '100%',
     },
-    progressBar: {
+    progressBarContainer: {
       height: 6,
-      backgroundColor: 'rgba(0,0,0,0.05)',
+      borderRadius: 3,
+      overflow: 'hidden',
+      backgroundColor: 'transparent',
+    },
+    progressBarBackground: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      borderRadius: 3,
+    },
+    progressBarFill: {
+      height: '100%',
+      borderRadius: 3,
+      position: 'relative',
+    },
+    progressBarHighlight: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(255, 255, 255, 0.2)',
       borderRadius: 3,
     },
     progressInfo: {

@@ -17,19 +17,25 @@ export const useDashboardAnimations = (dailyTotal: DailyTotal | null) => {
   // Animate header when dailyTotal becomes available
   useEffect(() => {
     if (dailyTotal) {
+      // Reset animation values to ensure consistent behavior
+      headerOpacity.setValue(0);
+      slideAnim.setValue(-20);
+      
       Animated.parallel([
         Animated.timing(headerOpacity, {
           toValue: 1,
-          duration: 400, // Slightly faster for better response
+          duration: 350,  // Slightly longer for smoother fade-in
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic), // Smoother easing
+          easing: Easing.out(Easing.cubic), // More sophisticated easing
         }),
         Animated.spring(slideAnim, {
           toValue: 0,
           useNativeDriver: true,
-          damping: 14, // Increased for less bounce
-          mass: 0.8,
-          stiffness: 180,
+          damping: 16,     // Better damping for less bounce
+          mass: 0.7,       // Lighter mass for faster animation
+          stiffness: 200,  // Balanced stiffness
+          restDisplacementThreshold: 0.01, // Better stopping behavior
+          restSpeedThreshold: 0.01,        // Better stopping behavior
         }),
       ]).start();
     }

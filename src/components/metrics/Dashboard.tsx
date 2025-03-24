@@ -283,8 +283,14 @@ export const Dashboard = React.memo(function Dashboard({
               onRefresh={refreshData}
               colors={[theme.colors.primary]}
               progressBackgroundColor={theme.colors.surface}
+              tintColor={theme.colors.primary}
             />
           }
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          bounces={true}
+          decelerationRate="normal"
+          overScrollMode="always"
         >
           {healthMetrics && (
             <MetricCardList 
