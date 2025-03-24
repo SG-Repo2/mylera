@@ -57,15 +57,15 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
     
     Animated.parallel([
       Animated.spring(scaleAnim, {
-        toValue: 0.95,
+        toValue: 0.97,  // Slightly less scale for more subtle effect
         useNativeDriver: true,
-        stiffness: 300, // Increased for faster response on mobile
-        damping: 15,
-        mass: 0.8, // Reduced for quicker animation
+        stiffness: 300, // Higher stiffness for faster initial response
+        damping: 15,    // Balanced damping for natural feel
+        mass: 0.7,      // Lighter mass for quicker animation
       }),
       Animated.timing(glowAnim, {
         toValue: 1,
-        duration: 150, // Faster for immediate feedback
+        duration: 120,  // Faster glow effect for immediate feedback
         useNativeDriver: true
       })
     ], { stopTogether: false }).start();
@@ -81,12 +81,12 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
         toValue: 1,
         useNativeDriver: true,
         stiffness: 300,
-        damping: 15,
-        mass: 0.8,
+        damping: 18,    // Increased damping for less bounce on return
+        mass: 0.7,
       }),
       Animated.timing(glowAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 180,  // Slightly longer fade-out for natural feel
         useNativeDriver: true
       })
     ], { stopTogether: false }).start();

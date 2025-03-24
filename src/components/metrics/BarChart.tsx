@@ -157,18 +157,22 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
         // Enhanced staggered animation sequence
         const animations = filledData.map((item, index) =>
           Animated.sequence([
-            Animated.delay(index * 60),
+            // Dynamic delay based on position for more natural sequence
+            Animated.delay(index * 40),  // Faster initial delay for better rhythm
             Animated.spring(item.animation, {
               toValue: 1,
-              useNativeDriver: false, // Changed to false because we're animating height
-              stiffness: 180,
-              damping: 12,
-              mass: 0.8,
+              useNativeDriver: false, // Required for height animation
+              stiffness: 200,         // Better stiffness for chart animations
+              damping: 14,            // Refined damping for more professional movement
+              mass: 0.7,              // Lighter mass for faster initial animation
+              restDisplacementThreshold: 0.001, // More precise stopping behavior
+              restSpeedThreshold: 0.001,        // More precise stopping behavior
             })
           ])
         );
 
-        Animated.stagger(40, animations).start();
+        // Better coordinated staggered animation start
+        Animated.stagger(30, animations).start();
 
       } catch (err) {
         if (!mounted) return;
@@ -294,11 +298,16 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                     width: barWidth,
                     transform: [{
                       scaleY: point.animation.interpolate({
-                        inputRange: [0, 0.8, 0.9, 1],
-                        outputRange: [0.3, 1.05, 1.02, 1],
+                        inputRange: [0, 0.7, 0.9, 1],
+                        outputRange: [0.3, 1.06, 1.02, 1], // Refined overshoot for natural movement
                       })
                     }],
-                    transformOrigin: 'bottom'
+                    transformOrigin: 'bottom',
+                    // Adding subtle shadow for better visual depth
+                    shadowColor: color,
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: point.isEmpty ? 0 : 0.1,
+                    shadowRadius: 2,
                   }]}>
                     <View 
                       style={[

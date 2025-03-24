@@ -267,46 +267,47 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   }, [isLoading, pulseValue]);
 
   const animateIn = useCallback(() => {
+    // Reset animation values to starting positions
+    translateY.setValue(500);
+    backdropOpacity.setValue(0);
+    contentOpacity.setValue(0);
+    scale.setValue(0.95);
+    
     Animated.sequence([
-      // First fade in backdrop
+      // First fade in backdrop with smoother easing
       Animated.timing(backdropOpacity, {
         toValue: 1,
-        duration: 250,
+        duration: 220,
         useNativeDriver: true,
         easing: Easing.out(Easing.cubic),
       }),
-      // Then animate content with parallel animations
+      // Then animate content with coordinated parallel animations
       Animated.parallel([
-        // Slide up with overshoot
+        // Slide up with refined spring physics
         Animated.spring(translateY, {
           toValue: 0,
           useNativeDriver: true,
-          damping: 12,
-          mass: 0.8,
-          stiffness: 180,
+          damping: 14,      // Increased damping for less bouncy, more professional feel
+          mass: 0.7,        // Reduced mass for faster initial movement
+          stiffness: 200,   // Balanced stiffness for natural motion
+          restDisplacementThreshold: 0.01,  // Better stopping behavior
+          restSpeedThreshold: 0.01,         // Better stopping behavior
         }),
-        // Scale up with slight overshoot
-        Animated.sequence([
-          Animated.spring(scale, {
-            toValue: 1.02,
-            useNativeDriver: true,
-            damping: 10,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-          Animated.spring(scale, {
-            toValue: 1,
-            useNativeDriver: true,
-            damping: 12,
-            mass: 0.8,
-            stiffness: 180,
-          }),
-        ]),
-        // Fade in content slightly delayed
+        // Scale up with subtle overshoot
+        Animated.spring(scale, {
+          toValue: 1,
+          useNativeDriver: true,
+          damping: 15,
+          mass: 0.8,
+          stiffness: 160,
+          restDisplacementThreshold: 0.01,
+          restSpeedThreshold: 0.01,
+        }),
+        // Fade in content with slight delay for sequenced feel
         Animated.timing(contentOpacity, {
           toValue: 1,
-          duration: 300,
-          delay: 150,
+          duration: 280,
+          delay: 100,  // Slight delay for better sequenced feel
           useNativeDriver: true,
           easing: Easing.out(Easing.cubic),
         }),
@@ -315,38 +316,39 @@ export const MetricModal: React.FC<MetricModalProps> = React.memo(({
   }, [backdropOpacity, translateY, scale, contentOpacity]);
 
   const animateOut = useCallback(() => {
-    Animated.sequence([
-      // First animate content
-      Animated.parallel([
-        Animated.timing(contentOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-          easing: Easing.in(Easing.cubic),
-        }),
-        Animated.spring(translateY, {
-          toValue: 100,
-          useNativeDriver: true,
-          damping: 12,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-        Animated.spring(scale, {
-          toValue: 0.95,
-          useNativeDriver: true,
-          damping: 10,
-          mass: 0.8,
-          stiffness: 180,
-        }),
-      ]),
-      // Then fade out backdrop
+    Animated.parallel([
+      // Fade out content quickly
+      Animated.timing(contentOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.quad),
+      }),
+      // Slide down slightly
+      Animated.timing(translateY, {
+        toValue: 50,  // Less movement on exit for subtlety
+        duration: 180,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      // Scale down slightly
+      Animated.timing(scale, {
+        toValue: 0.97,
+        duration: 180,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      // Fade out backdrop
       Animated.timing(backdropOpacity, {
         toValue: 0,
-        duration: 200,
+        duration: 220,  // Slightly longer for smooth exit
         useNativeDriver: true,
         easing: Easing.in(Easing.cubic),
       }),
     ]).start(() => {
+      // Reset values for next entrance
+      translateY.setValue(500);
+      scale.setValue(0.95);
       onClose();
     });
   }, [backdropOpacity, translateY, scale, contentOpacity, onClose]);
