@@ -1,5 +1,7 @@
 import { useRef, useEffect, useMemo } from 'react';
-import { Animated } from 'react-native';
+import { Animated, Dimensions } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface MetricCardAnimationProps {
   value: number | null;
@@ -7,11 +9,16 @@ interface MetricCardAnimationProps {
 }
 
 export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAnimationProps) => {
-  // Animation refs
+  // Animation refs with responsive values
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
   const valueChangePulseAnim = useRef(new Animated.Value(0)).current;
   const prevValueRef = useRef<number | null>(null);
+  
+  // Calculate responsive animation values
+  const scaleValue = Math.max(0.97, Math.min(0.98, 1 - (SCREEN_WIDTH * 0.0001)));
+  const glowOpacity = Math.max(0.15, Math.min(0.25, SCREEN_WIDTH * 0.0004));
+  const pulseScale = Math.max(1.08, Math.min(1.12, 1 + (SCREEN_WIDTH * 0.0002)));
   
   // Handle value changes and animate accordingly
   useEffect(() => {
@@ -34,12 +41,12 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
         Animated.sequence([
           Animated.timing(valueChangePulseAnim, {
             toValue: 1,
-            duration: 250, // Slightly reduced for better mobile performance
+            duration: Math.max(200, Math.min(250, SCREEN_WIDTH * 0.5)),
             useNativeDriver: true,
           }),
           Animated.timing(valueChangePulseAnim, {
             toValue: 0,
-            duration: 350, // Extended for smoother fade out
+            duration: Math.max(300, Math.min(350, SCREEN_WIDTH * 0.7)),
             useNativeDriver: true,
           })
         ]).start();
@@ -49,7 +56,7 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
     prevValueRef.current = value;
   }, [value, valueChangePulseAnim, valueChangeAnim]);
 
-  // Press animations
+  // Press animations with responsive values
   const handlePressIn = () => {
     // Cancel ongoing animations for immediate feedback
     scaleAnim.stopAnimation();
@@ -57,15 +64,15 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
     
     Animated.parallel([
       Animated.spring(scaleAnim, {
-        toValue: 0.97,  // Slightly less scale for more subtle effect
+        toValue: scaleValue,
         useNativeDriver: true,
-        stiffness: 300, // Higher stiffness for faster initial response
-        damping: 15,    // Balanced damping for natural feel
-        mass: 0.7,      // Lighter mass for quicker animation
+        stiffness: Math.max(280, Math.min(300, SCREEN_WIDTH * 0.6)),
+        damping: Math.max(12, Math.min(15, SCREEN_WIDTH * 0.03)),
+        mass: Math.max(0.6, Math.min(0.7, SCREEN_WIDTH * 0.001)),
       }),
       Animated.timing(glowAnim, {
         toValue: 1,
-        duration: 120,  // Faster glow effect for immediate feedback
+        duration: Math.max(100, Math.min(120, SCREEN_WIDTH * 0.2)),
         useNativeDriver: true
       })
     ], { stopTogether: false }).start();
@@ -80,13 +87,13 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
       Animated.spring(scaleAnim, {
         toValue: 1,
         useNativeDriver: true,
-        stiffness: 300,
-        damping: 18,    // Increased damping for less bounce on return
-        mass: 0.7,
+        stiffness: Math.max(280, Math.min(300, SCREEN_WIDTH * 0.6)),
+        damping: Math.max(15, Math.min(18, SCREEN_WIDTH * 0.035)),
+        mass: Math.max(0.6, Math.min(0.7, SCREEN_WIDTH * 0.001)),
       }),
       Animated.timing(glowAnim, {
         toValue: 0,
-        duration: 180,  // Slightly longer fade-out for natural feel
+        duration: Math.max(150, Math.min(180, SCREEN_WIDTH * 0.35)),
         useNativeDriver: true
       })
     ], { stopTogether: false }).start();
@@ -98,9 +105,9 @@ export const useMetricCardAnimations = ({ value, valueChangeAnim }: MetricCardAn
     
     return baseAnim.interpolate({
       inputRange: [0, 0.5, 1],
-      outputRange: [1, 1.12, 1] // Slightly increased for better visibility on mobile
+      outputRange: [1, pulseScale, 1]
     });
-  }, [valueChangeAnim, valueChangePulseAnim]);
+  }, [valueChangeAnim, valueChangePulseAnim, pulseScale]);
   
   // Memoize the background animation
   const backgroundColorAnim = useMemo(() => {
