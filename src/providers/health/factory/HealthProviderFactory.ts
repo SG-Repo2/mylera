@@ -152,17 +152,20 @@ export class HealthProviderFactory {
       return this.instance;
     }
 
-    if (this.isInitializing && this.initializationPromise) {
-      logger.info(LogCategory.Health, '[HealthProviderFactory] Waiting for in-progress initialization...');
-      return this.initializationPromise;
+    // Use single promise for initialization
+    if (!this.initializationPromise) {
+      this.initializationPromise = Promise.resolve().then(() => {
+        this.isInitializing = true;
+        const provider = this.initializeProvider(deviceType);
+        this.isInitializing = false;
+        return provider;
+      });
     }
-
-    this.isInitializing = true;
-    this.initializationPromise = Promise.resolve().then(() => this.initializeProvider(deviceType));
     
     try {
       return await this.initializationPromise;
     } catch (error) {
+      this.initializationPromise = null; // Clear failed promise
       throw error instanceof HealthProviderError 
         ? error 
         : new HealthProviderError(
