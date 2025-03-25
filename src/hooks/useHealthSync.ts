@@ -135,90 +135,9 @@ const setCachedMetrics = async (metrics: any) => {
   }
 };
 
-// Add health score calculation constants
-const HEALTH_SCORE_WEIGHTS = {
-  steps: 0.2,
-  distance: 0.2,
-  calories: 0.15,
-  heart_rate: 0.15,
-  basal_calories: 0.15,
-  flights_climbed: 0.1,
-  exercise: 0.05
-};
-
-// Add memoized health score calculation
-const calculateHealthScore = (metrics: any): number => {
-  let totalScore = 0;
-  let totalWeight = 0;
-
-  Object.entries(HEALTH_SCORE_WEIGHTS).forEach(([metric, weight]) => {
-    const value = metrics[metric];
-    if (typeof value === 'number' && isValidMetricValue(value, metric as MetricType)) {
-      const goal = getMetricGoal(metric as MetricType);
-      const score = Math.min((value / goal) * 100, 100);
-      totalScore += score * weight;
-      totalWeight += weight;
-    }
-  });
-
-  return totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
-};
-
-// Add metric goal helper
-const getMetricGoal = (metricType: MetricType): number => {
-  const goals: Record<MetricType, number> = {
-    steps: 10000,
-    distance: 5000,
-    calories: 500,
-    heart_rate: 100,
-    basal_calories: 1800,
-    flights_climbed: 10,
-    exercise: 30
-  };
-  return goals[metricType] || 0;
-};
-
-// Add metric points calculation
-const calculateMetricPoints = (value: number, metricType: MetricType): number => {
-  const goal = getMetricGoal(metricType);
-  if (value >= goal) return 100;
-  return Math.round((value / goal) * 100);
-};
-
-/**
- * React hook for managing health data synchronization.
- * Handles initialization, permission management, and data fetching from platform-specific health providers.
- * 
- * @param provider - Platform-specific health provider instance (Apple HealthKit or Google Health Connect)
- * @param userId - Unique identifier of the user for permission management
- * @returns Object containing:
- *  - loading: Boolean indicating if a sync operation is in progress
- *  - error: Error object if the last operation failed, null otherwise
- *  - syncHealthData: Function to manually trigger a health data sync
- * 
- * @example
- * ```tsx
- * const { loading, error, syncHealthData } = useHealthData(healthProvider, userId);
- * 
- * // Handle loading state
- * if (loading) return <LoadingSpinner />;
- * 
- * // Handle error state
- * if (error) return <ErrorView error={error} />;
- * 
- * // Trigger manual sync
- * const handleRefresh = () => syncHealthData();
- * ```
- */
 export const useHealthSync = (provider: HealthProvider, userId: string) => {
-  // Use reducer instead of multiple useState calls to batch updates
   const [state, dispatch] = useReducer(healthDataReducer, initialState);
   const { loading, error, isInitialized } = state;
-  
-  // Add state for health data
-  const [healthData, setHealthData] = useState<Record<string, number>>({});
-  const [metricState, setMetricState] = useState<Record<string, any>>({});
-  const [healthScore, setHealthScore] = useState(0);
   
   const isMounted = useRef(true);
   const isSyncInProgress = useRef(false);
@@ -268,29 +187,35 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   };
 
   const syncHealthData = useCallback(async (force = false) => {
-    // Add early return if no userId
     if (!userId) {
       console.log('[useHealthData] No userId provided, skipping sync');
       dispatch({ type: 'SYNC_SUCCESS' });
       return false;
     }
 
-    // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
       return false;
     }
 
     try {
+      // Check cache first if not a forced refresh
+      if (!force) {
+        const cachedData = await getCachedMetrics();
+        if (cachedData) {
+          console.log('[useHealthData] Using cached health data');
+          dispatch({ type: 'SYNC_SUCCESS' });
+          return true;
+        }
+      }
+
       isSyncInProgress.current = true;
       dispatch({ type: 'START_SYNC' });
 
-      // Initialize provider with the correct user ID
       if (!provider.initialize) {
         await provider.initializeWithPermissions(userId);
       }
 
-      // Check permissions
       const permissionState = await provider.checkPermissionsStatus();
       if (permissionState.status !== 'granted') {
         const granted = await provider.requestPermissions();
@@ -299,16 +224,12 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
         }
       }
 
-      // Fetch metrics with force flag
       const healthData = await provider.getMetrics();
       
-      // Only update state if component is still mounted
       if (isMounted.current) {
         dispatch({ type: 'SYNC_SUCCESS' });
         resetBackoff();
         syncAttempts.current = 0;
-        
-        // Cache successful fetch
         await setCachedMetrics(healthData);
         return true;
       }
@@ -374,23 +295,27 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   
   // Monitor app state to trigger resyncs when app returns to foreground
   useEffect(() => {
+    let debounceTimer: NodeJS.Timeout | null = null;
+    
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active' && isMounted.current && !isSyncInProgress.current) {
-        // Check if it's been long enough since last sync before triggering a new one
-        const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
-        if (timeSinceLastSync > MIN_SYNC_INTERVAL * 2) {
-          console.log('[useHealthData] App returned to foreground, triggering sync');
-          syncHealthData();
-        }
+        if (debounceTimer) clearTimeout(debounceTimer);
+        
+        debounceTimer = setTimeout(() => {
+          const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
+          if (timeSinceLastSync > MIN_SYNC_INTERVAL * 2) {
+            console.log('[useHealthData] App returned to foreground, triggering sync');
+            syncHealthData();
+          }
+        }, 1000);
       }
     };
     
-    // Subscribe to app state changes
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     
-    // Clean up subscription on unmount
     return () => {
       subscription.remove();
+      if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [syncHealthData]);
 
