@@ -1,6 +1,8 @@
-import { PermissionStatus } from '@/src/providers/health/types/permissions';
+import { PermissionStatus, getPermissionCacheKey } from '@/src/providers/health/types/permissions';
 import { initializeHealthProviderForUser } from '@/src/utils/healthInitUtils';
 import { HealthProviderFactory } from '@/src/providers/health/factory/HealthProviderFactory';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { HealthProvider } from '@/src/providers/health/types/provider';
 
 /**
  * Initialize health provider for a user and request permissions
@@ -26,6 +28,61 @@ export async function initializeHealthProvider(
     return provider;
   } catch (error) {
     console.error('[healthIntegration] Error initializing health provider:', error);
+    throw error;
+  }
+}
+
+/**
+ * Initialize health provider with permission verification
+ * This wrapper ensures permissions are verified on every initialization,
+ * especially after app reinstallation
+ */
+export async function initializeHealthProviderWithPermissionVerification(
+  userId: string,
+  deviceType?: 'os' | 'fitbit',
+  setHealthStatus?: (status: PermissionStatus) => void
+): Promise<HealthProvider> {
+  try {
+    // First, force clear any stale permission cache
+    const cacheKey = getPermissionCacheKey(userId);
+    await AsyncStorage.removeItem(cacheKey);
+    
+    console.log('[healthIntegration] Initializing provider with fresh permission check');
+    
+    // Get the provider using the factory
+    const provider = HealthProviderFactory.getProvider(deviceType);
+    
+    // Safely initialize the provider
+    const status = await provider.safeInitialize(userId);
+    console.log(`[healthIntegration] Provider initialized with permission status: ${status}`);
+    
+    // Update status if callback provided
+    if (setHealthStatus) {
+      setHealthStatus(status);
+    }
+
+    // If permissions not granted, force explicit request
+    if (status !== 'granted') {
+      console.log('[healthIntegration] Permissions not granted, requesting explicitly');
+      const requestStatus = await provider.requestPermissions();
+      
+      if (setHealthStatus) {
+        setHealthStatus(requestStatus);
+      }
+      
+      // Log permission request result
+      console.log(`[healthIntegration] Permission request result: ${requestStatus}`);
+    }
+
+    return provider;
+  } catch (error) {
+    console.error('[healthIntegration] Error initializing health provider:', error);
+    
+    // Update status to not_determined on error
+    if (setHealthStatus) {
+      setHealthStatus('not_determined');
+    }
+    
     throw error;
   }
 }
@@ -103,4 +160,4 @@ export async function fetchInitialHealthMetrics() {
     console.warn('[healthIntegration] Error fetching initial health metrics:', error);
     throw error;
   }
-} 
+}

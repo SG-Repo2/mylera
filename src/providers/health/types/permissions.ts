@@ -11,7 +11,7 @@ export interface PermissionState {
 }
 
 const PERMISSION_CACHE_KEY = '@health_permissions';
-const PERMISSION_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const PERMISSION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 export const getPermissionCacheKey = (userId: string): string => 
   `${PERMISSION_CACHE_KEY}:${userId}:${Platform.OS}`;
@@ -60,6 +60,24 @@ export async function clearPermissionCache(userId: string): Promise<void> {
   } catch (error) {
     console.error('Error clearing permission cache:', error);
   }
+}
+
+export async function forcePermissionVerification(userId: string): Promise<void> {
+  // Always clear cached permissions on app restart/reinstall
+  await clearPermissionCache(userId);
+}
+
+export function isPermissionSecurityException(error: any): boolean {
+  if (!error) return false;
+  
+  const errorMessage = typeof error === 'string' 
+    ? error 
+    : error.message || String(error);
+    
+  return errorMessage.toLowerCase().includes('security') || 
+         errorMessage.toLowerCase().includes('permission') ||
+         errorMessage.toLowerCase().includes('READ_') ||
+         errorMessage.toLowerCase().includes('denied access');
 }
 
 export class PermissionManager {

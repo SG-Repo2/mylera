@@ -1,6 +1,6 @@
 import type { HealthMetrics, RawHealthData, NormalizedMetric } from './metrics';
 import type { MetricType } from '../../../types/metrics';
-import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
+import { PermissionManager, PermissionState, PermissionStatus, isPermissionSecurityException } from './permissions';
 import { HealthProviderPermissionError } from './errors';
 import { logger, LogCategory, LogLevel } from '@/src/utils/logger';
 import { 
@@ -145,6 +145,12 @@ export interface HealthProvider {
    * @returns The current permission status after initialization
    */
   safeInitialize(userId: string): Promise<PermissionStatus>;
+
+  /**
+   * Verify permissions and request them if needed.
+   * @returns Current permission status after verification
+   */
+  verifyAndRequestPermissionsIfNeeded(): Promise<PermissionStatus>;
 }
 
 /**
@@ -270,6 +276,11 @@ export abstract class BaseHealthProvider implements HealthProvider {
    */
   async safeInitialize(userId: string): Promise<PermissionStatus> {
     try {
+      // First, force clear the permission cache on initialization
+      if (this.permissionManager) {
+        await this.permissionManager.clearCache();
+      }
+      
       // Check if provider is already initialized
       if (!this.initialized) {
         console.log(`[BaseHealthProvider] Provider not initialized, initializing...`);
@@ -282,35 +293,44 @@ export abstract class BaseHealthProvider implements HealthProvider {
       if (!this.permissionManager) {
         console.log(`[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`);
         await this.initializePermissions(userId);
-      } else {
-        console.log(`[BaseHealthProvider] Permission manager already initialized, skipping initialization step`);
       }
 
-      // Check permission status with timeout protection
-      console.log(`[BaseHealthProvider] Checking permission status with timeout protection...`);
-      const permissionState = await Promise.race([
-        this.checkPermissionsStatus(),
-        new Promise<PermissionStatus>((_, reject) =>
-          setTimeout(() => reject(new Error('Permission check timeout')), 3000)
-        )
-      ]);
-
-      // Handle different return types from checkPermissionsStatus
-      let status: PermissionStatus;
-      if (typeof permissionState === 'string') {
-        status = permissionState as PermissionStatus;
-      } else if (typeof permissionState === 'object' && permissionState !== null && 'status' in permissionState) {
-        status = permissionState.status as PermissionStatus;
-      } else {
-        console.warn(`[BaseHealthProvider] Unexpected permission state format:`, permissionState);
-        status = 'not_determined';
+      // ALWAYS check actual platform permissions regardless of cache
+      try {
+        // Attempt a minimal health data access to verify permissions
+        // This will trigger security exceptions if permissions are revoked
+        const permissionTestTypes: MetricType[] = ['steps']; // Use a basic type for testing
+        await this.fetchRawMetrics(new Date(), new Date(), permissionTestTypes);
+        
+        // If we got here, permissions are valid - update cache
+        if (this.permissionManager) {
+          await this.permissionManager.updatePermissionState('granted');
+        }
+        return 'granted';
+      } catch (error) {
+        console.log(`[BaseHealthProvider] Permission verification failed:`, error);
+        
+        // If this is a security/permission exception, update cache and re-request
+        if (isPermissionSecurityException(error)) {
+          // Update cache to show permissions are not granted
+          if (this.permissionManager) {
+            await this.permissionManager.updatePermissionState('denied');
+          }
+          
+          // Attempt to request permissions
+          console.log(`[BaseHealthProvider] Re-requesting permissions after detection of security exception`);
+          return await this.requestPermissions();
+        }
+        
+        // For other errors, fall back to standard permission check
+        const permissionState = await this.checkPermissionsStatus();
+        return typeof permissionState === 'string' 
+          ? permissionState 
+          : permissionState.status;
       }
-
-      console.log(`[BaseHealthProvider] Safe initialization completed with status: ${status}`);
-      return status;
     } catch (error) {
       console.error(`[BaseHealthProvider] Safe initialization error:`, error);
-      // Return not_determined on error to allow graceful degradation
+      // Return not_determined on error to trigger permission request
       return 'not_determined';
     }
   }
@@ -797,24 +817,28 @@ export abstract class BaseHealthProvider implements HealthProvider {
     }
     
     try {
-      // Check permissions before fetching - handle null permissionManager safely
+      // Always verify permissions before fetching
       if (this.permissionManager) {
-        const permissionState = await this.checkPermissionsStatus();
-        if (permissionState.status !== 'granted') {
-          await this.ensurePermissionsInitialized();
-          const permissionStatus = await this.requestPermissions();
-          if (permissionStatus !== 'granted') {
-            logger.warn(LogCategory.Health, 
-              `[${this.constructor.name}] Permission not granted for health data access, proceeding with limited functionality`
-            );
+        try {
+          // Try to fetch a small sample to validate permissions
+          await this.fetchRawMetrics(startDate, new Date(startDate.getTime() + 60000), [metricTypes[0]]);
+        } catch (error) {
+          // If security/permission exception, re-request permissions
+          if (isPermissionSecurityException(error)) {
+            console.log(`[BaseHealthProvider] Detected permission issue during fetch, re-requesting permissions`);
+            const permissionStatus = await this.requestPermissions();
+            
+            // If permission still denied, throw clear error
+            if (permissionStatus !== 'granted') {
+              throw new HealthProviderPermissionError(
+                'health data access',
+                'User denied permission to access health data'
+              );
+            }
+          } else {
+            throw error;
           }
         }
-      } else {
-        // If permission manager is null, try to initialize it
-        logger.warn(LogCategory.Health, 
-          `[${this.constructor.name}] Permission manager is null during batchFetchHealthMetrics, attempting to initialize`
-        );
-        await this.ensurePermissionsInitialized();
       }
 
       // Fetch all raw metrics in one call
@@ -863,6 +887,16 @@ export abstract class BaseHealthProvider implements HealthProvider {
         updated_at: new Date().toISOString(),
       };
     } catch (error) {
+      // Enhanced error handling
+      if (isPermissionSecurityException(error)) {
+        // Handle permission errors specifically
+        logger.error(LogCategory.Health, `[${this.constructor.name}] Permission denied for health data: ${error}`);
+        throw new HealthProviderPermissionError(
+          'health data',
+          'Permission denied to access health data. Please grant permissions in settings.'
+        );
+      }
+      
       this.handleProviderError('fetching batched health metrics', error);
     }
   }
@@ -985,5 +1019,126 @@ export abstract class BaseHealthProvider implements HealthProvider {
         target[type] = source[type];
       }
     }
+  }
+
+  /**
+   * Handle an operation that may fail due to permission errors and attempt recovery
+   * @param operation The operation that failed
+   * @param context String describing the operation context
+   * @param metricType Optional metric type
+   * @returns The Promise that resolves when permissions are fixed or rejects if not fixable
+   */
+  protected async handleOperationWithPermissionRecovery<T>(
+    operation: () => Promise<T>,
+    context: string = 'health operation',
+    metricType?: MetricType
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      // If this is a permission error, try to recover
+      if (this.isPermissionError(error)) {
+        logger.warn(
+          LogCategory.Health,
+          `[${this.constructor.name}] Permission error detected during ${context}: ${error}`,
+        );
+        
+        // Update permission state to denied
+        if (this.permissionManager) {
+          await this.permissionManager.updatePermissionState('denied');
+        }
+        
+        // Try to request permissions
+        const permissionStatus = await this.requestPermissions();
+        
+        // If permissions granted, retry the operation
+        if (permissionStatus === 'granted') {
+          logger.info(
+            LogCategory.Health,
+            `[${this.constructor.name}] Permissions re-granted, retrying operation`
+          );
+          return await operation();
+        }
+        
+        // If still not granted, throw permission error
+        throw new HealthProviderPermissionError(
+          metricType || 'health data',
+          'Permissions required to access health data'
+        );
+      }
+      
+      // For non-permission errors, rethrow
+      throw error;
+    }
+  }
+
+  /**
+   * Verify permissions and request them if needed.
+   * @returns Current permission status after verification
+   */
+  async verifyAndRequestPermissionsIfNeeded(): Promise<PermissionStatus> {
+    try {
+      // First try to check permissions at OS level
+      let permissionStatus: PermissionStatus;
+      
+      try {
+        // Try accessing a small amount of data to verify permissions
+        const testDate = new Date();
+        await this.fetchRawMetrics(testDate, testDate, ['steps']);
+        permissionStatus = 'granted';
+      } catch (error) {
+        // If we get a security exception, permissions aren't granted
+        if (isPermissionSecurityException(error)) {
+          permissionStatus = 'denied';
+        } else {
+          // For other errors, check cached status
+          const state = await this.checkPermissionsStatus();
+          permissionStatus = typeof state === 'string' ? state : state.status;
+        }
+      }
+      
+      // If permissions aren't granted, request them
+      if (permissionStatus !== 'granted') {
+        return await this.requestPermissions();
+      }
+      
+      return permissionStatus;
+    } catch (error) {
+      logger.error(LogCategory.Health, `[${this.constructor.name}] Error verifying permissions: ${error}`);
+      return 'not_determined';
+    }
+  }
+
+  /**
+   * Enhanced error handling method that can detect permission-related errors
+   * @param error The error to analyze
+   * @returns True if the error is related to permissions
+   */
+  protected isPermissionError(error: unknown): boolean {
+    if (!error) return false;
+    
+    const errorMessage = typeof error === 'string' 
+      ? error 
+      : error instanceof Error ? error.message : String(error);
+      
+    // Look for common permission error patterns
+    return (
+      errorMessage.toLowerCase().includes('security') ||
+      errorMessage.toLowerCase().includes('permission') ||
+      errorMessage.toLowerCase().includes('access denied') ||
+      errorMessage.toLowerCase().includes('not authorized') ||
+      errorMessage.toLowerCase().includes('authorization') ||
+      // Android Health Connect specific patterns
+      errorMessage.includes('READ_STEPS') ||
+      errorMessage.includes('READ_DISTANCE') ||
+      errorMessage.includes('READ_HEART_RATE') ||
+      errorMessage.includes('READ_EXERCISE') ||
+      errorMessage.includes('READ_BASAL_METABOLIC_RATE') ||
+      errorMessage.includes('READ_ACTIVE_CALORIES_BURNED') ||
+      errorMessage.includes('READ_FLOORS_CLIMBED') ||
+      // iOS HealthKit specific patterns
+      errorMessage.includes('HKErrorDomain') ||
+      errorMessage.includes('healthKitDataAccess')
+    );
   }
 }

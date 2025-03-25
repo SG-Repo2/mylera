@@ -17,7 +17,8 @@ import {
   requestHealthPermissionsWithTimeout,
   needsHealthSetup as checkNeedsHealthSetup,
   cleanupHealthProvider,
-  fetchInitialHealthMetrics
+  fetchInitialHealthMetrics,
+  initializeHealthProviderWithPermissionVerification
 } from './healthIntegration';
 import {
   navigateAfterAuth,
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (session) => {
         // Initialize health provider if user is logged in
         try {
-          const provider = await initializeHealthProvider(
+          const provider = await initializeHealthProviderWithPermissionVerification(
             session.user.id,
             undefined,
             setHealthPermissionStatus
@@ -96,7 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Handle health permissions on auth state change
         if (session?.user) {
           try {
-            const provider = await initializeHealthProvider(
+            const provider = await initializeHealthProviderWithPermissionVerification(
               session.user.id,
               undefined,
               setHealthPermissionStatus
@@ -430,4 +431,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export default AuthContext; 
+export default AuthContext;
