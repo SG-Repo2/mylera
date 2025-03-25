@@ -92,7 +92,7 @@ export const MetricCardList = React.memo(function MetricCardList({
   // Create a ref to track which metrics have already been celebrated for today
   const celebratedMetricsRef = useRef<Set<string>>(new Set());
   
-  // Load previously celebrated metrics from storage
+  // Optimized loading of celebrated metrics
   useEffect(() => {
     const loadCelebratedMetrics = async () => {
       try {
@@ -105,7 +105,6 @@ export const MetricCardList = React.memo(function MetricCardList({
         if (storedMetrics) {
           const metricsArray = JSON.parse(storedMetrics);
           celebratedMetricsRef.current = new Set(metricsArray);
-          console.log(`[MetricCardList] Loaded celebrated metrics for today: ${metricsArray}`);
         } else {
           // Reset for a new day
           celebratedMetricsRef.current = new Set();
@@ -157,23 +156,23 @@ export const MetricCardList = React.memo(function MetricCardList({
     }
   }, [metrics]);
 
-  // Memoize metric values to prevent unnecessary re-renders
+  // Optimized metric processing
   const memoizedMetrics = React.useMemo(() => {
-    console.log('[MetricCardList] Processing metrics:', metrics);
-    
     if (!metrics) {
-      console.log('[MetricCardList] No metrics available');
       return [];
     }
 
     return metricOrder.map(metricType => {
       const value = metrics[metricType];
-      console.log(`[MetricCardList] Processing ${metricType}:`, value);
+      
+      const points = (typeof value === 'number' && value > 0) 
+        ? calculateMetricPoints(metricType, value) 
+        : 0;
       
       return {
         type: metricType,
         value: typeof value === 'number' ? value : null,
-        points: typeof value === 'number' ? calculateMetricPoints(metricType, value) : 0,
+        points,
         config: healthMetrics[metricType]
       };
     });
@@ -205,18 +204,20 @@ export const MetricCardList = React.memo(function MetricCardList({
     updateLastMetrics(metricValues);
   }, [metrics, updateLastMetrics]);
 
-  // Check for goal achievement
+  // Optimized goal checking
   useEffect(() => {
     if (!hasValidData || !showAlerts || !metrics.user_id) return;
     
     const checkMetrics = async () => {
-      for (const metric of memoizedMetrics) {
-        const { type, value } = metric;
-        if (!value || value <= 0) continue;
+      const metricsToCheck = memoizedMetrics
+        .filter(m => m.value !== null && m.value > 0)
+        .slice(0, 3); // Only check top 3 priority metrics
         
-        // Pass isInitialLoad to prevent celebration on first load
+      for (const metric of metricsToCheck) {
+        const { type, value } = metric;
+        
         const isInitialLoad = isFirstRender.current || isManualRefresh;
-        if (await checkAndCelebrateGoal(type, value, isInitialLoad)) {
+        if (await checkAndCelebrateGoal(type, value as number, isInitialLoad)) {
           break;
         }
       }
