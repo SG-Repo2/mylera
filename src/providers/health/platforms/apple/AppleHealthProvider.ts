@@ -218,15 +218,22 @@ export class AppleHealthProvider extends BaseHealthProvider {
     return normalizeHealthKitMetrics(rawData, type);
   }
 
-  async getMetrics(): Promise<HealthMetrics> {
+  /**
+   * Fetch health metrics from Apple HealthKit.
+   * This is the internal implementation that gets called after ensuring proper initialization.
+   * @returns Aggregated health metrics
+   */
+  protected async fetchMetrics(): Promise<HealthMetrics> {
     try {
+      // Your existing getMetrics implementation here
+      // This will now be called after ensuring proper initialization
       const now = new Date();
-      const startOfDay = DateUtils.getStartOfDay(now);
-      console.log('[AppleHealthProvider] Fetching metrics for time window:', {
-        start: startOfDay.toISOString(),
-        end: now.toISOString()
-      });
-
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      logger.info(LogCategory.Health, '[AppleHealthProvider] Fetching metrics for time window:', 
+        `start: ${startOfDay.toISOString()}, end: ${now.toISOString()}`
+      );
+      
       // Use batched fetch for all metrics
       return await this.batchFetchHealthMetrics(
         startOfDay,

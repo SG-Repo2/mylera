@@ -436,15 +436,19 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     return super.normalizeMetrics(rawData, type);
   }
 
-  async getMetrics(): Promise<HealthMetrics> {
+  /**
+   * Fetch health metrics from Google Health Connect.
+   * This is the internal implementation that gets called after ensuring proper initialization.
+   * @returns Aggregated health metrics
+   */
+  protected async fetchMetrics(): Promise<HealthMetrics> {
     try {
       const now = new Date();
-      const startOfDay = DateUtils.getStartOfDay(now);
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       
-      console.log('[GoogleHealthProvider] Fetching metrics for time window:', {
-        start: startOfDay.toISOString(),
-        end: now.toISOString()
-      });
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Fetching metrics for time window:', 
+        `start: ${startOfDay.toISOString()}, end: ${now.toISOString()}`
+      );
       
       // Use batched fetch for all metrics
       return await this.batchFetchHealthMetrics(
@@ -453,7 +457,8 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
       );
     } catch (error) {
-      this.handleProviderError('fetching metrics', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching metrics:', error instanceof Error ? error.message : String(error));
+      throw error;
     }
   }
 }

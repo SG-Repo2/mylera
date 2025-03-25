@@ -13,7 +13,6 @@ const createStyles = (theme: MD3Theme) =>
       marginHorizontal: 16,
       marginTop: 8,
       borderRadius: theme.roundness * 1.5,
-      overflow: 'hidden',
       backgroundColor: theme.colors.surface,
       ...Platform.select({
         ios: {

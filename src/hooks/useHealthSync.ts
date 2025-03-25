@@ -9,6 +9,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
 
 /**
+ * Creates a debounced sync function that waits for a specified delay before executing
+ * @param syncFn The sync function to debounce
+ * @returns A debounced version of the sync function
+ */
+const createDebouncedSync = (syncFn: (force?: boolean) => Promise<boolean | any>) => 
+  debounce(async (force = false) => {
+    const result = await syncFn(force);
+    return typeof result === 'boolean' ? result : false;
+  }, 3000);
+
+/**
  * Returns a user-friendly error message based on the error type
  */
 const getUserFriendlyErrorMessage = (error: Error): string => {
@@ -135,55 +146,6 @@ const setCachedMetrics = async (metrics: any) => {
   }
 };
 
-// Add health score calculation constants
-const HEALTH_SCORE_WEIGHTS = {
-  steps: 0.2,
-  distance: 0.2,
-  calories: 0.15,
-  heart_rate: 0.15,
-  basal_calories: 0.15,
-  flights_climbed: 0.1,
-  exercise: 0.05
-};
-
-// Add memoized health score calculation
-const calculateHealthScore = (metrics: any): number => {
-  let totalScore = 0;
-  let totalWeight = 0;
-
-  Object.entries(HEALTH_SCORE_WEIGHTS).forEach(([metric, weight]) => {
-    const value = metrics[metric];
-    if (typeof value === 'number' && isValidMetricValue(value, metric as MetricType)) {
-      const goal = getMetricGoal(metric as MetricType);
-      const score = Math.min((value / goal) * 100, 100);
-      totalScore += score * weight;
-      totalWeight += weight;
-    }
-  });
-
-  return totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
-};
-
-// Add metric goal helper
-const getMetricGoal = (metricType: MetricType): number => {
-  const goals: Record<MetricType, number> = {
-    steps: 10000,
-    distance: 5000,
-    calories: 500,
-    heart_rate: 100,
-    basal_calories: 1800,
-    flights_climbed: 10,
-    exercise: 30
-  };
-  return goals[metricType] || 0;
-};
-
-// Add metric points calculation
-const calculateMetricPoints = (value: number, metricType: MetricType): number => {
-  const goal = getMetricGoal(metricType);
-  if (value >= goal) return 100;
-  return Math.round((value / goal) * 100);
-};
 
 /**
  * React hook for managing health data synchronization.
@@ -215,11 +177,6 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   const [state, dispatch] = useReducer(healthDataReducer, initialState);
   const { loading, error, isInitialized } = state;
   
-  // Add state for health data
-  const [healthData, setHealthData] = useState<Record<string, number>>({});
-  const [metricState, setMetricState] = useState<Record<string, any>>({});
-  const [healthScore, setHealthScore] = useState(0);
-  
   const isMounted = useRef(true);
   const isSyncInProgress = useRef(false);
   const syncAttempts = useRef(0);
@@ -236,7 +193,7 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   
   // Backoff tracking
   const currentBackoffMs = useRef(INITIAL_BACKOFF_MS);
-  const backoffTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const backoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Add a ref to track active sync
   const activeSyncRef = useRef<{
@@ -275,77 +232,94 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       return false;
     }
 
+    // Check if there's a recent sync in progress and return the cached promise if so
+    if (activeSyncRef.current.promise && 
+        Date.now() - activeSyncRef.current.timestamp < MIN_SYNC_INTERVAL) {
+      console.log('[useHealthData] Recent sync in progress, returning cached promise');
+      return activeSyncRef.current.promise;
+    }
+
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
       console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
       return false;
     }
 
-    try {
-      isSyncInProgress.current = true;
-      dispatch({ type: 'START_SYNC' });
+    // Set up the promise at the beginning
+    activeSyncRef.current = {
+      promise: null,
+      timestamp: Date.now()
+    };
 
-      // Initialize provider with the correct user ID
-      if (!provider.initialize) {
-        await provider.initializeWithPermissions(userId);
-      }
+    const syncPromise = (async () => {
+      try {
+        isSyncInProgress.current = true;
+        dispatch({ type: 'START_SYNC' });
 
-      // Check permissions
-      const permissionState = await provider.checkPermissionsStatus();
-      if (permissionState.status !== 'granted') {
-        const granted = await provider.requestPermissions();
-        if (granted !== 'granted') {
-          throw new Error('Health permissions not granted');
+        // Initialize provider with the correct user ID
+        if (!provider.initialize) {
+          await provider.initializeWithPermissions(userId);
+        }
+
+        // Check permissions
+        const permissionState = await provider.checkPermissionsStatus();
+        if (permissionState.status !== 'granted') {
+          const granted = await provider.requestPermissions();
+          if (granted !== 'granted') {
+            throw new Error('Health permissions not granted');
+          }
+        }
+
+        // Fetch metrics with force flag
+        const healthData = await provider.getMetrics();
+        
+        // Only update state if component is still mounted
+        if (isMounted.current) {
+          dispatch({ type: 'SYNC_SUCCESS' });
+          resetBackoff();
+          syncAttempts.current = 0;
+          
+          // Cache successful fetch
+          await setCachedMetrics(healthData);
+          return true;
+        }
+        
+        return false;
+      } catch (error) {
+        if (!isMounted.current) return false;
+        
+        console.error('[useHealthData] Sync error:', error);
+        dispatch({ 
+          type: 'SYNC_ERROR',
+          error: error instanceof Error ? error : new Error('Sync failed')
+        });
+        return false;
+      } finally {
+        if (isMounted.current) {
+          isSyncInProgress.current = false;
         }
       }
+    })();
 
-      // Fetch metrics with force flag
-      const healthData = await provider.getMetrics();
-      
-      // Only update state if component is still mounted
-      if (isMounted.current) {
-        dispatch({ type: 'SYNC_SUCCESS' });
-        resetBackoff();
-        syncAttempts.current = 0;
-        
-        // Cache successful fetch
-        await setCachedMetrics(healthData);
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      if (!isMounted.current) return false;
-      
-      console.error('[useHealthData] Sync error:', error);
-      dispatch({ 
-        type: 'SYNC_ERROR',
-        error: error instanceof Error ? error : new Error('Sync failed')
-      });
-      return false;
-    } finally {
-      if (isMounted.current) {
-        isSyncInProgress.current = false;
-      }
-    }
+    // Store the promise for future reference
+    activeSyncRef.current.promise = syncPromise;
+    return syncPromise;
   }, [provider, userId]);
 
-  // Add debounced sync function after syncHealthData declaration
-  const debouncedSync = useCallback(
-    debounce(async (force = false) => {
-      await syncHealthData(force);
-    }, 3000),
+  // Memoize the debounced sync function
+  const debouncedSync = useMemo(() => 
+    createDebouncedSync(syncHealthData), 
     [syncHealthData]
   );
 
-  // Monitor network state to trigger resyncs when connection is restored
+  // Combined effect for network and app state monitoring
   useEffect(() => {
     let networkSubscription: any = null;
     
+    // Network change handler
     const handleNetworkChange = async (state: NetInfoState) => {
       if (state.isConnected && isMounted.current && !isSyncInProgress.current) {
         console.log('[useHealthData] Network connection restored, processing pending metrics');
-
         await processPendingMetrics(async () => {
           const result = await syncHealthData();
           return Boolean(result);
@@ -353,30 +327,9 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       }
     };
     
-    // Subscribe to network state changes
-    const setupNetworkListeners = async () => {
-      try {
-        networkSubscription = NetInfo.addEventListener(handleNetworkChange);
-      } catch (error) {
-        console.warn('[useHealthData] Error setting up network listeners:', error);
-      }
-    };
-    
-    setupNetworkListeners();
-    
-    // Clean up subscription on unmount
-    return () => {
-      if (networkSubscription) {
-        networkSubscription();
-      }
-    };
-  }, [syncHealthData]);
-  
-  // Monitor app state to trigger resyncs when app returns to foreground
-  useEffect(() => {
+    // App state change handler
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active' && isMounted.current && !isSyncInProgress.current) {
-        // Check if it's been long enough since last sync before triggering a new one
         const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
         if (timeSinceLastSync > MIN_SYNC_INTERVAL * 2) {
           console.log('[useHealthData] App returned to foreground, triggering sync');
@@ -385,12 +338,42 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       }
     };
     
-    // Subscribe to app state changes
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    // Set up listeners
+    const setupListeners = async () => {
+      try {
+        networkSubscription = NetInfo.addEventListener(handleNetworkChange);
+        const appSubscription = AppState.addEventListener('change', handleAppStateChange);
+        
+        return () => {
+          if (networkSubscription) networkSubscription();
+          appSubscription.remove();
+        };
+      } catch (error) {
+        console.warn('[useHealthData] Error setting up listeners:', error);
+      }
+    };
     
-    // Clean up subscription on unmount
+    // Setup listeners and handle async cleanup properly
+    let cleanupFn: (() => void) | undefined;
+    
+    setupListeners().then(result => {
+      if (result && typeof result === 'function') {
+        cleanupFn = result;
+      }
+    }).catch(err => {
+      console.warn('[useHealthData] Error in listener setup:', err);
+    });
+    
+    // Return a synchronous cleanup function
     return () => {
-      subscription.remove();
+      if (cleanupFn && typeof cleanupFn === 'function') {
+        cleanupFn();
+      }
+      
+      // Ensure we clean up even if the async setup hasn't completed
+      if (networkSubscription) {
+        networkSubscription();
+      }
     };
   }, [syncHealthData]);
 

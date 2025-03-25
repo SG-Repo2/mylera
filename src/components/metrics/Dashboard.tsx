@@ -270,7 +270,9 @@ export const Dashboard = React.memo(function Dashboard({
       >
         {dailyTotal && (
           <Animated.View style={[styles.headerWrapper, headerAnimations]}>
-            <Header dailyTotal={dailyTotal} />
+            <View style={{ overflow: 'hidden', borderRadius: theme.roundness * 1.5 }}>
+              <Header dailyTotal={dailyTotal} />
+            </View>
           </Animated.View>
         )}
 

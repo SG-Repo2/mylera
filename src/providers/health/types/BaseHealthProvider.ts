@@ -316,19 +316,45 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * Must be implemented by platform-specific providers.
    * @returns Aggregated health metrics
    */
-  abstract getMetrics(): Promise<HealthMetrics>;
+  async getMetrics(): Promise<HealthMetrics> {
+    // Ensure provider is initialized before fetching metrics
+    await this.ensureInitialized();
+    
+    // Ensure permissions are initialized
+    await this.ensurePermissionsInitialized();
+    
+    // Now fetch the metrics
+    return this.fetchMetrics();
+  }
+
+  /**
+   * Internal method to fetch metrics - must be implemented by platform-specific providers.
+   * This is called after ensuring proper initialization.
+   * @returns Aggregated health metrics
+   */
+  protected abstract fetchMetrics(): Promise<HealthMetrics>;
 
   /**
    * Ensure the provider is initialized before operations.
+   * This method should be called before any operation that requires initialization.
+   * It will attempt to initialize the provider if not already initialized.
    */
   protected async ensureInitialized(): Promise<void> {
     if (!this.initialized) {
-      console.warn('[BaseHealthProvider] Provider accessed before initialization, forcing initialize');
+      logger.warn(LogCategory.Health, '[BaseHealthProvider] Provider accessed before initialization, forcing initialize');
       try {
-        await this.initialize();
-        this.initialized = true;
+        // Use safeInitialize with a temporary user ID if no user ID is available
+        // This ensures both provider and permissions are properly initialized
+        await this.safeInitialize('temp-user-id');
+        
+        // Verify initialization was successful
+        if (!this.initialized) {
+          throw new Error('Provider initialization completed but initialized flag not set');
+        }
+        
+        logger.info(LogCategory.Health, '[BaseHealthProvider] Provider successfully initialized');
       } catch (error) {
-        console.error('[BaseHealthProvider] Forced initialization failed:', error);
+        logger.error(LogCategory.Health, '[BaseHealthProvider] Forced initialization failed:', error instanceof Error ? error.message : String(error));
         throw new Error('Health provider must be initialized before use');
       }
     }
