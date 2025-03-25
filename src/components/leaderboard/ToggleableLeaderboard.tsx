@@ -21,6 +21,10 @@ export function ToggleableLeaderboard() {
   const appStateRef = useRef(AppState.currentState);
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [cachedData, setCachedData] = useState<{
+    daily: LeaderboardEntryType[];
+    weekly: LeaderboardEntryType[];
+  }>({ daily: [], weekly: [] });
 
   const loadData = useCallback(async (showLoading = true) => {
     if (!user || !isMountedRef.current) {
@@ -28,40 +32,39 @@ export function ToggleableLeaderboard() {
       return;
     }
     
-    // Cancel any in-progress requests
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     
-    // Create a new abort controller for this request
+    // Use cached data if available
+    if (cachedData[timeframe].length > 0) {
+      setLeaderboardData(cachedData[timeframe]);
+      if (showLoading && isMountedRef.current) setLoading(false);
+    } else if (showLoading && isMountedRef.current) {
+      setLoading(true);
+    }
+    
+    if (isMountedRef.current) setError(null);
+    
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
     
-    if (showLoading && isMountedRef.current) setLoading(true);
-    if (isMountedRef.current) setError(null);
-    
     try {
       const today = DateUtils.getLocalDateString();
-      console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
       
       const data = timeframe === 'daily' 
         ? await leaderboardService.getDailyLeaderboard(today)
         : await leaderboardService.getWeeklyLeaderboard(today);
         
-      // Check if component is still mounted before updating state
       if (!isMountedRef.current) return;
       
-      // Add detailed logging of point values
-      console.log('Fetched leaderboard data:', data.map(entry => ({
-        id: entry.user_id.slice(0, 8),
-        name: entry.display_name,
-        points: entry.total_points,
-        rank: entry.rank
-      })));
-      
       setLeaderboardData(data);
+      setCachedData(prev => ({
+        ...prev,
+        [timeframe]: data
+      }));
     } catch (err) {
-      // Don't update state if the request was aborted or component unmounted
+      // ...existing error handling...
       if (!isMountedRef.current) return;
       
       // Don't treat aborted requests as errors
@@ -84,10 +87,9 @@ export function ToggleableLeaderboard() {
         setError(new Error('Failed to load leaderboard'));
       }
     } finally {
-      // Only update loading state if component is still mounted
       if (showLoading && isMountedRef.current) setLoading(false);
     }
-  }, [user, timeframe]);
+  }, [user, timeframe, cachedData]);
 
   const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
     if (
@@ -176,7 +178,16 @@ export function ToggleableLeaderboard() {
       <View style={styles.toggleContainer}>
         <SegmentedButtons
           value={timeframe}
-          onValueChange={(value) => setTimeframe(value as LeaderboardTimeframe)}
+          onValueChange={(value) => {
+            const newTimeframe = value as LeaderboardTimeframe;
+            setTimeframe(newTimeframe);
+            // Load data only if cache is empty
+            if (cachedData[newTimeframe].length === 0) {
+              loadData(true);
+            } else {
+              setLeaderboardData(cachedData[newTimeframe]);
+            }
+          }}
           buttons={[
             { value: 'daily', label: 'Daily' },
             { value: 'weekly', label: 'Weekly' }
