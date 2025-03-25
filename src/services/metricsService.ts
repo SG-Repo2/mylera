@@ -5,6 +5,10 @@ import { calculatePoints, isValidMetricValue, calculateHealthScore } from '../ut
 import {logger, LogCategory} from '@/src/utils/logger'
 import { DateUtils } from '../utils/DateUtils';
 
+// Cache for user measurement system preferences
+const measurementSystemCache = new Map<string, string>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // Error class for authentication/authorization errors
 class MetricsAuthError extends Error {
   constructor(message: string) {
@@ -249,7 +253,13 @@ export const metricsService = {
    * @returns The user's measurement system (metric or imperial)
    */
   async getUserMeasurementSystem(userId: string) {
-    // Get user's measurement system preference
+    // Check cache first
+    const cached = measurementSystemCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+    
+    // If not cached, fetch from database
     const { data: userProfile, error: profileError } = await supabase
       .from('user_profiles')
       .select('measurement_system')
@@ -261,7 +271,27 @@ export const metricsService = {
     }
     
     // Default to metric if not specified
-    return userProfile?.measurement_system || 'metric';
+    const system = userProfile?.measurement_system || 'metric';
+    
+    // Cache the result
+    measurementSystemCache.set(userId, system);
+    
+    return system;
+  },
+
+  /**
+   * Helper method to handle verification and preparation for metric updates
+   * @param userId - The user's ID
+   * @returns Object containing measurement system
+   */
+  async prepareMetricUpdate(userId: string) {
+    // Verify authentication
+    await this.verifyUserAuthentication(userId);
+    
+    // Get user's measurement system preference
+    const measurementSystem = await this.getUserMeasurementSystem(userId);
+    
+    return { measurementSystem };
   },
 
   /**
@@ -450,11 +480,8 @@ export const metricsService = {
         timestamp: options.timestamp || new Date().toISOString()
       });
 
-      // Verify authentication
-      await this.verifyUserAuthentication(userId);
-      
-      // Get user's measurement system preference
-      const measurementSystem = await this.getUserMeasurementSystem(userId);
+      // Prepare for metric update
+      const { measurementSystem } = await this.prepareMetricUpdate(userId);
       
       // Update the metric
       const metricResult = await this.prepareAndUpdateMetric(
@@ -518,66 +545,36 @@ export const metricsService = {
         );
       }
       
-      // Verify auth once for all metrics
-      await this.verifyUserAuthentication(userId);
+      // Prepare once for all metrics
+      const { measurementSystem } = await this.prepareMetricUpdate(userId);
       
-      // Get user's measurement system once for all metrics
-      const measurementSystem = await this.getUserMeasurementSystem(userId);
+      // Build a batch of updates for a single transaction
+      const updates = validMetrics.map(({ type, value }) => ({
+        user_id: userId,
+        date: DateUtils.getLocalDateString(),
+        metric_type: type,
+        value,
+        goal: healthMetrics[type].defaultGoal,
+        updated_at: new Date().toISOString(),
+        is_test_data: false
+      }));
       
-      // Process all metrics in parallel using Promise.all
-      const results: Record<string, any> = {};
-      const failedMetrics: string[] = [];
-      
-      // Prepare all metric updates
-      const updatePromises = validMetrics.map(async ({ type, value }) => {
-        try {
-          // Implementation for individual metric updates
-          const metricResult = await this.prepareAndUpdateMetric(
-            userId, type, value, measurementSystem
-          );
-          return { type, success: true, data: metricResult };
-        } catch (error) {
-          return { type, success: false, error };
-        }
-      });
-      
-      // Run all updates in parallel
-      const updateResults = await Promise.all(updatePromises);
-      
-      // Process results
-      for (const result of updateResults) {
-        if (result.success) {
-          results[result.type] = result.data;
-        } else {
-          failedMetrics.push(result.type);
-          logger.error(
-            LogCategory.Metrics, 
-            `Failed to update metric ${result.type}`, 
-            (result.error as Error).message
-          );
-        }
-      }
-      
-      // Update daily totals with a single query if any metrics were successfully updated
-      const today = DateUtils.getLocalDateString();
-      
-      if (Object.keys(results).length > 0) {
-        const dailyTotal = await this.updateDailyTotals(userId, today);
-        
-        // Add the daily total to all successful results
-        Object.keys(results).forEach(key => {
-          results[key] = {
-            metric: results[key],
-            dailyTotal
-          };
+      // Use the RPC function to process updates in a single transaction
+      if (updates.length > 0) {
+        await supabase.rpc('update_metrics_transaction', { 
+          updates: JSON.stringify(updates) 
         });
       }
       
+      // Then update daily totals once
+      const today = DateUtils.getLocalDateString();
+      const dailyTotal = await this.updateDailyTotals(userId, today);
+      
+      // Build result object
       return {
-        success: failedMetrics.length === 0,
-        updatedMetrics: Object.keys(results),
-        failedMetrics,
-        results
+        success: true,
+        updatedMetrics: validMetrics.map(m => m.type),
+        dailyTotal
       };
     } catch (error) {
       if (error instanceof MetricsAuthError || 

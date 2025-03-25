@@ -83,32 +83,31 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
   }
 
   async initialize(): Promise<void> {
-    console.log('[GoogleHealthProvider] Initialize called. Current state:', {
-      initialized: this.initialized,
-      initializationInProgress: !!this.initializationPromise
-    });
+    logger.info(LogCategory.Health, '[GoogleHealthProvider] Initialize called. Current state:', 
+      `initialized: ${this.initialized}, initializationInProgress: ${!!this.initializationPromise}`
+    );
 
     if (this.initialized) {
-      console.log('[GoogleHealthProvider] Already initialized');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Already initialized');
       return;
     }
 
     // If initialization is already in progress, wait for it
     if (this.initializationPromise) {
-      console.log('[GoogleHealthProvider] Waiting for existing initialization...');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Waiting for existing initialization...');
       await this.initializationPromise;
       return;
     }
 
     // Start new initialization
-    console.log('[GoogleHealthProvider] Starting new initialization');
+    logger.info(LogCategory.Health, '[GoogleHealthProvider] Starting new initialization');
     this.initializationPromise = performInitialization();
     try {
       await this.initializationPromise;
       this.initialized = true;
-      console.log('[GoogleHealthProvider] Initialization completed successfully');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Initialization completed successfully');
     } catch (error) {
-      console.error('[GoogleHealthProvider] Initialization failed:', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Initialization failed:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     } finally {
       this.initializationPromise = null;
@@ -116,18 +115,23 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
   }
 
   async initializeWithPermissions(userId: string): Promise<void> {
+    if (!userId || userId.trim() === '') {
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID');
+      throw new Error('Valid user ID is required for initialization');
+    }
+
     try {
       // First ensure provider is initialized 
       await this.initialize();
       
-      // Then initialize the permission manager
+      // Then initialize the permission manager with the validated userId
       await this.initializePermissions(userId);
       
-      console.log('[GoogleHealthProvider] Provider and permission manager initialized successfully');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Provider and permission manager initialized successfully');
       
       // Don't verify permissions here - wait for explicit permission request
     } catch (error) {
-      console.error('[GoogleHealthProvider] Failed to initialize with permissions:', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Failed to initialize with permissions:', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   }
@@ -137,24 +141,33 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
    * This method ensures both components are properly initialized with the correct user ID.
    */
   async safeInitialize(userId: string): Promise<PermissionStatus> {
-    if (!userId || userId === 'temp-user-id') {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID:', userId);
+    if (!userId || userId.trim() === '') {
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID');
       throw new Error('Valid user ID is required for initialization');
     }
 
     logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization starting for user: ${userId}`);
 
     try {
-      // First initialize the provider itself
+      // First check if permissions are already granted
+      const hasPermissions = await this.verifyPermissions();
+      
+      // Initialize the provider itself
       await this.initialize();
       
-      // Then ensure permission manager is initialized with the correct user ID
+      // Initialize permission manager with the correct user ID
       if (!this.permissionManager) {
         logger.info(LogCategory.Health, `[GoogleHealthProvider] Initializing permission manager for user: ${userId}`);
         await this.initializePermissions(userId);
       }
       
-      // Check current permission state
+      // If permissions are already granted, return granted status
+      if (hasPermissions) {
+        logger.info(LogCategory.Health, '[GoogleHealthProvider] Permissions already granted, skipping permission request');
+        return 'granted';
+      }
+      
+      // Otherwise check current permission state
       const permissionState = await this.checkPermissionsStatus();
       const status = typeof permissionState === 'string' ? permissionState : permissionState.status;
       
@@ -169,31 +182,47 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     }
   }
 
-  protected async ensurePermissionsInitialized(): Promise<void> {
+  protected async ensurePermissionsInitialized(userId?: string): Promise<void> {
+    // If no userId provided, try to get it from the permission manager
+    const effectiveUserId = userId || this.permissionManager?.getUserId();
+    
+    if (!effectiveUserId || effectiveUserId.trim() === '') {
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided');
+      throw new Error('Valid user ID is required for permission manager initialization');
+    }
+
     if (!this.permissionManager) {
-      console.log('[GoogleHealthProvider] Initializing permission manager...');
-      const tempId = 'temp-' + Date.now();
-      await this.initializePermissions(tempId);
+      logger.info(LogCategory.Health, `[GoogleHealthProvider] Initializing permission manager for user: ${effectiveUserId}`);
+      await this.initializePermissions(effectiveUserId);
     }
   }
 
   async checkPermissionsStatus(): Promise<PermissionState> {
     try {
-      await this.ensurePermissionsInitialized();
-      
-      if (!this.permissionManager) {
-        throw new Error('Permission manager initialization failed');
-      }
-
-      // Verify permissions are granted
+      // First verify permissions directly without requiring permission manager
       const hasPermissions = await this.verifyPermissions();
+      
+      // If we have permissions, ensure the permission manager is initialized
+      if (hasPermissions) {
+        const currentUserId = this.permissionManager?.getUserId();
+        if (!currentUserId) {
+          logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permission manager not initialized but permissions are granted');
+          return {
+            status: 'granted',
+            lastChecked: Date.now()
+          };
+        }
+        
+        // Pass the current user ID to ensure proper initialization
+        await this.ensurePermissionsInitialized(currentUserId);
+      }
       
       return {
         status: hasPermissions ? 'granted' : 'not_determined',
         lastChecked: Date.now()
       };
     } catch (error) {
-      console.warn('[GoogleHealthProvider] Permission check failed:', error);
+      logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permission check failed:', error instanceof Error ? error.message : 'Unknown error');
       return {
         status: 'not_determined',
         lastChecked: Date.now()
@@ -203,13 +232,20 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
 
   async requestPermissions(): Promise<PermissionStatus> {
     try {
-      await this.ensurePermissionsInitialized();
+      // Get the current user ID from the permission manager if it exists
+      const currentUserId = this.permissionManager?.getUserId();
+      if (!currentUserId) {
+        logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot request permissions: no user ID available');
+        throw new Error('Valid user ID is required for permission request');
+      }
+
+      await this.ensurePermissionsInitialized(currentUserId);
       
       if (!this.permissionManager) {
         throw new Error('Cannot request permissions - permission manager not initialized');
       }
 
-      console.log('[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
+      logger.info(LogCategory.Health, '[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
       
       // Request permissions using Health Connect
       const result = await this.verifyPermissions();
@@ -221,7 +257,7 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
 
       return result ? 'granted' : 'denied';
     } catch (error) {
-      console.error('[GoogleHealthProvider] Error requesting permissions:', error);
+      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error requesting permissions:', error instanceof Error ? error.message : 'Unknown error');
       return 'denied';
     }
   }
@@ -351,19 +387,17 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
   ): Promise<RawHealthData> {
     // Check if permission manager is initialized
     if (!this.permissionManager) {
-      logger.warn(
+      logger.error(
         LogCategory.Health,
-        '[GoogleHealthProvider] Permission manager is null during fetchRawMetrics, attempting to initialize',
+        '[GoogleHealthProvider] Permission manager is null during fetchRawMetrics'
       );
-      
-      // Use a temporary user ID since we can't access the current one
-      await this.initializePermissions('temp-user-id');
+      throw new Error('Permission manager not initialized');
     }
 
     // Check permissions before fetching
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
-      console.log('[GoogleHealthProvider] Permissions not granted, cannot fetch health data');
+      logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permissions not granted, cannot fetch health data');
       throw new HealthProviderPermissionError(
         'HealthConnect',
         'Permission not granted for health data access'

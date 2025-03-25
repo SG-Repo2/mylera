@@ -7,6 +7,7 @@ import type { MetricType } from '../types/schemas';
 import { isValidMetricValue } from '../utils/healthMetricUtils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { debounce } from 'lodash';
+import { logger, LogCategory } from '../utils/logger';
 
 /**
  * Creates a debounced sync function that waits for a specified delay before executing
@@ -173,6 +174,17 @@ const setCachedMetrics = async (metrics: any) => {
  * ```
  */
 export const useHealthSync = (provider: HealthProvider, userId: string) => {
+  // Add early validation of userId
+  if (!userId || userId.trim() === '') {
+    logger.error(LogCategory.Health, '[useHealthSync] Invalid userId provided to useHealthSync');
+    return {
+      loading: false,
+      error: new Error('Invalid user ID provided'),
+      syncHealthData: async () => false,
+      isInitialized: false
+    };
+  }
+
   // Use reducer instead of multiple useState calls to batch updates
   const [state, dispatch] = useReducer(healthDataReducer, initialState);
   const { loading, error, isInitialized } = state;
@@ -225,9 +237,9 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
   };
 
   const syncHealthData = useCallback(async (force = false) => {
-    // Add early return if no userId
-    if (!userId) {
-      console.log('[useHealthData] No userId provided, skipping sync');
+    // Add early return if no userId or invalid userId
+    if (!userId || userId.trim() === '') {
+      logger.warn(LogCategory.Health, '[useHealthSync] No valid userId provided, skipping sync');
       dispatch({ type: 'SYNC_SUCCESS' });
       return false;
     }
@@ -235,13 +247,13 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     // Check if there's a recent sync in progress and return the cached promise if so
     if (activeSyncRef.current.promise && 
         Date.now() - activeSyncRef.current.timestamp < MIN_SYNC_INTERVAL) {
-      console.log('[useHealthData] Recent sync in progress, returning cached promise');
+      logger.debug(LogCategory.Health, '[useHealthSync] Recent sync in progress, returning cached promise');
       return activeSyncRef.current.promise;
     }
 
     // Prevent concurrent syncs and handle unmounting
     if (!isMounted.current || isSyncInProgress.current) {
-      console.log('[useHealthData] Sync skipped - not mounted or sync in progress');
+      logger.debug(LogCategory.Health, '[useHealthSync] Sync skipped - not mounted or sync in progress');
       return false;
     }
 
@@ -288,11 +300,22 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       } catch (error) {
         if (!isMounted.current) return false;
         
-        console.error('[useHealthData] Sync error:', error);
-        dispatch({ 
-          type: 'SYNC_ERROR',
-          error: error instanceof Error ? error : new Error('Sync failed')
-        });
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logger.error(LogCategory.Health, '[useHealthSync] Sync error:', errorMessage);
+        
+        // Handle specific error cases
+        if (errorMessage.includes('must be initialized') || 
+            errorMessage.includes('user ID is not valid')) {
+          dispatch({ 
+            type: 'SYNC_ERROR',
+            error: new Error('Health sync unavailable: no valid user ID')
+          });
+        } else {
+          dispatch({ 
+            type: 'SYNC_ERROR',
+            error: error instanceof Error ? error : new Error('Sync failed')
+          });
+        }
         return false;
       } finally {
         if (isMounted.current) {
@@ -318,8 +341,8 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     
     // Network change handler
     const handleNetworkChange = async (state: NetInfoState) => {
-      if (state.isConnected && isMounted.current && !isSyncInProgress.current) {
-        console.log('[useHealthData] Network connection restored, processing pending metrics');
+      if (state.isConnected && isMounted.current && !isSyncInProgress.current && userId?.trim()) {
+        logger.info(LogCategory.Health, '[useHealthSync] Network connection restored, processing pending metrics');
         await processPendingMetrics(async () => {
           const result = await syncHealthData();
           return Boolean(result);
@@ -329,10 +352,10 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
     
     // App state change handler
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active' && isMounted.current && !isSyncInProgress.current) {
+      if (nextAppState === 'active' && isMounted.current && !isSyncInProgress.current && userId?.trim()) {
         const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
         if (timeSinceLastSync > MIN_SYNC_INTERVAL * 2) {
-          console.log('[useHealthData] App returned to foreground, triggering sync');
+          logger.info(LogCategory.Health, '[useHealthSync] App returned to foreground, triggering sync');
           syncHealthData();
         }
       }
@@ -349,7 +372,7 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
           appSubscription.remove();
         };
       } catch (error) {
-        console.warn('[useHealthData] Error setting up listeners:', error);
+        logger.warn(LogCategory.Health, '[useHealthSync] Error setting up listeners:', error instanceof Error ? error.message : 'Unknown error');
       }
     };
     
@@ -361,7 +384,7 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
         cleanupFn = result;
       }
     }).catch(err => {
-      console.warn('[useHealthData] Error in listener setup:', err);
+      logger.warn(LogCategory.Health, '[useHealthSync] Error in listener setup:', err instanceof Error ? err.message : 'Unknown error');
     });
     
     // Return a synchronous cleanup function
@@ -375,15 +398,15 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
         networkSubscription();
       }
     };
-  }, [syncHealthData]);
+  }, [syncHealthData, userId]);
 
   // Sync on mount and cleanup on unmount
   useEffect(() => {
     isMounted.current = true;
     isSyncInProgress.current = false;
     
-    if (!userId) {
-      console.warn('useHealthData: No userId available - skipping sync');
+    if (!userId || userId.trim() === '') {
+      logger.warn(LogCategory.Health, '[useHealthSync] No valid userId available - skipping sync');
       dispatch({ type: 'SYNC_SUCCESS' }); // Set loading to false and mark as initialized
       return;
     }
@@ -412,7 +435,7 @@ export const useHealthSync = (provider: HealthProvider, userId: string) => {
       const SAFETY_TIMEOUT = 15000; // Reduce to 15 seconds
       const timer = setTimeout(() => {
         if (isMounted.current && loading) {
-          console.warn('[useHealthData] Health data sync taking longer than expected');
+          logger.warn(LogCategory.Health, '[useHealthSync] Health data sync taking longer than expected');
           
           // Force sync to complete if stuck
           dispatch({ type: 'SYNC_SUCCESS' });

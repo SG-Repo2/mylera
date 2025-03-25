@@ -131,27 +131,33 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * 
    * @param userId - The unique identifier of the user
    * @returns The current permission status after initialization
+   * @throws Error if userId is invalid or missing
    */
   async safeInitialize(userId: string): Promise<PermissionStatus> {
+    if (!userId || userId.trim() === '') {
+      logger.warn(LogCategory.Health, '[BaseHealthProvider] No valid user ID provided, skipping initialization');
+      return 'not_determined';
+    }
+
     try {
       // Check if provider is already initialized
       if (!this.initialized) {
-        console.log(`[BaseHealthProvider] Provider not initialized, initializing...`);
+        logger.info(LogCategory.Health, `[BaseHealthProvider] Provider not initialized, initializing for user ${userId}...`);
         await this.initialize();
       } else {
-        console.log(`[BaseHealthProvider] Provider already initialized, skipping initialization step`);
+        logger.info(LogCategory.Health, `[BaseHealthProvider] Provider already initialized, skipping initialization step`);
       }
 
       // Check if permission manager is initialized
       if (!this.permissionManager) {
-        console.log(`[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`);
+        logger.info(LogCategory.Health, `[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`);
         await this.initializePermissions(userId);
       } else {
-        console.log(`[BaseHealthProvider] Permission manager already initialized, skipping initialization step`);
+        logger.info(LogCategory.Health, `[BaseHealthProvider] Permission manager already initialized, skipping initialization step`);
       }
 
       // Check permission status with timeout protection
-      console.log(`[BaseHealthProvider] Checking permission status with timeout protection...`);
+      logger.info(LogCategory.Health, `[BaseHealthProvider] Checking permission status with timeout protection...`);
       const permissionState = await Promise.race([
         this.checkPermissionsStatus(),
         new Promise<PermissionStatus>((_, reject) =>
@@ -166,15 +172,14 @@ export abstract class BaseHealthProvider implements HealthProvider {
       } else if (typeof permissionState === 'object' && permissionState !== null && 'status' in permissionState) {
         status = permissionState.status as PermissionStatus;
       } else {
-        console.warn(`[BaseHealthProvider] Unexpected permission state format:`, permissionState);
+        logger.warn(LogCategory.Health, `[BaseHealthProvider] Unexpected permission state format:`, permissionState);
         status = 'not_determined';
       }
 
-      console.log(`[BaseHealthProvider] Safe initialization completed with status: ${status}`);
+      logger.info(LogCategory.Health, `[BaseHealthProvider] Safe initialization completed with status: ${status}`);
       return status;
     } catch (error) {
-      console.error(`[BaseHealthProvider] Safe initialization error:`, error);
-      // Return not_determined on error to allow graceful degradation
+      logger.error(LogCategory.Health, `[BaseHealthProvider] Safe initialization error:`, error instanceof Error ? error.message : 'Unknown error');
       return 'not_determined';
     }
   }
@@ -338,14 +343,20 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * Ensure the provider is initialized before operations.
    * This method should be called before any operation that requires initialization.
    * It will attempt to initialize the provider if not already initialized.
+   * 
+   * @param userId - The unique identifier of the user
+   * @throws Error if userId is invalid or missing
    */
-  protected async ensureInitialized(): Promise<void> {
+  protected async ensureInitialized(userId?: string): Promise<void> {
     if (!this.initialized) {
+      if (!userId || userId.trim() === '') {
+        logger.warn(LogCategory.Health, '[BaseHealthProvider] Cannot initialize health provider: user ID is not valid or not provided');
+        throw new Error('Cannot initialize health provider: user ID is not valid or not provided');
+      }
+      
       logger.warn(LogCategory.Health, '[BaseHealthProvider] Provider accessed before initialization, forcing initialize');
       try {
-        // Use safeInitialize with a temporary user ID if no user ID is available
-        // This ensures both provider and permissions are properly initialized
-        await this.safeInitialize('temp-user-id');
+        await this.safeInitialize(userId);
         
         // Verify initialization was successful
         if (!this.initialized) {
@@ -759,31 +770,23 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
   /**
    * Ensure the permission manager is initialized
-   * Creates a permission manager with default user ID if not already initialized
+   * Creates a permission manager with the provided user ID if not already initialized
+   * 
+   * @param userId - The unique identifier of the user
+   * @throws Error if userId is invalid or missing
    */
-  protected async ensurePermissionsInitialized(): Promise<void> {
+  protected async ensurePermissionsInitialized(userId?: string): Promise<void> {
+    if (!userId || userId.trim() === '') {
+      logger.warn(LogCategory.Health, '[BaseHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided');
+      throw new Error('Cannot initialize permission manager: user ID is not valid or not provided');
+    }
+    
+    logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing permissions with user ID: ${userId}`);
+    await this.initializePermissions(userId);
+    
     if (!this.permissionManager) {
-      // Try to get a user ID from stored data or use a temporary one
-      let userId = 'temp-user-id';
-      
-      try {
-        // Initialize permissions with a temporary or default user ID
-        logger.info(LogCategory.Health, 
-          `[${this.constructor.name}] Initializing permissions with default user ID: ${userId}`
-        );
-        await this.initializePermissions(userId);
-        
-        // If still not initialized, log a clear error
-        if (!this.permissionManager) {
-          logger.error(LogCategory.Health, 
-            `[${this.constructor.name}] Failed to initialize permission manager with default user ID`
-          );
-        }
-      } catch (error) {
-        logger.error(LogCategory.Health, 
-          `[${this.constructor.name}] Error initializing permissions: ${(error as Error).message}`
-        );
-      }
+      logger.error(LogCategory.Health, '[BaseHealthProvider] Failed to initialize permission manager');
+      throw new Error('Failed to initialize permission manager');
     }
   }
 

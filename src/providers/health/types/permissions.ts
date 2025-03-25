@@ -69,6 +69,10 @@ export class PermissionManager {
     this.userId = userId;
   }
 
+  getUserId(): string {
+    return this.userId;
+  }
+
   async getPermissionState(): Promise<PermissionState | null> {
     return getCachedPermissionState(this.userId);
   }
