@@ -26,62 +26,60 @@ export function LeaderboardEntry({
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
   
-  // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
   const pointsAnim = useRef(new Animated.Value(total_points)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const prevRankRef = useRef(rank);
   const prevPointsRef = useRef(total_points);
 
-  // Animate when rank or points change
-  useEffect(() => {
-    const animations = [];
-    
-    // Rank changed
-    if (prevRankRef.current !== rank) {
-      animations.push(
-        Animated.timing(rankAnim, {
-          toValue: rank,
-          duration: ANIMATION_DURATION,
+  // Memoize animations
+  const animations = React.useMemo(() => ({
+    rankAnimation: (prevRank: number, newRank: number) => 
+      Animated.timing(rankAnim, {
+        toValue: newRank,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: true,
+      }),
+    pointsAnimation: (prevPoints: number, newPoints: number) =>
+      Animated.timing(pointsAnim, {
+        toValue: newPoints,
+        duration: ANIMATION_DURATION,
+        useNativeDriver: true,
+      }),
+    scaleAnimation: () =>
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 1.05,
+          duration: ANIMATION_DURATION / 2,
           useNativeDriver: true,
-        })
-      );
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: ANIMATION_DURATION / 2,
+          useNativeDriver: true,
+        }),
+      ])
+  }), [rankAnim, pointsAnim, scaleAnim]);
+
+  // Optimized animation effect
+  useEffect(() => {
+    const animsToRun = [];
+    
+    if (prevRankRef.current !== rank) {
+      animsToRun.push(animations.rankAnimation(prevRankRef.current, rank));
       prevRankRef.current = rank;
     }
     
-    // Points changed
     if (prevPointsRef.current !== total_points) {
-      animations.push(
-        Animated.timing(pointsAnim, {
-          toValue: total_points,
-          duration: ANIMATION_DURATION,
-          useNativeDriver: true,
-        })
-      );
-      
-      // Add scale pulse animation
-      animations.push(
-        Animated.sequence([
-          Animated.timing(scaleAnim, {
-            toValue: 1.05,
-            duration: ANIMATION_DURATION / 2,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scaleAnim, {
-            toValue: 1,
-            duration: ANIMATION_DURATION / 2,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      
+      animsToRun.push(animations.pointsAnimation(prevPointsRef.current, total_points));
+      animsToRun.push(animations.scaleAnimation());
       prevPointsRef.current = total_points;
     }
     
-    if (animations.length > 0) {
-      Animated.parallel(animations).start();
+    if (animsToRun.length > 0) {
+      Animated.parallel(animsToRun).start();
     }
-  }, [rank, total_points, rankAnim, pointsAnim, scaleAnim]);
+  }, [rank, total_points, animations]);
 
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
