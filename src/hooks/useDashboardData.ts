@@ -50,7 +50,6 @@ export const useDashboardData = (
   ): HealthMetrics => {
     const now = new Date().toISOString();
     
-    // Create base metrics object
     const result: HealthMetrics = {
       id: `${userId}-${date}`,
       user_id: userId,
@@ -70,25 +69,16 @@ export const useDashboardData = (
       updated_at: now
     };
 
-    // Log incoming metrics for debugging
-    console.log('[useDashboardData] Processing metrics:', metrics);
-
-    // Process each metric
-    metrics.forEach(metric => {
+    return metrics.reduce((acc, metric) => {
       const metricType = metric.metric_type as MetricType;
-      if (metricType in result) {
-        // Ensure value is a number and valid
+      if (metricType in acc) {
         const value = typeof metric.value === 'number' ? metric.value : parseFloat(metric.value as string);
         if (!isNaN(value)) {
-          result[metricType] = value;
-          console.log(`[useDashboardData] Setting ${metricType}:`, value);
+          acc[metricType] = value;
         }
       }
-    });
-
-    // Log final transformed metrics
-    console.log('[useDashboardData] Transformed metrics:', result);
-    return result;
+      return acc;
+    }, result);
   }, []);
 
   /**
@@ -101,48 +91,48 @@ export const useDashboardData = (
     if (isMountedRef.current) setIsRefreshing(true);
     
     try {
-      console.log('[useDashboardData] Starting metrics fetch for:', { userId, date });
-      
-      // First get the health data from provider
-      const providerMetrics = await provider.getMetrics();
-      
-      // Extract only the metric values for updating
-      if (providerMetrics) {
-        const metricValues: Partial<Record<MetricType, number>> = {
-          steps: providerMetrics.steps || undefined,
-          distance: providerMetrics.distance || undefined,
-          calories: providerMetrics.calories || undefined,
-          heart_rate: providerMetrics.heart_rate || undefined,
-          exercise: providerMetrics.exercise || undefined,
-          basal_calories: providerMetrics.basal_calories || undefined,
-          flights_climbed: providerMetrics.flights_climbed || undefined
-        };
-
-        // Filter out null values
-        const validMetrics = Object.fromEntries(
-          Object.entries(metricValues).filter(([_, value]) => value !== null)
-        ) as Partial<Record<MetricType, number>>;
-
-        // Only update if we have valid metrics
-        if (Object.keys(validMetrics).length > 0) {
-          await metricsService.updateMetrics(userId, validMetrics);
-        }
-
-        console.log('[useDashboardData] Fetched metrics:', {
-          validMetricCount: Object.keys(validMetrics).length
-        });
-      }
-
-      // Then fetch the saved metrics and totals
-      const [totals, metricScores, rank] = await Promise.all([
-        metricsService.getDailyTotals(date),
+      // Run all requests in parallel
+      const [providerMetrics, 
+             dailyMetricsPromise, 
+             dailyTotalsPromise, 
+             userRankPromise] = await Promise.all([
+        provider.getMetrics(),
         metricsService.getDailyMetrics(userId, date),
+        metricsService.getDailyTotals(date),
         leaderboardService.getUserRank(userId, date)
+      ]);
+      
+      // Process provider metrics update in parallel
+      const updatePromise = (async () => {
+        if (providerMetrics) {
+          const metricValues = Object.entries({
+            steps: providerMetrics.steps,
+            distance: providerMetrics.distance,
+            calories: providerMetrics.calories,
+            heart_rate: providerMetrics.heart_rate,
+            exercise: providerMetrics.exercise,
+            basal_calories: providerMetrics.basal_calories,
+            flights_climbed: providerMetrics.flights_climbed
+          })
+          .filter(([_, value]) => value != null)
+          .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {});
+
+          if (Object.keys(metricValues).length > 0) {
+            await metricsService.updateMetrics(userId, metricValues);
+          }
+        }
+      })();
+      
+      // Wait for all operations to complete
+      const [metricScores, totals, rank] = await Promise.all([
+        dailyMetricsPromise,
+        dailyTotalsPromise,
+        userRankPromise,
+        updatePromise
       ]);
 
       if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
 
-      // Create user total from metric scores
       const userTotal = {
         id: `${userId}-${date}`,
         user_id: userId,
@@ -165,6 +155,7 @@ export const useDashboardData = (
       setUserRank(rank);
       setFetchError(null);
       setIsDataLoaded(true);
+
     } catch (err) {
       if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
       
