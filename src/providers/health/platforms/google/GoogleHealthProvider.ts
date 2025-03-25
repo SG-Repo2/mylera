@@ -1,17 +1,13 @@
 import { Platform } from 'react-native';
-import {
-  initialize,
-  requestPermission,
-  readRecords,
-} from 'react-native-health-connect';
+import { initialize, requestPermission, readRecords } from 'react-native-health-connect';
 import { mapHealthProviderError } from '../../../../utils/errorUtils';
 import { BaseHealthProvider } from '../../types/BaseHealthProvider';
-import { 
-  HealthMetrics, 
-  RawHealthData, 
+import {
+  HealthMetrics,
+  RawHealthData,
   NormalizedMetric,
-  METRIC_UNITS, 
-  RawHealthMetric
+  METRIC_UNITS,
+  RawHealthMetric,
 } from '../../types/metrics';
 import { MetricType } from '../../../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
@@ -28,9 +24,8 @@ import {
   fetchHeartRateWithDailyAggregation,
   fetchBasalCaloriesWithDailyAggregation,
   fetchFloorsClimbedWithDailyAggregation,
-  fetchExerciseWithDailyAggregation
+  fetchExerciseWithDailyAggregation,
 } from './metricFetchers';
-
 
 export default class GoogleHealthProvider extends BaseHealthProvider {
   private initializationPromise: Promise<void> | null = null;
@@ -38,21 +33,30 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
 
   private async performInitialization(): Promise<void> {
     if (Platform.OS !== 'android') {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Attempted to initialize on non-Android platform');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Attempted to initialize on non-Android platform'
+      );
       throw new Error('GoogleHealthProvider can only be used on Android');
     }
 
     // Check Android version for Health Connect compatibility
     this.androidVersion = Platform.Version ? parseInt(Platform.Version.toString(), 10) : null;
-    logger.info(LogCategory.Health, `[GoogleHealthProvider] Android version: ${this.androidVersion}`);
-    
+    logger.info(
+      LogCategory.Health,
+      `[GoogleHealthProvider] Android version: ${this.androidVersion}`
+    );
+
     if (this.androidVersion !== null && this.androidVersion < 8) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Health Connect requires Android 8 or newer');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Health Connect requires Android 8 or newer'
+      );
       throw new Error('Health Connect requires Android 8 or newer');
     }
 
     logger.info(LogCategory.Health, '[GoogleHealthProvider] Starting initialization...');
-    
+
     try {
       // Use retry mechanism with exponential backoff
       const available = await this.retryOperation(
@@ -60,9 +64,13 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         3, // 3 retries
         1000 // 1 second initial delay
       );
-      
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Health Connect availability:', available ? 'available' : 'not available');
-      
+
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Health Connect availability:',
+        available ? 'available' : 'not available'
+      );
+
       if (!available) {
         logger.error(LogCategory.Health, '[GoogleHealthProvider] Health Connect is not available');
         throw new Error('Health Connect is not available');
@@ -71,7 +79,11 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
       this.initialized = true;
       logger.info(LogCategory.Health, '[GoogleHealthProvider] Initialization successful');
     } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Initialization failed:', (error as Error).message);
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Initialization failed:',
+        (error as Error).message
+      );
       // Wrap the error to ensure consistent messaging
       if (error instanceof Error) {
         if (error.message.includes('not available')) {
@@ -83,7 +95,9 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
   }
 
   async initialize(): Promise<void> {
-    logger.info(LogCategory.Health, '[GoogleHealthProvider] Initialize called. Current state:', 
+    logger.info(
+      LogCategory.Health,
+      '[GoogleHealthProvider] Initialize called. Current state:',
       `initialized: ${this.initialized}, initializationInProgress: ${!!this.initializationPromise}`
     );
 
@@ -94,7 +108,10 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
 
     // If initialization is already in progress, wait for it
     if (this.initializationPromise) {
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Waiting for existing initialization...');
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Waiting for existing initialization...'
+      );
       await this.initializationPromise;
       return;
     }
@@ -105,9 +122,16 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     try {
       await this.initializationPromise;
       this.initialized = true;
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Initialization completed successfully');
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Initialization completed successfully'
+      );
     } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Initialization failed:', error instanceof Error ? error.message : 'Unknown error');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Initialization failed:',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       throw error;
     } finally {
       this.initializationPromise = null;
@@ -116,22 +140,32 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
 
   async initializeWithPermissions(userId: string): Promise<void> {
     if (!userId || userId.trim() === '') {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Cannot initialize with invalid user ID'
+      );
       throw new Error('Valid user ID is required for initialization');
     }
 
     try {
-      // First ensure provider is initialized 
+      // First ensure provider is initialized
       await this.initialize();
-      
+
       // Then initialize the permission manager with the validated userId
       await this.initializePermissions(userId);
-      
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Provider and permission manager initialized successfully');
-      
+
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Provider and permission manager initialized successfully'
+      );
+
       // Don't verify permissions here - wait for explicit permission request
     } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Failed to initialize with permissions:', error instanceof Error ? error.message : 'Unknown error');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Failed to initialize with permissions:',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       throw error;
     }
   }
@@ -142,40 +176,55 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
    */
   async safeInitialize(userId: string): Promise<PermissionStatus> {
     if (!userId || userId.trim() === '') {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize with invalid user ID');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Cannot initialize with invalid user ID'
+      );
       throw new Error('Valid user ID is required for initialization');
     }
 
-    logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization starting for user: ${userId}`);
+    logger.info(
+      LogCategory.Health,
+      `[GoogleHealthProvider] Safe initialization starting for user: ${userId}`
+    );
 
     try {
       // First check if permissions are already granted
       const hasPermissions = await this.verifyPermissions();
-      
+
       // Initialize the provider itself
       await this.initialize();
-      
+
       // Initialize permission manager with the correct user ID
       if (!this.permissionManager) {
-        logger.info(LogCategory.Health, `[GoogleHealthProvider] Initializing permission manager for user: ${userId}`);
+        logger.info(
+          LogCategory.Health,
+          `[GoogleHealthProvider] Initializing permission manager for user: ${userId}`
+        );
         await this.initializePermissions(userId);
       }
-      
+
       // If permissions are already granted, return granted status
       if (hasPermissions) {
-        logger.info(LogCategory.Health, '[GoogleHealthProvider] Permissions already granted, skipping permission request');
+        logger.info(
+          LogCategory.Health,
+          '[GoogleHealthProvider] Permissions already granted, skipping permission request'
+        );
         return 'granted';
       }
-      
+
       // Otherwise check current permission state
       const permissionState = await this.checkPermissionsStatus();
       const status = typeof permissionState === 'string' ? permissionState : permissionState.status;
-      
-      logger.info(LogCategory.Health, `[GoogleHealthProvider] Safe initialization completed with permission status: ${status}`);
+
+      logger.info(
+        LogCategory.Health,
+        `[GoogleHealthProvider] Safe initialization completed with permission status: ${status}`
+      );
       return status as PermissionStatus;
     } catch (error) {
       logger.error(
-        LogCategory.Health, 
+        LogCategory.Health,
         `[GoogleHealthProvider] Safe initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
       throw error;
@@ -185,14 +234,20 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
   protected async ensurePermissionsInitialized(userId?: string): Promise<void> {
     // If no userId provided, try to get it from the permission manager
     const effectiveUserId = userId || this.permissionManager?.getUserId();
-    
+
     if (!effectiveUserId || effectiveUserId.trim() === '') {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided'
+      );
       throw new Error('Valid user ID is required for permission manager initialization');
     }
 
     if (!this.permissionManager) {
-      logger.info(LogCategory.Health, `[GoogleHealthProvider] Initializing permission manager for user: ${effectiveUserId}`);
+      logger.info(
+        LogCategory.Health,
+        `[GoogleHealthProvider] Initializing permission manager for user: ${effectiveUserId}`
+      );
       await this.initializePermissions(effectiveUserId);
     }
   }
@@ -201,31 +256,38 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     try {
       // First verify permissions directly without requiring permission manager
       const hasPermissions = await this.verifyPermissions();
-      
+
       // If we have permissions, ensure the permission manager is initialized
       if (hasPermissions) {
         const currentUserId = this.permissionManager?.getUserId();
         if (!currentUserId) {
-          logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permission manager not initialized but permissions are granted');
+          logger.warn(
+            LogCategory.Health,
+            '[GoogleHealthProvider] Permission manager not initialized but permissions are granted'
+          );
           return {
             status: 'granted',
-            lastChecked: Date.now()
+            lastChecked: Date.now(),
           };
         }
-        
+
         // Pass the current user ID to ensure proper initialization
         await this.ensurePermissionsInitialized(currentUserId);
       }
-      
+
       return {
         status: hasPermissions ? 'granted' : 'not_determined',
-        lastChecked: Date.now()
+        lastChecked: Date.now(),
       };
     } catch (error) {
-      logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permission check failed:', error instanceof Error ? error.message : 'Unknown error');
+      logger.warn(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Permission check failed:',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       return {
         status: 'not_determined',
-        lastChecked: Date.now()
+        lastChecked: Date.now(),
       };
     }
   }
@@ -235,29 +297,37 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
       // Get the current user ID from the permission manager if it exists
       const currentUserId = this.permissionManager?.getUserId();
       if (!currentUserId) {
-        logger.error(LogCategory.Health, '[GoogleHealthProvider] Cannot request permissions: no user ID available');
+        logger.error(
+          LogCategory.Health,
+          '[GoogleHealthProvider] Cannot request permissions: no user ID available'
+        );
         throw new Error('Valid user ID is required for permission request');
       }
 
       await this.ensurePermissionsInitialized(currentUserId);
-      
+
       if (!this.permissionManager) {
         throw new Error('Cannot request permissions - permission manager not initialized');
       }
 
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent');
-      
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Requesting Health Connect permissions - waiting for user consent'
+      );
+
       // Request permissions using Health Connect
       const result = await this.verifyPermissions();
-      
+
       // Update permission state in manager
-      await this.permissionManager.updatePermissionState(
-        result ? 'granted' : 'denied'
-      );
+      await this.permissionManager.updatePermissionState(result ? 'granted' : 'denied');
 
       return result ? 'granted' : 'denied';
     } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error requesting permissions:', error instanceof Error ? error.message : 'Unknown error');
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Error requesting permissions:',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       return 'denied';
     }
   }
@@ -280,7 +350,7 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         heartRate: false,
         floorsClimbed: false,
         basal: false,
-        exercise: false
+        exercise: false,
       };
 
       // Test each permission individually with proper error handling
@@ -331,7 +401,10 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         );
         permissionResults.basal = basalResult.length > 0;
       } catch (error) {
-        console.warn('[GoogleHealthProvider] BasalMetabolicRate permission verification failed:', error);
+        console.warn(
+          '[GoogleHealthProvider] BasalMetabolicRate permission verification failed:',
+          error
+        );
       }
 
       try {
@@ -351,7 +424,10 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
         );
         permissionResults.exercise = exerciseResult.length > 0;
       } catch (error) {
-        console.warn('[GoogleHealthProvider] ExerciseSession permission verification failed:', error);
+        console.warn(
+          '[GoogleHealthProvider] ExerciseSession permission verification failed:',
+          error
+        );
       }
 
       // Log the results for debugging
@@ -361,13 +437,13 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
       // This allows the app to function with partial permissions
       const grantedCount = Object.values(permissionResults).filter(Boolean).length;
       const hasMinimumPermissions = grantedCount >= 3;
-      
+
       if (hasMinimumPermissions) {
         console.log('[GoogleHealthProvider] Minimum required permissions granted');
       } else {
         console.warn('[GoogleHealthProvider] Insufficient permissions granted');
       }
-      
+
       return hasMinimumPermissions;
     } catch (error) {
       console.error('[GoogleHealthProvider] Permission verification failed:', error);
@@ -397,7 +473,10 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     // Check permissions before fetching
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
-      logger.warn(LogCategory.Health, '[GoogleHealthProvider] Permissions not granted, cannot fetch health data');
+      logger.warn(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Permissions not granted, cannot fetch health data'
+      );
       throw new HealthProviderPermissionError(
         'HealthConnect',
         'Permission not granted for health data access'
@@ -405,55 +484,82 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     }
 
     await this.ensureInitialized();
-    
+
     // For bar chart purposes, we need to ensure we're requesting whole days
     const normalizedStartDate = DateUtils.getStartOfDay(startDate);
     const normalizedEndDate = DateUtils.getEndOfDay(endDate);
 
     const rawData: RawHealthData = {};
 
-    logger.info(LogCategory.Health, '[GoogleHealthProvider] Fetching health data for time range:', undefined, undefined, {
-      start: normalizedStartDate.toISOString(),
-      end: normalizedEndDate.toISOString(),
-      types: types.join(', ')
-    });
+    logger.info(
+      LogCategory.Health,
+      '[GoogleHealthProvider] Fetching health data for time range:',
+      undefined,
+      undefined,
+      {
+        start: normalizedStartDate.toISOString(),
+        end: normalizedEndDate.toISOString(),
+        types: types.join(', '),
+      }
+    );
 
     await Promise.all(
-      types.map(async (type) => {
+      types.map(async type => {
         try {
           switch (type) {
             case 'steps':
-              rawData.steps = await fetchStepsWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.steps = await fetchStepsWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'distance':
-              rawData.distance = await fetchDistanceWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.distance = await fetchDistanceWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'calories':
-              rawData.calories = await fetchCaloriesWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.calories = await fetchCaloriesWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'heart_rate':
-              rawData.heart_rate = await fetchHeartRateWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.heart_rate = await fetchHeartRateWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'basal_calories':
-              rawData.basal_calories = await fetchBasalCaloriesWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.basal_calories = await fetchBasalCaloriesWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'flights_climbed':
-              rawData.flights_climbed = await fetchFloorsClimbedWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.flights_climbed = await fetchFloorsClimbedWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
 
             case 'exercise':
-              rawData.exercise = await fetchExerciseWithDailyAggregation(normalizedStartDate, normalizedEndDate);
+              rawData.exercise = await fetchExerciseWithDailyAggregation(
+                normalizedStartDate,
+                normalizedEndDate
+              );
               break;
           }
         } catch (error) {
           logger.error(
-            LogCategory.Health, 
-            `[GoogleHealthProvider] Error fetching ${type} metrics:`, 
+            LogCategory.Health,
+            `[GoogleHealthProvider] Error fetching ${type} metrics:`,
             error instanceof Error ? error.message : 'Unknown error'
           );
           // Create empty array instead of dummy data
@@ -479,19 +585,29 @@ export default class GoogleHealthProvider extends BaseHealthProvider {
     try {
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
-      logger.info(LogCategory.Health, '[GoogleHealthProvider] Fetching metrics for time window:', 
+
+      logger.info(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Fetching metrics for time window:',
         `start: ${startOfDay.toISOString()}, end: ${now.toISOString()}`
       );
-      
+
       // Use batched fetch for all metrics
-      return await this.batchFetchHealthMetrics(
-        startOfDay,
-        now,
-        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-      );
+      return await this.batchFetchHealthMetrics(startOfDay, now, [
+        'steps',
+        'distance',
+        'calories',
+        'heart_rate',
+        'basal_calories',
+        'flights_climbed',
+        'exercise',
+      ]);
     } catch (error) {
-      logger.error(LogCategory.Health, '[GoogleHealthProvider] Error fetching metrics:', error instanceof Error ? error.message : String(error));
+      logger.error(
+        LogCategory.Health,
+        '[GoogleHealthProvider] Error fetching metrics:',
+        error instanceof Error ? error.message : String(error)
+      );
       throw error;
     }
   }

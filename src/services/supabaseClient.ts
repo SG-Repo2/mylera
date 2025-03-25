@@ -33,8 +33,8 @@ const customFetch = async (url: RequestInfo | URL, options: RequestInit = {}) =>
     // Ensure headers object exists and include the apikey
     const headers = {
       ...options.headers,
-      'apikey': supabaseAnonKey,
-      'Authorization': `Bearer ${supabaseAnonKey}`
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${supabaseAnonKey}`,
     };
 
     const response = await fetch(url, {
@@ -61,8 +61,8 @@ const customFetch = async (url: RequestInfo | URL, options: RequestInit = {}) =>
 const customHeaders = {
   'X-Client-Info': 'react-native',
   'X-Custom-Fetch': 'react-native',
-  'apikey': supabaseAnonKey,
-  'Authorization': `Bearer ${supabaseAnonKey}`
+  apikey: supabaseAnonKey,
+  Authorization: `Bearer ${supabaseAnonKey}`,
 };
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -79,7 +79,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     params: {
       eventsPerSecond: 2,
     },
-  }
+  },
 });
 
 // @ts-ignore - Override internal fetch implementation

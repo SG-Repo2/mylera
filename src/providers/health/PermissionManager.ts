@@ -1,6 +1,6 @@
-import { logger } from "@/src/utils/logger";
+import { logger } from '@/src/utils/logger';
 
-import { LogCategory } from "@/src/utils/logger";
+import { LogCategory } from '@/src/utils/logger';
 
 export class PermissionManager {
   private initialized: boolean = false;
@@ -55,4 +55,4 @@ export class PermissionManager {
     this.initialized = false;
     this.userId = null;
   }
-} 
+}

@@ -9,38 +9,38 @@ export const useDashboardAnimations = (dailyTotal: DailyTotal | null) => {
   // Header animations
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-20)).current;
-  
+
   // LoadingView animations
   const pulseAnim = useRef(new Animated.Value(0.8)).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
-  
+
   // Animate header when dailyTotal becomes available
   useEffect(() => {
     if (dailyTotal) {
       // Reset animation values to ensure consistent behavior
       headerOpacity.setValue(0);
       slideAnim.setValue(-20);
-      
+
       Animated.parallel([
         Animated.timing(headerOpacity, {
           toValue: 1,
-          duration: 350,  // Slightly longer for smoother fade-in
+          duration: 350, // Slightly longer for smoother fade-in
           useNativeDriver: true,
           easing: Easing.out(Easing.cubic), // More sophisticated easing
         }),
         Animated.spring(slideAnim, {
           toValue: 0,
           useNativeDriver: true,
-          damping: 16,     // Better damping for less bounce
-          mass: 0.7,       // Lighter mass for faster animation
-          stiffness: 200,  // Balanced stiffness
+          damping: 16, // Better damping for less bounce
+          mass: 0.7, // Lighter mass for faster animation
+          stiffness: 200, // Balanced stiffness
           restDisplacementThreshold: 0.01, // Better stopping behavior
-          restSpeedThreshold: 0.01,        // Better stopping behavior
+          restSpeedThreshold: 0.01, // Better stopping behavior
         }),
       ]).start();
     }
   }, [dailyTotal, headerOpacity, slideAnim]);
-  
+
   // Start loading animations immediately
   useEffect(() => {
     Animated.parallel([
@@ -70,7 +70,7 @@ export const useDashboardAnimations = (dailyTotal: DailyTotal | null) => {
         })
       ),
     ]).start();
-    
+
     // Clean up animations on unmount
     return () => {
       pulseAnim.stopAnimation();
@@ -79,21 +79,21 @@ export const useDashboardAnimations = (dailyTotal: DailyTotal | null) => {
       slideAnim.stopAnimation();
     };
   }, [pulseAnim, spinAnim]);
-  
+
   return {
     // Header animations
     headerAnimations: {
       opacity: headerOpacity,
-      transform: [{ translateY: slideAnim }]
+      transform: [{ translateY: slideAnim }],
     },
-    
+
     // Loading animations
     loadingAnimations: {
       scale: pulseAnim,
       rotate: spinAnim.interpolate({
         inputRange: [0, 1],
-        outputRange: ['0deg', '360deg']
-      })
-    }
+        outputRange: ['0deg', '360deg'],
+      }),
+    },
   };
 };

@@ -1,17 +1,28 @@
 import { MetricType } from '../types/metrics';
 import { METRIC_UNITS } from '../providers/health/types/metrics';
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
-import { formatMetricValue, FormattedMetricValue, MeasurementSystem } from '../utils/unitConversion';
+import {
+  formatMetricValue,
+  FormattedMetricValue,
+  MeasurementSystem,
+} from '../utils/unitConversion';
 
 // Helper functions for formatting values with measurement system support
 const formatters = {
-  steps: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'steps', system),
-  distance: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'distance', system),
-  calories: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'calories', system),
-  heart_rate: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'heart_rate', system),
-  exercise: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'exercise', system),
-  basal_calories: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'basal_calories', system),
-  flights_climbed: (value: number, system: MeasurementSystem = 'metric') => formatMetricValue(value, 'flights_climbed', system),
+  steps: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'steps', system),
+  distance: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'distance', system),
+  calories: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'calories', system),
+  heart_rate: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'heart_rate', system),
+  exercise: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'exercise', system),
+  basal_calories: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'basal_calories', system),
+  flights_climbed: (value: number, system: MeasurementSystem = 'metric') =>
+    formatMetricValue(value, 'flights_climbed', system),
 };
 
 // Helper functions for calculating progress (0-1)
@@ -44,7 +55,7 @@ export interface MetricConfig {
   formatValue: (value: number, system?: MeasurementSystem) => FormattedMetricValue;
   calculateProgress: (value: any, goal: any) => number;
   pointIncrement: {
-    value: number;    // Amount of metric value per point
+    value: number; // Amount of metric value per point
     maxPoints: number; // Maximum points possible
   };
 }
@@ -67,8 +78,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.steps,
     pointIncrement: {
       value: 100, // 1 point per 100 steps
-      maxPoints: 100
-    }
+      maxPoints: 100,
+    },
   },
   distance: {
     id: 'distance',
@@ -81,8 +92,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.distance,
     pointIncrement: {
       value: 160.934, // 1 point per 0.1 miles (in meters)
-      maxPoints: 30
-    }
+      maxPoints: 30,
+    },
   },
   calories: {
     id: 'calories',
@@ -95,8 +106,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.calories,
     pointIncrement: {
       value: 10, // 1 point per 10 calories
-      maxPoints: 50
-    }
+      maxPoints: 50,
+    },
   },
   flights_climbed: {
     id: 'flights_climbed',
@@ -109,8 +120,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.flights_climbed,
     pointIncrement: {
       value: 0.5, // 2 points per flight
-      maxPoints: 20
-    }
+      maxPoints: 20,
+    },
   },
   heart_rate: {
     id: 'heart_rate',
@@ -123,8 +134,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.heart_rate,
     pointIncrement: {
       value: 1, // Special case - points based on target zone
-      maxPoints: 30
-    }
+      maxPoints: 30,
+    },
   },
   exercise: {
     id: 'exercise',
@@ -137,8 +148,8 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.exercise,
     pointIncrement: {
       value: 1, // 1 point per minute
-      maxPoints: 30
-    }
+      maxPoints: 30,
+    },
   },
   basal_calories: {
     id: 'basal_calories',
@@ -151,10 +162,9 @@ export const healthMetrics: Record<MetricType, MetricConfig> = {
     calculateProgress: progressCalculators.basal_calories,
     pointIncrement: {
       value: 20, // 1 point per 20 calories
-      maxPoints: 90
-    }
-  }
-
+      maxPoints: 90,
+    },
+  },
 };
 
 export default healthMetrics;

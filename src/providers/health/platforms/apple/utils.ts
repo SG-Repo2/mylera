@@ -15,7 +15,7 @@ export function groupDataByDay<T extends TimestampedValue>(
   unit: string = 'count'
 ): RawHealthMetric[] {
   const dailyData = new Map<string, number[]>();
-  
+
   // Group values by day
   data.forEach(item => {
     const day = new Date(item.startDate).toISOString().split('T')[0];
@@ -27,27 +27,25 @@ export function groupDataByDay<T extends TimestampedValue>(
 
   // Create a RawHealthMetric for each day
   const result: RawHealthMetric[] = [];
-  
+
   dailyData.forEach((values, day) => {
     const date = new Date(day);
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     result.push({
       startDate: startOfDay.toISOString(),
       endDate: endOfDay.toISOString(),
       value: aggregator(values),
       unit,
-      sourceBundle: 'com.apple.health'
+      sourceBundle: 'com.apple.health',
     });
   });
-  
+
   // Return sorted by date
-  return result.sort((a, b) => 
-    new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-  );
+  return result.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 }
 
 /**
@@ -63,7 +61,7 @@ export async function retryHealthKitOperation<T>(
   initialDelay: number = 1000
 ): Promise<T> {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -75,7 +73,7 @@ export async function retryHealthKitOperation<T>(
       return await operation();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
+
       if (attempt === maxRetries) {
         logger.error(
           LogCategory.Health,
@@ -83,7 +81,7 @@ export async function retryHealthKitOperation<T>(
         );
         throw lastError;
       }
-      
+
       const delay = initialDelay * Math.pow(2, attempt);
       logger.info(
         LogCategory.Health,
@@ -92,6 +90,6 @@ export async function retryHealthKitOperation<T>(
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  
+
   throw lastError || new Error('Operation failed after retries');
 }

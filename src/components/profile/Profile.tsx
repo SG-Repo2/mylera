@@ -69,9 +69,12 @@ export function Profile() {
             measurement_system: metadata.measurementSystem || 'metric',
           };
 
-          console.log('[Profile] Creating default profile with display name:', defaultProfile.display_name);
+          console.log(
+            '[Profile] Creating default profile with display name:',
+            defaultProfile.display_name
+          );
           await leaderboardService.updateUserProfile(user.id, defaultProfile);
-          
+
           // Retry loading the profile
           const newProfile = await leaderboardService.getUserProfile(user.id);
           if (newProfile) {
@@ -91,7 +94,9 @@ export function Profile() {
         if (err.message.includes('42501')) {
           setError(new Error('Unable to access profile. Please check your permissions.'));
         } else if (err.message.includes('PGRST200')) {
-          setError(new Error('Profile service is temporarily unavailable. Please try again later.'));
+          setError(
+            new Error('Profile service is temporarily unavailable. Please try again later.')
+          );
         } else {
           setError(err);
         }
@@ -135,30 +140,34 @@ export function Profile() {
       try {
         // Update user metadata to maintain name consistency
         const { error: updateError } = await supabase.auth.updateUser({
-          data: { 
+          data: {
             displayName: trimmedName,
-            showProfile: showProfile
-          }
+            showProfile: showProfile,
+          },
         });
-        
+
         if (updateError) {
           console.warn('[Profile] Failed to update auth metadata:', updateError);
           // Don't throw here - the profile was updated successfully
         } else {
           console.log('[Profile] Successfully updated auth metadata with new display name');
         }
-        
+
         await loadProfile(); // Reload to confirm changes
         setEditingName(false);
       } catch (reloadErr) {
         console.warn('[Profile] Profile saved but reload failed:', reloadErr);
         // Don't throw here - the save was successful even if reload failed
         // Just update local state
-        setProfile(prev => prev ? {
-          ...prev,
-          display_name: trimmedName,
-          show_profile: showProfile,
-        } : null);
+        setProfile(prev =>
+          prev
+            ? {
+                ...prev,
+                display_name: trimmedName,
+                show_profile: showProfile,
+              }
+            : null
+        );
       }
     } catch (err) {
       console.error('[Profile] Error saving profile:', err);
@@ -166,7 +175,9 @@ export function Profile() {
         if (err.message.includes('42501')) {
           setError(new Error('You do not have permission to update this profile.'));
         } else if (err.message.includes('PGRST200')) {
-          setError(new Error('Profile service is temporarily unavailable. Please try again later.'));
+          setError(
+            new Error('Profile service is temporarily unavailable. Please try again later.')
+          );
         } else {
           setError(err);
         }
@@ -189,21 +200,21 @@ export function Profile() {
 
   const handleAvatarUpdate = async () => {
     if (!user) return;
-    
+
     setShowAvatarModal(true);
   };
 
   const handleAvatarSelect = async (avatarId: number) => {
     if (!user || !profile) return;
-    
+
     try {
       setLoading(true);
       setShowAvatarModal(false);
-      
+
       // Update profile with selected avatar ID
       await leaderboardService.updateUserProfile(user.id, {
         ...profile,
-        avatar_url: String(avatarId)
+        avatar_url: String(avatarId),
       });
 
       // Reload profile
@@ -218,44 +229,51 @@ export function Profile() {
 
   const handleUpdateMeasurementSystem = async (useImperial: boolean) => {
     if (!profile || !user) return;
-    
+
     // Prevent multiple simultaneous updates
     if (updatingSystem) return;
-    
+
     try {
       setUpdatingSystem(true);
       const newSystem = useImperial ? 'imperial' : 'metric';
-      
+
       // First update local state for immediate UI feedback
-      setProfile(prevProfile => prevProfile ? {
-        ...prevProfile,
-        measurement_system: newSystem
-      } : null);
-      
+      setProfile(prevProfile =>
+        prevProfile
+          ? {
+              ...prevProfile,
+              measurement_system: newSystem,
+            }
+          : null
+      );
+
       // Then update profile in database
       await leaderboardService.updateUserProfile(user.id, {
         ...profile,
-        measurement_system: newSystem
+        measurement_system: newSystem,
       });
-      
+
       // Update user metadata through Supabase
       const { error: updateError } = await supabase.auth.updateUser({
-        data: { measurementSystem: newSystem }
+        data: { measurementSystem: newSystem },
       });
-      
+
       if (updateError) {
         console.warn('Failed to update auth metadata:', updateError);
       }
-      
     } catch (err) {
       console.error('Error updating measurement system:', err);
-      
+
       // Revert local state change on error
-      setProfile(prevProfile => prevProfile ? {
-        ...prevProfile,
-        measurement_system: prevProfile.measurement_system // Revert to previous value
-      } : null);
-      
+      setProfile(prevProfile =>
+        prevProfile
+          ? {
+              ...prevProfile,
+              measurement_system: prevProfile.measurement_system, // Revert to previous value
+            }
+          : null
+      );
+
       setError(err instanceof Error ? err : new Error('Failed to update measurement system'));
     } finally {
       setUpdatingSystem(false);
@@ -275,7 +293,10 @@ export function Profile() {
   }
 
   return (
-    <ScrollView style={profileStyles.container} contentContainerStyle={profileStyles.contentContainer}>
+    <ScrollView
+      style={profileStyles.container}
+      contentContainerStyle={profileStyles.contentContainer}
+    >
       {/* Header */}
       <View style={profileStyles.header}>
         <Text style={profileStyles.headerTitle}>Profile</Text>
@@ -285,9 +306,13 @@ export function Profile() {
       <View style={profileStyles.profileCard}>
         {/* Avatar Section */}
         <View style={profileStyles.avatarSection}>
-          <Pressable style={profileStyles.avatarWrapper} onPress={handleAvatarUpdate} testID="avatar-button">
+          <Pressable
+            style={profileStyles.avatarWrapper}
+            onPress={handleAvatarUpdate}
+            testID="avatar-button"
+          >
             {profile?.avatar_url ? (
-              <AvatarDisplay 
+              <AvatarDisplay
                 avatarId={profile.avatar_url}
                 style={profileStyles.avatar}
                 testID="profile-avatar-image"
@@ -318,9 +343,7 @@ export function Profile() {
             />
           ) : (
             <View style={profileStyles.displayNameContainer}>
-              <Text style={profileStyles.displayName}>
-                {displayName || 'Anonymous User'}
-              </Text>
+              <Text style={profileStyles.displayName}>{displayName || 'Anonymous User'}</Text>
               <Pressable
                 style={profileStyles.editNameButton}
                 onPress={() => setEditingName(!editingName)}
@@ -359,11 +382,7 @@ export function Profile() {
             thumbColor={profile?.measurement_system === 'imperial' ? '#0284c7' : '#F3F4F6'}
           />
           {updatingSystem && (
-            <ActivityIndicator 
-              size="small" 
-              color="#0284c7" 
-              style={{ marginLeft: 8 }}
-            />
+            <ActivityIndicator size="small" color="#0284c7" style={{ marginLeft: 8 }} />
           )}
         </View>
       </View>
@@ -419,16 +438,13 @@ export function Profile() {
             <FlatList
               data={avatarOptions}
               numColumns={3}
-              keyExtractor={(item) => item.toString()}
+              keyExtractor={item => item.toString()}
               renderItem={({ item }) => (
                 <Pressable
                   style={profileStyles.avatarOption}
                   onPress={() => handleAvatarSelect(item)}
                 >
-                  <AvatarDisplay
-                    avatarId={String(item)}
-                    style={profileStyles.avatarOptionImage}
-                  />
+                  <AvatarDisplay avatarId={String(item)} style={profileStyles.avatarOptionImage} />
                 </Pressable>
               )}
             />

@@ -20,11 +20,7 @@ function getRetryDelay(attempt: number): number {
 }
 
 // Enhanced retry wrapper with network check
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  name: string,
-  retryCount = 0
-): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, name: string, retryCount = 0): Promise<T> {
   try {
     // Check network before attempting operation
     const isConnected = await checkNetwork();
@@ -33,21 +29,23 @@ async function withRetry<T>(
     }
 
     const operationPromise = operation();
-    const timeoutPromise = new Promise<T>((_, reject) => 
+    const timeoutPromise = new Promise<T>((_, reject) =>
       setTimeout(() => reject(new Error(`${name} operation timed out`)), TIMEOUT_MS)
     );
 
     return Promise.race([operationPromise, timeoutPromise]);
   } catch (error) {
-    if (retryCount < MAX_RETRIES && (
-      error instanceof Error && (
-        error.message.includes('Network request failed') ||
+    if (
+      retryCount < MAX_RETRIES &&
+      error instanceof Error &&
+      (error.message.includes('Network request failed') ||
         error.message.includes('timed out') ||
-        error.message.includes('No internet connection')
-      )
-    )) {
+        error.message.includes('No internet connection'))
+    ) {
       const delay = getRetryDelay(retryCount);
-      console.log(`[authService] ${name} attempt ${retryCount + 1}/${MAX_RETRIES} failed, retrying in ${delay}ms`);
+      console.log(
+        `[authService] ${name} attempt ${retryCount + 1}/${MAX_RETRIES} failed, retrying in ${delay}ms`
+      );
       await new Promise(resolve => setTimeout(resolve, delay));
       return withRetry(operation, name, retryCount + 1);
     }
@@ -56,25 +54,18 @@ async function withRetry<T>(
 }
 
 async function loginWithRetry(email: string, password: string): Promise<any> {
-  return withRetry(
-    async () => {
-      const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      if (!data.session) throw new Error('No session returned from login');
-      return data;
-    },
-    'Login'
-  );
+  return withRetry(async () => {
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    if (!data.session) throw new Error('No session returned from login');
+    return data;
+  }, 'Login');
 }
 
 /**
  * Register a new user with Supabase and create their profile
  */
-export async function registerUser(
-  email: string,
-  password: string,
-  profile: RegisterProfileData
-) {
+export async function registerUser(email: string, password: string, profile: RegisterProfileData) {
   // Validate display name
   if (!profile.displayName?.trim()) {
     throw new Error('Display name is required');
@@ -93,26 +84,26 @@ export async function registerUser(
         deviceType: profile.deviceType,
         measurementSystem: profile.measurementSystem,
         showProfile: profile.showProfile ?? true,
-        avatarUri: profile.avatarUri
+        avatarUri: profile.avatarUri,
       },
     },
   };
-  
+
   // Attempt to register the user
   const { data, error } = await supabase.auth.signUp(signUpData);
-  
+
   if (error) {
     console.error('[authService] Registration error with Supabase:', error);
     throw error;
   }
-  
+
   if (!data.user) {
     console.error('[authService] Registration completed but no user returned');
     throw new Error('Registration failed: No user data returned');
   }
-  
+
   console.log('[authService] User registered successfully with ID:', data.user.id);
-  
+
   // Create profile through the API
   try {
     console.log('[authService] Creating user profile...');
@@ -121,9 +112,9 @@ export async function registerUser(
       device_type: profile.deviceType,
       measurement_system: profile.measurementSystem,
       show_profile: profile.showProfile ?? true,
-      avatar_url: profile.avatarUri
+      avatar_url: profile.avatarUri,
     });
-    
+
     console.log('[authService] Initial profile created successfully');
   } catch (profileError) {
     console.error('[authService] Error creating initial profile:', profileError);
@@ -132,7 +123,9 @@ export async function registerUser(
 
   // Double-check and update auth metadata if needed
   try {
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser();
     if (currentUser && currentUser.user_metadata?.displayName !== trimmedDisplayName) {
       console.log('[authService] Updating auth metadata to ensure display name consistency');
       const { error: metadataError } = await supabase.auth.updateUser({
@@ -141,10 +134,10 @@ export async function registerUser(
           deviceType: profile.deviceType,
           measurementSystem: profile.measurementSystem,
           showProfile: profile.showProfile ?? true,
-          avatarUri: profile.avatarUri
-        }
+          avatarUri: profile.avatarUri,
+        },
       });
-      
+
       if (metadataError) {
         console.warn('[authService] Failed to update user metadata:', metadataError);
       } else {
@@ -169,19 +162,27 @@ export async function loginUser(email: string, password: string) {
 
     // Verify and sync display name if needed
     if (data.session?.user) {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
       if (currentUser) {
         const profile = await leaderboardService.getUserProfile(currentUser.id);
-        if (profile?.display_name && currentUser.user_metadata?.displayName !== profile.display_name) {
+        if (
+          profile?.display_name &&
+          currentUser.user_metadata?.displayName !== profile.display_name
+        ) {
           console.log('[authService] Syncing display name from profile to auth metadata');
           const { error: metadataError } = await supabase.auth.updateUser({
             data: {
-              displayName: profile.display_name
-            }
+              displayName: profile.display_name,
+            },
           });
-          
+
           if (metadataError) {
-            console.warn('[authService] Failed to sync display name to auth metadata:', metadataError);
+            console.warn(
+              '[authService] Failed to sync display name to auth metadata:',
+              metadataError
+            );
           } else {
             console.log('[authService] Successfully synced display name to auth metadata');
           }
@@ -192,7 +193,9 @@ export async function loginUser(email: string, password: string) {
     return data;
   } catch (error) {
     if (error instanceof Error && error.message.includes('Network request failed')) {
-      throw new Error('Unable to connect to the server. Please check your internet connection and try again.');
+      throw new Error(
+        'Unable to connect to the server. Please check your internet connection and try again.'
+      );
     }
     throw error;
   }
@@ -213,14 +216,14 @@ export async function logoutUser() {
  */
 export async function autoLogin(email: string, password: string) {
   console.log('[authService] Attempting auto-login...');
-  const { error: signInError } = await supabase.auth.signInWithPassword({
+  const { error: signInError } = (await supabase.auth.signInWithPassword({
     email,
-    password
-  }) as AuthResponse;
-  
+    password,
+  })) as AuthResponse;
+
   if (signInError) {
     throw signInError;
   }
-  
+
   console.log('[authService] Auto-login successful');
-} 
+}

@@ -144,7 +144,7 @@ const createStyles = (theme: MD3Theme) =>
       fontSize: 12,
       opacity: 0.7,
       fontWeight: '500',
-    }
+    },
   });
 
 export const useMetricCardStyles = () => {

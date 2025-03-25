@@ -7,30 +7,30 @@ interface NavigationState {
 
 const NavigationReadyContext = createContext<NavigationState>({
   isReady: false,
-  isPermissionsHandled: false
+  isPermissionsHandled: false,
 });
 
-export function NavigationReadyProvider({ 
-  children, 
+export function NavigationReadyProvider({
+  children,
   value,
-  permissionsHandled = false 
-}: { 
-  children: React.ReactNode; 
+  permissionsHandled = false,
+}: {
+  children: React.ReactNode;
   value: boolean;
   permissionsHandled?: boolean;
 }) {
   useEffect(() => {
     console.log('[NavigationReadyProvider] Navigation state changed:', {
       isReady: value,
-      isPermissionsHandled: permissionsHandled
+      isPermissionsHandled: permissionsHandled,
     });
   }, [value, permissionsHandled]);
 
   return (
-    <NavigationReadyContext.Provider 
+    <NavigationReadyContext.Provider
       value={{
         isReady: value,
-        isPermissionsHandled: permissionsHandled
+        isPermissionsHandled: permissionsHandled,
       }}
     >
       {children}

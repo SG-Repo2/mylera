@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect } from 'react';
-import { View, ScrollView, RefreshControl, SafeAreaView, Image, Animated, Platform } from 'react-native';
+import {
+  View,
+  ScrollView,
+  RefreshControl,
+  SafeAreaView,
+  Image,
+  Animated,
+  Platform,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, useTheme, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
 import { ErrorView } from '@/src/components/shared/ErrorView';
@@ -41,14 +49,11 @@ interface LoadingViewProps {
 // Extracted Header component with React.memo for performance
 const Header = React.memo(({ dailyTotal }: HeaderProps) => {
   const styles = useDashboardStyles();
-  
+
   return (
     <View style={styles.headerContainer}>
       <View style={styles.headerContent}>
-        <Image
-          source={require('@/assets/images/myLeraBanner.png')}
-          style={styles.logo}
-        />
+        <Image source={require('@/assets/images/myLeraBanner.png')} style={styles.logo} />
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Text style={styles.statText}>{dailyTotal.total_points} pts</Text>
@@ -60,76 +65,60 @@ const Header = React.memo(({ dailyTotal }: HeaderProps) => {
 });
 
 // Extracted LoadingView component with React.memo for performance
-const LoadingView = React.memo(({ 
-  message = 'Loading your health data...',
-  showSpinner = true 
-}: LoadingViewProps) => {
-  const styles = useDashboardStyles();
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const { loadingAnimations } = useDashboardAnimations(null);
-  
-  return (
-    <View style={[
-      styles.loadingContainer,
-      { paddingTop: insets.top }
-    ]}>
-      <View style={styles.loadingCard}>
-        <Animated.View style={{
-          transform: [
-            { scale: loadingAnimations.scale },
-            { rotate: loadingAnimations.rotate }
-          ]
-        }}>
-          <ActivityIndicator
-            size={Platform.OS === 'ios' ? 'large' : 48}
-            color={theme.colors.primary}
-          />
-        </Animated.View>
-        <Text style={styles.loadingText}>
-          {message}
-        </Text>
+const LoadingView = React.memo(
+  ({ message = 'Loading your health data...', showSpinner = true }: LoadingViewProps) => {
+    const styles = useDashboardStyles();
+    const theme = useTheme();
+    const insets = useSafeAreaInsets();
+    const { loadingAnimations } = useDashboardAnimations(null);
+
+    return (
+      <View style={[styles.loadingContainer, { paddingTop: insets.top }]}>
+        <View style={styles.loadingCard}>
+          <Animated.View
+            style={{
+              transform: [{ scale: loadingAnimations.scale }, { rotate: loadingAnimations.rotate }],
+            }}
+          >
+            <ActivityIndicator
+              size={Platform.OS === 'ios' ? 'large' : 48}
+              color={theme.colors.primary}
+            />
+          </Animated.View>
+          <Text style={styles.loadingText}>{message}</Text>
+        </View>
       </View>
-    </View>
-  );
-});
+    );
+  }
+);
 
 // Extracted ErrorDialog component with React.memo for performance
-const ErrorDialog = React.memo(({ 
-  visible, 
-  onDismiss,
-  message = 'Failed to fetch health metrics. Please try again.'
-}: ErrorDialogProps) => {
-  const theme = useTheme();
-  const styles = useDashboardStyles();
-  
-  return (
-    <Portal>
-      <Dialog 
-        visible={visible} 
-        onDismiss={onDismiss}
-        style={styles.errorDialog}
-      >
-        <Dialog.Title style={styles.errorDialogTitle}>
-          Error
-        </Dialog.Title>
-        <Dialog.Content>
-          <Text style={styles.errorDialogContent}>
-            {message}
-          </Text>
-        </Dialog.Content>
-        <Dialog.Actions style={styles.errorDialogActions}>
-          <Text 
-            onPress={onDismiss} 
-            style={styles.errorDialogButton}
-          >
-            OK
-          </Text>
-        </Dialog.Actions>
-      </Dialog>
-    </Portal>
-  );
-});
+const ErrorDialog = React.memo(
+  ({
+    visible,
+    onDismiss,
+    message = 'Failed to fetch health metrics. Please try again.',
+  }: ErrorDialogProps) => {
+    const theme = useTheme();
+    const styles = useDashboardStyles();
+
+    return (
+      <Portal>
+        <Dialog visible={visible} onDismiss={onDismiss} style={styles.errorDialog}>
+          <Dialog.Title style={styles.errorDialogTitle}>Error</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.errorDialogContent}>{message}</Text>
+          </Dialog.Content>
+          <Dialog.Actions style={styles.errorDialogActions}>
+            <Text onPress={onDismiss} style={styles.errorDialogButton}>
+              OK
+            </Text>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    );
+  }
+);
 
 // Update the error boundary implementation
 class DashboardErrorBoundary extends React.Component<
@@ -167,12 +156,12 @@ export const Dashboard = React.memo(function Dashboard({
   provider,
   userId,
   date = new Date().toISOString().split('T')[0],
-  showAlerts = true
+  showAlerts = true,
 }: DashboardProps) {
   const styles = useDashboardStyles();
   const theme = useTheme();
   const { healthPermissionStatus, requestHealthPermissions } = useAuth();
-  
+
   // Use our custom hooks
   const {
     dailyTotal,
@@ -185,11 +174,11 @@ export const Dashboard = React.memo(function Dashboard({
     refreshData,
     handleRetry,
     availableMetrics,
-    isDataLoaded
+    isDataLoaded,
   } = useDashboardData(provider, userId, date);
-  
+
   const { headerAnimations } = useDashboardAnimations(dailyTotal);
-  
+
   // Extended retry handler that checks permissions
   const extendedRetryHandler = React.useCallback(async () => {
     if (error instanceof HealthProviderPermissionError) {
@@ -204,11 +193,11 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Enhanced loading state check
   const isLoading = loading || (!healthMetrics && !error && !dailyTotal && !isDataLoaded);
-  
+
   // Add timeout for initial load
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    
+
     if (isLoading) {
       timeoutId = setTimeout(() => {
         // Only retry if we haven't loaded data yet
@@ -217,7 +206,7 @@ export const Dashboard = React.memo(function Dashboard({
         }
       }, 10000); // 10 second timeout
     }
-    
+
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
@@ -236,38 +225,32 @@ export const Dashboard = React.memo(function Dashboard({
 
   // Render loading state with enhanced check
   if (isLoading) {
-    return <LoadingView 
-      message={isDataLoaded ? "Refreshing your health data..." : "Loading your health data..."} 
-      showSpinner={true} 
-    />;
-  }
-
-  // Update error handling
-  if (error) {
     return (
-      <ErrorView 
-        error={error}
-        onRetry={retryWithBackoff}
+      <LoadingView
+        message={isDataLoaded ? 'Refreshing your health data...' : 'Loading your health data...'}
+        showSpinner={true}
       />
     );
   }
 
+  // Update error handling
+  if (error) {
+    return <ErrorView error={error} onRetry={retryWithBackoff} />;
+  }
+
   // Type guard to ensure data exists
   if (!healthMetrics || !dailyTotal) {
-    return <ErrorView 
-      error={new Error('Failed to load health metrics')} 
-      onRetry={extendedRetryHandler} 
-    />;
+    return (
+      <ErrorView
+        error={new Error('Failed to load health metrics')}
+        onRetry={extendedRetryHandler}
+      />
+    );
   }
 
   return (
     <DashboardErrorBoundary>
-      <SafeAreaView 
-        style={[
-          styles.container, 
-          { paddingTop: Platform.OS === 'ios' ? 0 : 4 }
-        ]}
-      >
+      <SafeAreaView style={[styles.container, { paddingTop: Platform.OS === 'ios' ? 0 : 4 }]}>
         {dailyTotal && (
           <Animated.View style={[styles.headerWrapper, headerAnimations]}>
             <View style={{ overflow: 'hidden', borderRadius: theme.roundness * 1.5 }}>
@@ -295,8 +278,8 @@ export const Dashboard = React.memo(function Dashboard({
           overScrollMode="always"
         >
           {healthMetrics && (
-            <MetricCardList 
-              metrics={healthMetrics} 
+            <MetricCardList
+              metrics={healthMetrics}
               showAlerts={showAlerts}
               provider={provider}
               isInitialLoad={!dailyTotal}
@@ -307,10 +290,7 @@ export const Dashboard = React.memo(function Dashboard({
           )}
         </ScrollView>
 
-        <ErrorDialog 
-          visible={errorDialogVisible} 
-          onDismiss={() => setErrorDialogVisible(false)} 
-        />
+        <ErrorDialog visible={errorDialogVisible} onDismiss={() => setErrorDialogVisible(false)} />
       </SafeAreaView>
     </DashboardErrorBoundary>
   );

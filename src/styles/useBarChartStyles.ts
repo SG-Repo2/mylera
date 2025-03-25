@@ -82,7 +82,8 @@ const useBarChartStyles = () => {
       shadowRadius: 2,
       elevation: 2,
     },
-    barOverlay: {  // New style for the semi-transparent overlay
+    barOverlay: {
+      // New style for the semi-transparent overlay
       position: 'absolute',
       top: 0,
       left: 0,
@@ -101,8 +102,8 @@ const useBarChartStyles = () => {
       flexDirection: 'row',
       alignItems: 'center',
       paddingLeft: 8,
-      transform: [{ translateY: -8 }]
-    }
+      transform: [{ translateY: -8 }],
+    },
   });
 };
 

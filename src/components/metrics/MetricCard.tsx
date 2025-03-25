@@ -40,24 +40,26 @@ export const MetricCard = React.memo(function MetricCard({
   onPress,
   showAlert,
   measurementSystem: propMeasurementSystem,
-  valueChangeAnim
+  valueChangeAnim,
 }: MetricCardProps) {
   const styles = useMetricCardStyles();
   const theme = useTheme();
   const { user } = useAuth();
-  
-  const measurementSystem = useMemo(() => 
-    propMeasurementSystem || (user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem,
+
+  const measurementSystem = useMemo(
+    () =>
+      propMeasurementSystem ||
+      ((user?.user_metadata?.measurementSystem || 'metric') as MeasurementSystem),
     [propMeasurementSystem, user?.user_metadata?.measurementSystem]
   );
-  
+
   const progress = useMemo(() => calculateProgress(value, goal), [value, goal]);
   const formattedValue = useMemo(() => {
     const formatted = healthMetrics[metricType].formatValue(value ?? 0, measurementSystem);
     console.log(`[MetricCard] Formatting ${metricType} value:`, {
       input: value,
       formatted,
-      measurementSystem
+      measurementSystem,
     });
     return formatted;
   }, [value, metricType, measurementSystem]);
@@ -69,13 +71,13 @@ export const MetricCard = React.memo(function MetricCard({
     return formattedValue.value.toLocaleString();
   }, [metricType, formattedValue]);
 
-  const displayUnit = useMemo(() => 
-    formattedValue.unit === 'K' ? '' : DISPLAY_UNITS[metricType][measurementSystem],
+  const displayUnit = useMemo(
+    () => (formattedValue.unit === 'K' ? '' : DISPLAY_UNITS[metricType][measurementSystem]),
     [metricType, measurementSystem, formattedValue]
   );
 
   const percentage = useMemo(() => Math.round(progress * 100), [progress]);
-  
+
   const {
     scaleAnim,
     glowAnim,
@@ -84,27 +86,23 @@ export const MetricCard = React.memo(function MetricCard({
     handlePressIn,
     handlePressOut,
   } = useMetricCardAnimations({ value, valueChangeAnim });
-  
+
   const cardBackgroundColorStyle = useMemo(() => {
     const pulseColor = color || theme.colors.primary;
-    
+
     return {
       backgroundColor: backgroundColorAnim.interpolate({
         inputRange: [0, 0.5, 1],
-        outputRange: [
-          theme.colors.surface, 
-          `${pulseColor}30`,
-          theme.colors.surface
-        ]
-      })
+        outputRange: [theme.colors.surface, `${pulseColor}30`, theme.colors.surface],
+      }),
     };
   }, [backgroundColorAnim, color, theme.colors.surface, theme.colors.primary]);
-  
+
   const getPointsText = useMemo(() => {
     if (metricType === 'heart_rate') return '(zone)';
     const increment = healthMetrics[metricType].pointIncrement.value;
     if (increment === 1) return '(1 per)';
-    if (increment < 1) return `(${Math.round(1/increment)} per)`;
+    if (increment < 1) return `(${Math.round(1 / increment)} per)`;
     return `(1 per ${increment})`;
   }, [metricType]);
 
@@ -122,7 +120,7 @@ export const MetricCard = React.memo(function MetricCard({
   }, [progress]);
 
   return (
-    <Animated.View 
+    <Animated.View
       style={[
         styles.cardWrapper,
         {
@@ -130,24 +128,18 @@ export const MetricCard = React.memo(function MetricCard({
           transform: [{ scale: scaleAnim }],
           shadowOpacity: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [0.1, 0.25]
+            outputRange: [0.1, 0.25],
           }),
           shadowColor: color,
           shadowOffset: { width: 0, height: 2 },
           shadowRadius: glowAnim.interpolate({
             inputRange: [0, 1],
-            outputRange: [4, 8]
+            outputRange: [4, 8],
           }),
-        }
+        },
       ]}
     >
-      <Surface 
-        style={[
-          styles.cardShadowWrapper, 
-          cardBackgroundColorStyle
-        ]} 
-        elevation={2}
-      >
+      <Surface style={[styles.cardShadowWrapper, cardBackgroundColorStyle]} elevation={2}>
         <View style={styles.cardContentWrapper}>
           <TouchableRipple
             onPress={onPress}
@@ -161,52 +153,61 @@ export const MetricCard = React.memo(function MetricCard({
                 <Surface style={[styles.iconContainer, { backgroundColor: color }]} elevation={4}>
                   <MaterialCommunityIcons name={icon} size={24} color="white" />
                 </Surface>
-                <Text variant="labelLarge" style={[styles.title, { color: theme.colors.onSurface }]}>
+                <Text
+                  variant="labelLarge"
+                  style={[styles.title, { color: theme.colors.onSurface }]}
+                >
                   {title}
                 </Text>
               </View>
-              
+
               <View style={styles.valueContainer}>
                 <Animated.View style={{ transform: [{ scale: combinedValueChangeAnim }] }}>
-                  <Text variant="displaySmall" style={[styles.value, { color: theme.colors.onSurface }]}>
+                  <Text
+                    variant="displaySmall"
+                    style={[styles.value, { color: theme.colors.onSurface }]}
+                  >
                     {displayValue}
                   </Text>
                 </Animated.View>
-                <Text variant="labelMedium" style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}>
+                <Text
+                  variant="labelMedium"
+                  style={[styles.unit, { color: theme.colors.onSurfaceVariant }]}
+                >
                   {displayUnit}
                 </Text>
               </View>
 
               <View style={styles.progressContainer}>
                 <View style={styles.progressBarContainer}>
-                  <View 
+                  <View
                     style={[
                       styles.progressBarBackground,
-                      { backgroundColor: theme.colors.surfaceVariant }
-                    ]} 
+                      { backgroundColor: theme.colors.surfaceVariant },
+                    ]}
                   />
-                  <Animated.View 
+                  <Animated.View
                     style={[
                       styles.progressBarFill,
-                      { 
+                      {
                         width: progressAnim.interpolate({
                           inputRange: [0, 1],
-                          outputRange: ['0%', '100%'] 
+                          outputRange: ['0%', '100%'],
                         }),
                         backgroundColor: color,
                         opacity: progressAnim.interpolate({
                           inputRange: [0, 0.4, 1],
-                          outputRange: [0.7, 0.85, 1]
-                        })
-                      }
-                    ]} 
+                          outputRange: [0.7, 0.85, 1],
+                        }),
+                      },
+                    ]}
                   >
                     <View style={styles.progressBarHighlight} />
                   </Animated.View>
                 </View>
                 <View style={styles.progressInfo}>
-                  <Text 
-                    variant="labelSmall" 
+                  <Text
+                    variant="labelSmall"
                     style={[styles.progressText, { color: theme.colors.onSurfaceVariant }]}
                     numberOfLines={1}
                     adjustsFontSizeToFit
@@ -214,8 +215,8 @@ export const MetricCard = React.memo(function MetricCard({
                   >
                     {percentage}% of goal
                   </Text>
-                  <Text 
-                    variant="labelSmall" 
+                  <Text
+                    variant="labelSmall"
                     style={[styles.pointsText, { color: theme.colors.onSurfaceVariant }]}
                     numberOfLines={1}
                     adjustsFontSizeToFit

@@ -18,7 +18,7 @@ export function getTabAnimation(routeName: string) {
     springMass: 0.8,
     duration: 300,
   };
-  
+
   // You can customize animations based on route if needed
   switch (routeName) {
     case '(home)':
@@ -64,7 +64,7 @@ export function createTabPressHandler(onPress: () => void) {
   return () => {
     // You can add haptic feedback here if you import a haptics library
     // For example: Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     // Call original handler
     onPress();
   };

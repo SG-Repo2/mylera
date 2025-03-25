@@ -10,7 +10,7 @@ export function navigateAfterAuth(
   priority: number = 10
 ) {
   console.log('[navigationUtils] Navigating after auth to:', route);
-  
+
   if (navigatorMounted) {
     console.log('[navigationUtils] Navigator mounted, proceeding with direct navigation');
     router.replace(route);
@@ -42,4 +42,4 @@ export function createNavigationSafetyTimeout(
 export function processQueuedNavigation() {
   console.log('[navigationUtils] Processing queued navigation requests');
   navigationQueue.processAllQueued();
-} 
+}

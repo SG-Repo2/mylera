@@ -9,9 +9,9 @@ import { RawHealthMetric } from '../../types/metrics';
  * Interface for raw step count data from HealthKit
  */
 export interface StepCountResult {
-  value: number; 
-  startDate: string; 
-  endDate: string; 
+  value: number;
+  startDate: string;
+  endDate: string;
   day?: string; // Some implementations include a day field
 }
 

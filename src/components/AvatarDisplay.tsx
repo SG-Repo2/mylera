@@ -22,7 +22,12 @@ const avatarAssets: Record<string, any> = {
 
 const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }) => {
   if (avatarId === null || avatarId === undefined) {
-    return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
+    return (
+      <View
+        style={[styles.avatar, style]}
+        testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'}
+      />
+    );
   }
 
   // Ensure the avatarId is a string for proper mapping
@@ -30,7 +35,12 @@ const AvatarDisplay: React.FC<AvatarDisplayProps> = ({ avatarId, style, testID }
   const avatarSource = avatarAssets[idKey];
 
   if (!avatarSource) {
-    return <View style={[styles.avatar, style]} testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'} />;
+    return (
+      <View
+        style={[styles.avatar, style]}
+        testID={testID ? `${testID}-placeholder` : 'avatar-placeholder'}
+      />
+    );
   }
 
   return (

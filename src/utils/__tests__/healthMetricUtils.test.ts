@@ -59,15 +59,21 @@ describe('healthMetricUtils', () => {
       expect(isValidMetricValue(0, 'basal_calories')).toBe(true);
       expect(isValidMetricValue(1800, 'basal_calories')).toBe(true);
       expect(isValidMetricValue(METRIC_VALIDATION.BASAL_CALORIES.MAX, 'basal_calories')).toBe(true);
-      expect(isValidMetricValue(METRIC_VALIDATION.BASAL_CALORIES.MAX + 1, 'basal_calories')).toBe(false);
+      expect(isValidMetricValue(METRIC_VALIDATION.BASAL_CALORIES.MAX + 1, 'basal_calories')).toBe(
+        false
+      );
       expect(isValidMetricValue(-1, 'basal_calories')).toBe(false);
     });
 
     it('should validate flights climbed within reasonable range', () => {
       expect(isValidMetricValue(0, 'flights_climbed')).toBe(true);
       expect(isValidMetricValue(10, 'flights_climbed')).toBe(true);
-      expect(isValidMetricValue(METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX, 'flights_climbed')).toBe(true);
-      expect(isValidMetricValue(METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX + 1, 'flights_climbed')).toBe(false);
+      expect(isValidMetricValue(METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX, 'flights_climbed')).toBe(
+        true
+      );
+      expect(isValidMetricValue(METRIC_VALIDATION.FLIGHTS_CLIMBED.MAX + 1, 'flights_climbed')).toBe(
+        false
+      );
       expect(isValidMetricValue(-1, 'flights_climbed')).toBe(false);
     });
 
@@ -77,4 +83,4 @@ describe('healthMetricUtils', () => {
       expect(isValidMetricValue(-1, 'unknown_metric')).toBe(false);
     });
   });
-}); 
+});

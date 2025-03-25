@@ -1,11 +1,11 @@
 import { supabase } from './supabaseClient';
 import { PostgrestResponse } from '@supabase/supabase-js';
-import { 
-  LeaderboardEntry, 
+import {
+  LeaderboardEntry,
   DailyTotal,
   WeeklyTotal,
   UserProfile,
-  LeaderboardTimeframe
+  LeaderboardTimeframe,
 } from '@/src/types/leaderboard';
 import { healthMetrics } from '@/src/config/healthMetrics';
 import type { MetricType } from '@/src/types/metrics';
@@ -21,13 +21,17 @@ function getWeekStart(date: Date): string {
 }
 
 export const leaderboardService = {
-  subscribeToLeaderboard(date: string, timeframe: LeaderboardTimeframe, onUpdate: (entries: LeaderboardEntry[]) => void) {
+  subscribeToLeaderboard(
+    date: string,
+    timeframe: LeaderboardTimeframe,
+    onUpdate: (entries: LeaderboardEntry[]) => void
+  ) {
     console.log(`Setting up ${timeframe} leaderboard subscription for date:`, date);
-    
+
     const table = timeframe === 'daily' ? 'daily_totals' : 'weekly_totals';
     const dateField = timeframe === 'daily' ? 'date' : 'week_start';
     const dateValue = timeframe === 'daily' ? date : getWeekStart(new Date(date));
-    
+
     return supabase
       .channel(`${timeframe}-leaderboard-${date}`)
       .on(
@@ -40,20 +44,21 @@ export const leaderboardService = {
         },
         async () => {
           // Fetch updated data when changes occur
-          const entries = timeframe === 'daily' 
-            ? await this.getDailyLeaderboard(date)
-            : await this.getWeeklyLeaderboard(date);
+          const entries =
+            timeframe === 'daily'
+              ? await this.getDailyLeaderboard(date)
+              : await this.getWeeklyLeaderboard(date);
           onUpdate(entries);
         }
       )
-      .subscribe((status) => {
+      .subscribe(status => {
         console.log(`${timeframe} leaderboard subscription status:`, status);
       });
   },
 
   async getDailyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
     console.log('Fetching daily leaderboard for date:', date);
-    
+
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
@@ -69,13 +74,12 @@ export const leaderboardService = {
         userMetrics.set(metric.user_id, [...metrics, metric as DailyMetricScore]);
       });
 
-      
       // Calculate points using the same function as Dashboard
-      const userPoints = new Map<string, { total: number, completed: number }>();
+      const userPoints = new Map<string, { total: number; completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
           total: calculateTotalPoints(metrics, 'leaderboardService.getDailyLeaderboard'),
-          completed: metrics.length
+          completed: metrics.length,
         });
       });
 
@@ -97,7 +101,7 @@ export const leaderboardService = {
             total_points: points.total,
             metrics_completed: points.completed,
             rank: index + 1,
-            show: profile?.show_profile !== false
+            show: profile?.show_profile !== false,
           };
         })
         .sort((a, b) => b.total_points - a.total_points)
@@ -131,19 +135,20 @@ export const leaderboardService = {
 
     if (error) {
       console.error('Error fetching user profile:', error);
-      
+
       // If profile not found, try to create one from auth metadata
-      if (error.code === 'PGRST116') { // Record not found
+      if (error.code === 'PGRST116') {
+        // Record not found
         try {
           // Get user metadata from auth
           const { data: userData } = await supabase.auth.getUser();
           if (userData?.user) {
             const metadata = userData.user.user_metadata;
             const defaultProfile = this.mapMetadataToProfile(metadata);
-            
+
             // Create profile from metadata
             await this.updateUserProfile(userId, defaultProfile);
-            
+
             // Return the newly created profile
             return {
               id: userId,
@@ -156,7 +161,7 @@ export const leaderboardService = {
           console.error('Error creating profile from metadata:', createError);
         }
       }
-      
+
       throw error;
     }
 
@@ -166,7 +171,7 @@ export const leaderboardService = {
   async updateUserProfile(userId: string, profile: Partial<UserProfile>) {
     // Ensure we have a valid display name
     const displayName = profile.display_name?.trim() || null;
-    
+
     const { data, error } = await supabase
       .from('user_profiles')
       .upsert({
@@ -186,15 +191,15 @@ export const leaderboardService = {
       throw error;
     } else {
       console.log('User profile updated successfully:', data);
-      
+
       // Also update the auth metadata to keep display name in sync
       try {
         const { error: metadataError } = await supabase.auth.updateUser({
-          data: { 
-            displayName: displayName 
-          }
+          data: {
+            displayName: displayName,
+          },
         });
-        
+
         if (metadataError) {
           console.warn('Failed to update auth metadata with display name:', metadataError);
         }
@@ -217,12 +222,15 @@ export const leaderboardService = {
     };
   },
 
-  async createUserProfile(userId: string, profile: Partial<UserProfile>): Promise<UserProfile | null> {
+  async createUserProfile(
+    userId: string,
+    profile: Partial<UserProfile>
+  ): Promise<UserProfile | null> {
     console.log(`[leaderboardService] Creating profile for user ${userId}:`, profile);
-    
+
     // Ensure we have a valid display name
     const displayName = profile.display_name?.trim() || null;
-    
+
     try {
       // Check if profile already exists
       const { data: existing, error: checkError } = await supabase
@@ -230,18 +238,19 @@ export const leaderboardService = {
         .select('id')
         .eq('id', userId)
         .maybeSingle();
-        
-      if (checkError && checkError.code !== 'PGRST116') { // Not found error is ok
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        // Not found error is ok
         console.error('[leaderboardService] Error checking for existing profile:', checkError);
         throw checkError;
       }
-      
+
       // If profile already exists, update it
       if (existing) {
         console.log('[leaderboardService] Profile already exists, updating instead');
         return this.updateUserProfile(userId, profile);
       }
-      
+
       // Create minimal required fields for new profile
       const newProfile = {
         id: userId,
@@ -252,27 +261,27 @@ export const leaderboardService = {
         measurement_system: 'metric',
         avatar_url: null as string | null,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
-      
+
       // Override defaults with provided values
       if (profile.show_profile !== undefined) newProfile.show_profile = profile.show_profile;
       if (profile.device_type) newProfile.device_type = profile.device_type;
       if (profile.measurement_system) newProfile.measurement_system = profile.measurement_system;
       if (profile.avatar_url) newProfile.avatar_url = profile.avatar_url;
-      
+
       // Create the profile
       const { data, error } = await supabase
         .from('user_profiles')
         .insert(newProfile)
         .select('*')
         .single();
-      
+
       if (error) {
         console.error('[leaderboardService] Error creating user profile:', error);
         throw error;
       }
-      
+
       console.log('[leaderboardService] Profile created successfully:', data);
       return data;
     } catch (error) {
@@ -289,15 +298,15 @@ export const leaderboardService = {
         console.log('Using avatar index:', uri);
         return uri;
       }
-      
+
       // Otherwise proceed with the original file upload logic
       // Convert URI to Blob with explicit type
       const response = await fetch(uri);
       if (!response.ok) throw new Error('Failed to fetch image');
-      
+
       const blob = await response.blob();
       if (!blob) throw new Error('Failed to create blob from image');
-      
+
       // Generate a unique filename with fallback extension
       const fileExt = uri.split('.').pop() || 'jpg';
       const fileName = `${userId}-${Date.now()}.${fileExt}`;
@@ -309,7 +318,7 @@ export const leaderboardService = {
         .upload(filePath, blob, {
           contentType: blob.type || 'image/jpeg',
           cacheControl: '3600',
-          upsert: true
+          upsert: true,
         });
 
       if (uploadError) {
@@ -322,9 +331,7 @@ export const leaderboardService = {
       }
 
       // Get the public URL
-      const { data: urlData } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
 
       if (!urlData?.publicUrl) {
         throw new Error('Failed to get public URL for uploaded avatar');
@@ -340,7 +347,7 @@ export const leaderboardService = {
   async getWeeklyLeaderboard(date: string): Promise<LeaderboardEntry[]> {
     console.log('Fetching weekly leaderboard for date:', date);
     const weekStart = getWeekStart(new Date(date));
-    
+
     try {
       const { data: metricsData, error: metricsError } = await supabase
         .from('daily_metric_scores')
@@ -358,11 +365,11 @@ export const leaderboardService = {
       });
 
       // Calculate points using the same function as Dashboard
-      const userPoints = new Map<string, { total: number, completed: number }>();
+      const userPoints = new Map<string, { total: number; completed: number }>();
       userMetrics.forEach((metrics, userId) => {
         userPoints.set(userId, {
           total: calculateTotalPoints(metrics, 'leaderboardService.getWeeklyLeaderboard'),
-          completed: metrics.length
+          completed: metrics.length,
         });
       });
 
@@ -384,7 +391,7 @@ export const leaderboardService = {
             total_points: points.total,
             metrics_completed: points.completed,
             rank: index + 1,
-            show: profile?.show_profile !== false
+            show: profile?.show_profile !== false,
           };
         })
         .sort((a, b) => b.total_points - a.total_points)

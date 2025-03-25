@@ -21,14 +21,12 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 500,
-      useNativeDriver: true
+      useNativeDriver: true,
     }).start();
   }, []);
 
   return (
-    <Animated.View 
-      style={[styles.container, { opacity: fadeAnim }]}
-    >
+    <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       <LottieView
         ref={lottieRef}
         source={require('../../../src/assets/animations/error.json')}
@@ -36,24 +34,18 @@ export const ErrorView: React.FC<ErrorViewProps> = ({ error, onRetry }) => {
         autoPlay
         loop
       />
-      
-      <Text 
-        variant="headlineSmall" 
-        style={[styles.title, { color: theme.colors.error }]}
-      >
+
+      <Text variant="headlineSmall" style={[styles.title, { color: theme.colors.error }]}>
         Oops! Something went wrong
       </Text>
-      
-      <Text 
-        variant="bodyMedium" 
-        style={styles.message}
-      >
+
+      <Text variant="bodyMedium" style={styles.message}>
         {error.message}
       </Text>
 
       {onRetry && (
-        <Button 
-          mode="contained" 
+        <Button
+          mode="contained"
           onPress={onRetry}
           style={styles.button}
           buttonColor={theme.colors.primary}

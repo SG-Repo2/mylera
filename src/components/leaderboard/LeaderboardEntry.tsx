@@ -18,14 +18,14 @@ interface Props {
 /**
  * Displays individual leaderboard entry in either standard or podium layout.
  */
-export function LeaderboardEntry({ 
-  entry, 
-  highlight = false, 
+export function LeaderboardEntry({
+  entry,
+  highlight = false,
   variant = 'standard',
-  position 
+  position,
 }: Props) {
   const { display_name, avatar_url, total_points, rank } = entry;
-  
+
   // Animation values
   const rankAnim = useRef(new Animated.Value(rank)).current;
   const pointsAnim = useRef(new Animated.Value(total_points)).current;
@@ -36,7 +36,7 @@ export function LeaderboardEntry({
   // Animate when rank or points change
   useEffect(() => {
     const animations = [];
-    
+
     // Rank changed
     if (prevRankRef.current !== rank) {
       animations.push(
@@ -48,7 +48,7 @@ export function LeaderboardEntry({
       );
       prevRankRef.current = rank;
     }
-    
+
     // Points changed
     if (prevPointsRef.current !== total_points) {
       animations.push(
@@ -58,7 +58,7 @@ export function LeaderboardEntry({
           useNativeDriver: true,
         })
       );
-      
+
       // Add scale pulse animation
       animations.push(
         Animated.sequence([
@@ -74,10 +74,10 @@ export function LeaderboardEntry({
           }),
         ])
       );
-      
+
       prevPointsRef.current = total_points;
     }
-    
+
     if (animations.length > 0) {
       Animated.parallel(animations).start();
     }
@@ -86,28 +86,32 @@ export function LeaderboardEntry({
   const renderAvatar = (isPodium = false) => {
     if (avatar_url) {
       return (
-        <AvatarDisplay 
+        <AvatarDisplay
           avatarId={avatar_url}
-          
           style={[
             leaderboardEntryStyles.avatar,
             isPodium && position === 1 && leaderboardEntryStyles.firstPlaceAvatar,
-            isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar
+            isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar,
           ]}
         />
       );
     }
-    
+
     return (
-      <View 
+      <View
         style={[
           leaderboardEntryStyles.avatarPlaceholder,
           isPodium && position === 1 && leaderboardEntryStyles.firstPlaceAvatar,
-          isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar
-        ]} 
+          isPodium && (position === 2 || position === 3) && leaderboardEntryStyles.podiumAvatar,
+        ]}
         testID="avatar-placeholder"
       >
-        <Text style={[leaderboardEntryStyles.avatarLetter, highlight && leaderboardEntryStyles.highlightText]}>
+        <Text
+          style={[
+            leaderboardEntryStyles.avatarLetter,
+            highlight && leaderboardEntryStyles.highlightText,
+          ]}
+        >
           {display_name?.charAt(0).toUpperCase() ?? '?'}
         </Text>
       </View>
@@ -117,7 +121,10 @@ export function LeaderboardEntry({
   if (variant === 'podium') {
     return (
       <View
-        style={[leaderboardEntryStyles.podiumContainer, highlight && leaderboardEntryStyles.highlightBackground]}
+        style={[
+          leaderboardEntryStyles.podiumContainer,
+          highlight && leaderboardEntryStyles.highlightBackground,
+        ]}
         testID="leaderboard-entry-podium"
       >
         {position === 1 && (
@@ -128,20 +135,15 @@ export function LeaderboardEntry({
             style={leaderboardEntryStyles.crown}
           />
         )}
-        <Animated.View 
-          style={[
-            leaderboardEntryStyles.podiumContent,
-            { transform: [{ scale: scaleAnim }] }
-          ]}
+        <Animated.View
+          style={[leaderboardEntryStyles.podiumContent, { transform: [{ scale: scaleAnim }] }]}
         >
-          <View style={leaderboardEntryStyles.podiumAvatarContainer}>
-            {renderAvatar(true)}
-          </View>
-          <Text 
+          <View style={leaderboardEntryStyles.podiumAvatarContainer}>{renderAvatar(true)}</View>
+          <Text
             style={[
-              leaderboardEntryStyles.podiumDisplayName, 
+              leaderboardEntryStyles.podiumDisplayName,
               highlight && leaderboardEntryStyles.highlightText,
-              position === 1 && leaderboardEntryStyles.firstPlaceText
+              position === 1 && leaderboardEntryStyles.firstPlaceText,
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -149,19 +151,21 @@ export function LeaderboardEntry({
           >
             {display_name}
           </Text>
-          <Animated.Text 
+          <Animated.Text
             style={[
               leaderboardEntryStyles.podiumPoints,
               highlight && leaderboardEntryStyles.highlightText,
               position === 1 && leaderboardEntryStyles.firstPlacePoints,
               {
-                transform: [{
-                  translateY: pointsAnim.interpolate({
-                    inputRange: [total_points - 100, total_points, total_points + 100],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: pointsAnim.interpolate({
+                      inputRange: [total_points - 100, total_points, total_points + 100],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             adjustsFontSizeToFit
             minimumFontScale={0.7}
@@ -174,33 +178,35 @@ export function LeaderboardEntry({
   }
 
   return (
-    <View 
-      style={[leaderboardEntryStyles.container, highlight && leaderboardEntryStyles.highlightBackground]}
+    <View
+      style={[
+        leaderboardEntryStyles.container,
+        highlight && leaderboardEntryStyles.highlightBackground,
+      ]}
       accessibilityRole="text"
       accessibilityLabel={`${display_name}, Rank ${rank}, ${total_points} points`}
-      accessibilityHint={highlight ? "This is your position on the leaderboard" : undefined}
+      accessibilityHint={highlight ? 'This is your position on the leaderboard' : undefined}
       testID="leaderboard-entry"
     >
-      <Animated.View 
-        style={[
-          leaderboardEntryStyles.mainContent,
-          { transform: [{ scale: scaleAnim }] }
-        ]}
+      <Animated.View
+        style={[leaderboardEntryStyles.mainContent, { transform: [{ scale: scaleAnim }] }]}
       >
         {/* Rank */}
         <View style={leaderboardEntryStyles.rankContainer}>
-          <Animated.Text 
+          <Animated.Text
             style={[
-              leaderboardEntryStyles.rankText, 
+              leaderboardEntryStyles.rankText,
               highlight && leaderboardEntryStyles.highlightText,
               {
-                transform: [{
-                  translateY: rankAnim.interpolate({
-                    inputRange: [rank - 1, rank, rank + 1],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: rankAnim.interpolate({
+                      inputRange: [rank - 1, rank, rank + 1],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             testID="rank-text"
           >
@@ -209,14 +215,15 @@ export function LeaderboardEntry({
         </View>
 
         {/* Avatar */}
-        <View style={leaderboardEntryStyles.avatarContainer}>
-          {renderAvatar()}
-        </View>
+        <View style={leaderboardEntryStyles.avatarContainer}>{renderAvatar()}</View>
 
         {/* User Info */}
         <View style={leaderboardEntryStyles.infoContainer}>
-          <Text 
-            style={[leaderboardEntryStyles.displayName, highlight && leaderboardEntryStyles.highlightText]}
+          <Text
+            style={[
+              leaderboardEntryStyles.displayName,
+              highlight && leaderboardEntryStyles.highlightText,
+            ]}
             testID="display-name"
             numberOfLines={1}
             adjustsFontSizeToFit
@@ -224,18 +231,20 @@ export function LeaderboardEntry({
           >
             {display_name}
           </Text>
-          <Animated.Text 
+          <Animated.Text
             style={[
-              leaderboardEntryStyles.pointsText, 
+              leaderboardEntryStyles.pointsText,
               highlight && leaderboardEntryStyles.highlightText,
               {
-                transform: [{
-                  translateY: pointsAnim.interpolate({
-                    inputRange: [total_points - 100, total_points, total_points + 100],
-                    outputRange: [-20, 0, 20]
-                  })
-                }]
-              }
+                transform: [
+                  {
+                    translateY: pointsAnim.interpolate({
+                      inputRange: [total_points - 100, total_points, total_points + 100],
+                      outputRange: [-20, 0, 20],
+                    }),
+                  },
+                ],
+              },
             ]}
             testID="points-text"
             adjustsFontSizeToFit

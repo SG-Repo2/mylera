@@ -27,7 +27,13 @@ interface DataPoint {
   isEmpty: boolean;
 }
 
-export const BarChart = React.memo(function BarChart({ metricType, userId, date, provider, measurementSystem }: BarChartProps) {
+export const BarChart = React.memo(function BarChart({
+  metricType,
+  userId,
+  date,
+  provider,
+  measurementSystem,
+}: BarChartProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DataPoint[]>([]);
@@ -48,13 +54,13 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
         minValue: 0,
         yMin: 0,
         yMax: 1,
-        range: 1
+        range: 1,
       };
     }
 
     const validData = data.map(d => ({
       ...d,
-      value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0
+      value: typeof d.value === 'number' && !isNaN(d.value) ? d.value : 0,
     }));
 
     const maxValue = Math.max(...validData.map(d => d.value), 1);
@@ -70,13 +76,13 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
       minValue,
       yMin,
       yMax,
-      range
+      range,
     };
   }, [data]);
 
   // Calculate Y-axis configuration using useMemo
-  const yAxisConfig = useMemo(() => 
-    getYAxisConfig(metricType, chartMetrics.maxValue, measurementSystem),
+  const yAxisConfig = useMemo(
+    () => getYAxisConfig(metricType, chartMetrics.maxValue, measurementSystem),
     [metricType, chartMetrics.maxValue, measurementSystem]
   );
 
@@ -88,7 +94,7 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     const fetchData = async () => {
       try {
         console.log('Fetching native health data for:', { userId, metricType });
-        
+
         // Initialize provider
         await provider.initialize();
 
@@ -103,11 +109,7 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
         console.log('Date range:', { startDateStr, endDateStr });
 
         // Get native health data for the full range
-        const rawData = await provider.fetchRawMetrics(
-          startDateTime,
-          endDateTime,
-          [metricType]
-        );
+        const rawData = await provider.fetchRawMetrics(startDateTime, endDateTime, [metricType]);
 
         const normalizedData = provider.normalizeMetrics(rawData, metricType);
         console.log('Native health data count:', normalizedData.length);
@@ -128,25 +130,23 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
           const d = new Date();
           d.setDate(d.getDate() + i);
           const dateStr = d.toLocaleDateString('en-CA');
-          
+
           // Get value directly from native data
           const value = nativeDataMap.get(dateStr) || 0;
-          
+
           const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
           const dayName = days[d.getDay()];
-          
+
           const isToday = i === 0;
           const isYesterday = i === -1;
-          
+
           filledData.push({
             date: dateStr,
             value,
-            dayName: isToday ? `${dayName}\nToday` : 
-                    isYesterday ? `${dayName}\nYest.` : 
-                    dayName,
+            dayName: isToday ? `${dayName}\nToday` : isYesterday ? `${dayName}\nYest.` : dayName,
             isToday,
             isEmpty: value === 0,
-            animation: new Animated.Value(0)
+            animation: new Animated.Value(0),
           });
           console.log(`${dayName} (${dateStr}): ${value}`);
         }
@@ -158,22 +158,21 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
         const animations = filledData.map((item, index) =>
           Animated.sequence([
             // Dynamic delay based on position for more natural sequence
-            Animated.delay(index * 40),  // Faster initial delay for better rhythm
+            Animated.delay(index * 40), // Faster initial delay for better rhythm
             Animated.spring(item.animation, {
               toValue: 1,
               useNativeDriver: false, // Required for height animation
-              stiffness: 200,         // Better stiffness for chart animations
-              damping: 14,            // Refined damping for more professional movement
-              mass: 0.7,              // Lighter mass for faster initial animation
+              stiffness: 200, // Better stiffness for chart animations
+              damping: 14, // Refined damping for more professional movement
+              mass: 0.7, // Lighter mass for faster initial animation
               restDisplacementThreshold: 0.001, // More precise stopping behavior
-              restSpeedThreshold: 0.001,        // More precise stopping behavior
-            })
+              restSpeedThreshold: 0.001, // More precise stopping behavior
+            }),
           ])
         );
 
         // Better coordinated staggered animation start
         Animated.stagger(30, animations).start();
-
       } catch (err) {
         if (!mounted) return;
         console.error('Error fetching native health data:', err);
@@ -183,7 +182,9 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
     };
 
     fetchData();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [metricType, userId, date, provider]);
 
   const renderContent = () => {
@@ -217,34 +218,35 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
       <>
         <View style={styles.yAxisLabels}>
           {yAxisConfig.tickValues.map((value, index) => (
-            <View 
-              key={index} 
+            <View
+              key={index}
               style={[
                 styles.tickContainer,
-                { 
-                  top: `${100 - ((value - yAxisConfig.yMin) / (yAxisConfig.yMax - yAxisConfig.yMin) * 100)}%`,
-                  zIndex: 5
-                }
+                {
+                  top: `${100 - ((value - yAxisConfig.yMin) / (yAxisConfig.yMax - yAxisConfig.yMin)) * 100}%`,
+                  zIndex: 5,
+                },
               ]}
             >
               <Text
                 variant="bodySmall"
-                style={{ 
-                  color: theme.colors.onSurface, 
-                  fontWeight: index === 0 || index === yAxisConfig.tickValues.length - 1 ? '600' : '400',
-                  fontSize: 10
+                style={{
+                  color: theme.colors.onSurface,
+                  fontWeight:
+                    index === 0 || index === yAxisConfig.tickValues.length - 1 ? '600' : '400',
+                  fontSize: 10,
                 }}
               >
                 {formatTickValue(value, metricType, measurementSystem)}
               </Text>
-              <View 
+              <View
                 style={[
                   styles.gridLine,
-                  { 
+                  {
                     backgroundColor: brandColors.primary,
-                    opacity: index === 0 ? 0.15 : 0.05
-                  }
-                ]} 
+                    opacity: index === 0 ? 0.15 : 0.05,
+                  },
+                ]}
               />
             </View>
           ))}
@@ -252,7 +254,7 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
 
         <View style={styles.chartArea}>
           <View style={styles.gridContainer}>
-            {[0, 25, 50, 75, 100].map((percent) => (
+            {[0, 25, 50, 75, 100].map(percent => (
               <View
                 key={percent}
                 style={[
@@ -260,8 +262,8 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                   {
                     top: `${percent}%`,
                     backgroundColor: brandColors.primary,
-                    opacity: percent === 0 ? 0.15 : 0.05
-                  }
+                    opacity: percent === 0 ? 0.15 : 0.05,
+                  },
                 ]}
               />
             ))}
@@ -274,75 +276,83 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
                 Math.min(normalizedValue * chartHeight, chartHeight),
                 point.isEmpty ? 2 : 4
               );
-              
-              const color = point.isEmpty 
-                ? theme.colors.surfaceDisabled 
+
+              const color = point.isEmpty
+                ? theme.colors.surfaceDisabled
                 : healthMetrics[metricType].color;
-              
+
               return (
                 <View key={point.date} style={styles.barWrapper}>
                   <View style={styles.barLabelContainer}>
-                    <Text variant="bodySmall" style={[styles.barValue, { 
-                      color: theme.colors.onSurface,
-                      opacity: point.isToday ? 1 : 0.9,
-                      display: point.isEmpty ? 'none' : 'flex'
-                    }]}>
+                    <Text
+                      variant="bodySmall"
+                      style={[
+                        styles.barValue,
+                        {
+                          color: theme.colors.onSurface,
+                          opacity: point.isToday ? 1 : 0.9,
+                          display: point.isEmpty ? 'none' : 'flex',
+                        },
+                      ]}
+                    >
                       {formatTickValue(point.value, metricType, measurementSystem)}
                     </Text>
                   </View>
-                  <Animated.View style={[styles.barContainer, {
-                    height: point.animation.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, barHeight],
-                    }),
-                    width: barWidth,
-                    transform: [{
-                      scaleY: point.animation.interpolate({
-                        inputRange: [0, 0.7, 0.9, 1],
-                        outputRange: [0.3, 1.06, 1.02, 1], // Refined overshoot for natural movement
-                      })
-                    }],
-                    transformOrigin: 'bottom',
-                    // Adding subtle shadow for better visual depth
-                    shadowColor: color,
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: point.isEmpty ? 0 : 0.1,
-                    shadowRadius: 2,
-                  }]}>
-                    <View 
+                  <Animated.View
+                    style={[
+                      styles.barContainer,
+                      {
+                        height: point.animation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, barHeight],
+                        }),
+                        width: barWidth,
+                        transform: [
+                          {
+                            scaleY: point.animation.interpolate({
+                              inputRange: [0, 0.7, 0.9, 1],
+                              outputRange: [0.3, 1.06, 1.02, 1], // Refined overshoot for natural movement
+                            }),
+                          },
+                        ],
+                        transformOrigin: 'bottom',
+                        // Adding subtle shadow for better visual depth
+                        shadowColor: color,
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: point.isEmpty ? 0 : 0.1,
+                        shadowRadius: 2,
+                      },
+                    ]}
+                  >
+                    <View
                       style={[
-                        styles.barOverlay, 
+                        styles.barOverlay,
                         {
-                          backgroundColor: point.isEmpty 
+                          backgroundColor: point.isEmpty
                             ? theme.colors.surfaceDisabled + '80'
                             : color + '1A',
-                        }
-                      ]} 
+                        },
+                      ]}
                     />
-                    
+
                     <Svg height="100%" width="100%">
-                      <Rect
-                        x="0"
-                        y="0"
-                        width="100%"
-                        height="100%"
-                        rx={4}
-                        ry={4}
-                        fill={color}
-                      />
+                      <Rect x="0" y="0" width="100%" height="100%" rx={4} ry={4} fill={color} />
                     </Svg>
                   </Animated.View>
-                  <Text variant="bodySmall" style={[
-                    styles.dayLabel,
-                    { color: theme.colors.onSurface },
-                    point.isToday && { 
-                      fontWeight: '600',
-                      opacity: 1
-                    },
-                    !point.isToday && {
-                      opacity: 0.7
-                    }
-                  ]}>
+                  <Text
+                    variant="bodySmall"
+                    style={[
+                      styles.dayLabel,
+                      { color: theme.colors.onSurface },
+                      point.isToday && {
+                        fontWeight: '600',
+                        opacity: 1,
+                      },
+                      !point.isToday && {
+                        opacity: 0.7,
+                      },
+                    ]}
+                  >
                     {point.dayName}
                   </Text>
                 </View>
@@ -355,12 +365,15 @@ export const BarChart = React.memo(function BarChart({ metricType, userId, date,
   };
 
   return (
-    <View style={[styles.container, { 
-      backgroundColor: error 
-        ? theme.colors.errorContainer 
-        : theme.colors.surface,
-      overflow: 'visible' // Explicitly set overflow to avoid shadow clipping
-    }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: error ? theme.colors.errorContainer : theme.colors.surface,
+          overflow: 'visible', // Explicitly set overflow to avoid shadow clipping
+        },
+      ]}
+    >
       {renderContent()}
     </View>
   );

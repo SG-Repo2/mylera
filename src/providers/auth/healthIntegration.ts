@@ -11,18 +11,15 @@ export async function initializeHealthProvider(
   setHealthPermissionStatus?: (status: PermissionStatus) => void
 ) {
   console.log('[healthIntegration] Initializing health provider...');
-  
+
   try {
     // Initialize provider with user ID
-    await initializeHealthProviderForUser(
-      userId, 
-      setHealthPermissionStatus || (() => {})
-    );
-    
+    await initializeHealthProviderForUser(userId, setHealthPermissionStatus || (() => {}));
+
     // Get the initialized provider
     const provider = HealthProviderFactory.getProvider(deviceType);
     console.log('[healthIntegration] Health provider initialized successfully');
-    
+
     return provider;
   } catch (error) {
     console.error('[healthIntegration] Error initializing health provider:', error);
@@ -38,30 +35,27 @@ export async function requestHealthPermissionsWithTimeout(
   timeoutMs: number = 6000
 ): Promise<PermissionStatus> {
   console.log('[healthIntegration] Requesting health permissions with timeout...');
-  
+
   try {
     const provider = HealthProviderFactory.getProvider();
-    
+
     // Ensure provider is properly initialized
     await provider.initializeWithPermissions(userId);
-    
+
     // Create timeout promise
-    const timeoutPromise = new Promise<PermissionStatus>((resolve) => {
+    const timeoutPromise = new Promise<PermissionStatus>(resolve => {
       const timeoutId = setTimeout(() => {
         console.warn('[healthIntegration] Permission request timed out after', timeoutMs, 'ms');
         resolve('not_determined');
       }, timeoutMs);
-      
+
       // Cleanup timeout if promise is completed before timeout
       return () => clearTimeout(timeoutId);
     });
-    
+
     // Race between permission request and timeout
-    const status = await Promise.race([
-      provider.requestPermissions(),
-      timeoutPromise
-    ]);
-    
+    const status = await Promise.race([provider.requestPermissions(), timeoutPromise]);
+
     console.log('[healthIntegration] Permission request completed with status:', status);
     return status;
   } catch (error) {
@@ -103,4 +97,4 @@ export async function fetchInitialHealthMetrics() {
     console.warn('[healthIntegration] Error fetching initial health metrics:', error);
     throw error;
   }
-} 
+}

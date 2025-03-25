@@ -216,7 +216,7 @@ export const profileStyles = StyleSheet.create({
   avatarOption: {
     padding: spacing.sm,
     alignItems: 'center',
-    flex: 1/3,
+    flex: 1 / 3,
   },
   avatarOptionImage: {
     width: 80,

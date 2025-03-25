@@ -1,9 +1,9 @@
 // Define the core MetricType type that matches healthMetrics config
-export type MetricType = 
-  | 'steps' 
-  | 'distance' 
-  | 'calories' 
-  | 'heart_rate' 
+export type MetricType =
+  | 'steps'
+  | 'distance'
+  | 'calories'
+  | 'heart_rate'
   | 'exercise'
   | 'basal_calories'
   | 'flights_climbed';

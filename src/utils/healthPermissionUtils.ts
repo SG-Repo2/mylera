@@ -7,7 +7,7 @@ export async function verifyHealthPermission(
 ): Promise<boolean> {
   try {
     const permissionState = await provider.checkPermissionsStatus();
-    
+
     if (permissionState.status !== 'granted') {
       logger.warn(
         LogCategory.Health,
@@ -15,7 +15,7 @@ export async function verifyHealthPermission(
       );
       return false;
     }
-    
+
     return true;
   } catch (error) {
     logger.error(

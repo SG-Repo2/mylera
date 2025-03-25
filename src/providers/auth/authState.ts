@@ -15,7 +15,7 @@ export function initializeAuthState(): AuthState {
     error: null,
     healthPermissionStatus: null,
     healthDataInitialized: false,
-    isAuthNavigationLocked: false
+    isAuthNavigationLocked: false,
   };
 }
 
@@ -30,21 +30,23 @@ export function setupAuthStateListener(
   setHealthPermissionStatus: Dispatch<SetStateAction<PermissionStatus | null>>,
   onSessionChange: (session: Session | null) => void
 ) {
-  const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange(async (_event, session) => {
     setSession(session);
     setUser(session?.user ?? null);
-    
+
     // Reset health data initialization state on session change
     setHealthDataInitialized(false);
-    
+
     // If session is null (logged out), reset health permissions
     if (!session) {
       setHealthPermissionStatus(null);
     }
-    
+
     // Call the session change callback
     await onSessionChange(session);
-    
+
     console.log('[authState] Auth state changed:', { session, user: session?.user });
     setLoading(false);
   });
@@ -61,17 +63,19 @@ export async function checkInitialSession(
   setLoading: Dispatch<SetStateAction<boolean>>,
   onSessionFound: (session: Session) => Promise<void>
 ) {
-  const { data: { session } } = await supabase.auth.getSession();
-  
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
   setSession(session ?? null);
   setUser(session?.user ?? null);
-  
+
   if (session?.user) {
     await onSessionFound(session);
   }
-  
+
   console.log('[authState] Initial session check complete');
   setLoading(false);
-  
+
   return session;
-} 
+}

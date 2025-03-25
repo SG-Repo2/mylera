@@ -1,2 +1,2 @@
 export { FitbitHealthProvider } from './FitbitHealthProvider';
-export * from './types'; 
+export * from './types';

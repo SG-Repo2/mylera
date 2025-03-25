@@ -12,11 +12,11 @@ export enum LogCategory {
   Error = 'error',
   Provider = 'provider',
   Rendering = 'rendering',
-  Lifecycle = "Lifecycle",
-  User = "User",
-  Database = "Database",
-  UI = "UI",
-  Navigation = "Navigation"
+  Lifecycle = 'Lifecycle',
+  User = 'User',
+  Database = 'Database',
+  UI = 'UI',
+  Navigation = 'Navigation',
 }
 
 interface LogMetadata {
@@ -49,7 +49,11 @@ class Logger {
     return Logger.instance;
   }
 
-  private createLogMetadata(category: LogCategory, operationId?: string, userId?: string): LogMetadata {
+  private createLogMetadata(
+    category: LogCategory,
+    operationId?: string,
+    userId?: string
+  ): LogMetadata {
     return {
       category,
       operationId,
@@ -59,45 +63,73 @@ class Logger {
     };
   }
 
-  private formatMessage(level: LogLevel, metadata: LogMetadata, message: string, ...args: any[]): string[] {
+  private formatMessage(
+    level: LogLevel,
+    metadata: LogMetadata,
+    message: string,
+    ...args: any[]
+  ): string[] {
     const prefix = `[${metadata.timestamp}] [${level.toUpperCase()}] [${metadata.category}]`;
     const metadataStr = [
       metadata.operationId && `[op:${metadata.operationId}]`,
       metadata.userId && `[user:${metadata.userId}]`,
-    ].filter(Boolean).join(' ');
+    ]
+      .filter(Boolean)
+      .join(' ');
 
-    return [
-      `${prefix}${metadataStr ? ' ' + metadataStr : ''} ${message}`,
-      ...args
-    ];
+    return [`${prefix}${metadataStr ? ' ' + metadataStr : ''} ${message}`, ...args];
   }
 
   private shouldLog(level: LogLevel): boolean {
     return logLevels[level] >= logLevels[this.logLevel];
   }
 
-  debug(category: LogCategory, message: string, operationId?: string, userId?: string, ...args: any[]): void {
+  debug(
+    category: LogCategory,
+    message: string,
+    operationId?: string,
+    userId?: string,
+    ...args: any[]
+  ): void {
     if (this.shouldLog('debug')) {
       const metadata = this.createLogMetadata(category, operationId, userId);
       console.debug(...this.formatMessage('debug', metadata, message, ...args));
     }
   }
 
-  info(category: LogCategory, message: string, operationId?: string, userId?: string, ...args: any[]): void {
+  info(
+    category: LogCategory,
+    message: string,
+    operationId?: string,
+    userId?: string,
+    ...args: any[]
+  ): void {
     if (this.shouldLog('info')) {
       const metadata = this.createLogMetadata(category, operationId, userId);
       console.info(...this.formatMessage('info', metadata, message, ...args));
     }
   }
 
-  warn(category: LogCategory, message: string, operationId?: string, userId?: string, ...args: any[]): void {
+  warn(
+    category: LogCategory,
+    message: string,
+    operationId?: string,
+    userId?: string,
+    ...args: any[]
+  ): void {
     if (this.shouldLog('warn')) {
       const metadata = this.createLogMetadata(category, operationId, userId);
       console.warn(...this.formatMessage('warn', metadata, message, ...args));
     }
   }
 
-  error(category: LogCategory, message: string, operationId?: string, userId?: string, ...args: any[]): void {
+  error(
+    category: LogCategory,
+    message: string,
+    operationId?: string,
+    userId?: string,
+    ...args: any[]
+  ): void {
     if (this.shouldLog('error')) {
       const metadata = this.createLogMetadata(category, operationId, userId);
       console.error(...this.formatMessage('error', metadata, message, ...args));
@@ -109,4 +141,4 @@ class Logger {
   }
 }
 
-export const logger = Logger.getInstance(); 
+export const logger = Logger.getInstance();

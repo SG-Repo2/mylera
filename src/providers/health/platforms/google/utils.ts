@@ -13,7 +13,7 @@ export async function retryOperation<T>(
   initialDelay: number = 1000
 ): Promise<T> {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -25,14 +25,14 @@ export async function retryOperation<T>(
       return await operation();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
-      const isNetworkError = 
-        lastError.message.includes('Network') || 
+
+      const isNetworkError =
+        lastError.message.includes('Network') ||
         lastError.message.includes('timeout') ||
         lastError.message.includes('connection') ||
         lastError.message.includes('ECONNREFUSED') ||
         lastError.message.includes('ECONNRESET');
-        
+
       // Only retry if it's a network error
       if (!isNetworkError || attempt === maxRetries) {
         logger.error(
@@ -42,7 +42,7 @@ export async function retryOperation<T>(
         );
         throw lastError;
       }
-      
+
       const delay = initialDelay * Math.pow(2, attempt);
       logger.info(
         LogCategory.Health,
@@ -51,7 +51,7 @@ export async function retryOperation<T>(
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  
+
   // This should never be reached due to the throw in the catch block
   throw lastError || new Error('Operation failed after retries');
-} 
+}

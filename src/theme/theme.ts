@@ -8,18 +8,18 @@ export const createElevation = (level: number = 1) => {
   const baseOpacity = 0.12;
   const baseHeight = 1;
   const baseBlur = 3;
-  
+
   // Calculate values based on elevation level
   const opacity = Math.min(baseOpacity * level, 0.35);
   const height = Math.min(baseHeight * level, 10);
   const blur = Math.min(baseBlur * level, 20);
-  
+
   return Platform.select({
     ios: {
       shadowColor: '#000000',
-      shadowOffset: { 
-        width: 0, 
-        height: height 
+      shadowOffset: {
+        width: 0,
+        height: height,
       },
       shadowOpacity: opacity,
       shadowRadius: blur,
@@ -27,7 +27,7 @@ export const createElevation = (level: number = 1) => {
     android: {
       elevation: level * 2, // Android elevation scale
     },
-    default: {}
+    default: {},
   });
 };
 
@@ -36,31 +36,31 @@ export const colorUtils = {
   lighten: (baseColor: string, amount: number = 0.2): string => {
     return Color(baseColor).lighten(amount).rgb().string();
   },
-  
+
   darken: (baseColor: string, amount: number = 0.2): string => {
     return Color(baseColor).darken(amount).rgb().string();
   },
-  
+
   withAlpha: (baseColor: string, alpha: number = 0.5): string => {
     return Color(baseColor).alpha(alpha).rgb().string();
   },
-  
+
   containerize: (baseColor: string): string => {
     return Color(baseColor).lighten(0.4).alpha(0.12).rgb().string();
   },
-  
+
   highlight: (baseColor: string): string => {
     return Color(baseColor).lighten(0.3).rgb().string();
-  }
+  },
 };
 
 // First, let's define our brand colors with semantic meaning
 export const brandColors = {
-  primary: '#183E9F',    // Main brand color for primary actions
-  secondary: '#F7A072',  // Secondary actions and highlights
-  accent: '#A2D5F2',     // Subtle accents and backgrounds
-  success: '#C3E8AC',    // Success states and positive feedback
-  neutral: '#F5E8C7',    // Neutral backgrounds and non-interactive elements
+  primary: '#183E9F', // Main brand color for primary actions
+  secondary: '#F7A072', // Secondary actions and highlights
+  accent: '#A2D5F2', // Subtle accents and backgrounds
+  success: '#C3E8AC', // Success states and positive feedback
+  neutral: '#F5E8C7', // Neutral backgrounds and non-interactive elements
 };
 
 // Create a complete color scheme that follows Material Design 3 principles
@@ -85,7 +85,7 @@ const colors = {
   errorContainer: '#FFCDD2',
   onError: '#FFFFFF',
   onErrorContainer: '#FF5252',
-  background: brandColors.neutral,  // Back to neutral
+  background: brandColors.neutral, // Back to neutral
   onBackground: '#000000',
   surface: '#FFFFFF',
   onSurface: '#000000',
@@ -104,11 +104,12 @@ const colors = {
 
 // Define a complete type scale using Proxima Nova
 const baseFont = {
-  fontFamily: Platform.select({
-    web: 'Proxima Nova',
-    ios: 'Proxima Nova',
-    android: 'ProximaNova',
-  }) ?? 'Proxima Nova',
+  fontFamily:
+    Platform.select({
+      web: 'Proxima Nova',
+      ios: 'Proxima Nova',
+      android: 'ProximaNova',
+    }) ?? 'Proxima Nova',
 };
 
 // Create a comprehensive typescale following Material Design 3 guidelines
@@ -290,7 +291,7 @@ export const theme = {
         ...fontConfig.labelSmall,
         fontWeight: '500' as const,
       },
-    }
+    },
   }),
   roundness: 8,
   animation: {

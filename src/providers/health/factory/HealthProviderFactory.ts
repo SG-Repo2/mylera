@@ -12,13 +12,13 @@ export type HealthPlatform = 'apple' | 'google' | 'fitbit';
  */
 export class HealthProviderError extends Error {
   constructor(
-    message: string, 
+    message: string,
     public readonly code?: string,
     public readonly originalError?: Error
   ) {
     super(message);
     this.name = 'HealthProviderError';
-    
+
     // Preserve the original stack trace if possible
     if (originalError && originalError.stack) {
       this.stack = originalError.stack;
@@ -41,7 +41,7 @@ export class HealthProviderFactory {
   /**
    * Validates if the current platform is supported for OS-based health providers.
    * Fitbit is platform-independent and thus always valid.
-   * 
+   *
    * @param deviceType - The type of device/provider to initialize
    * @throws HealthProviderError if the platform is not supported
    */
@@ -49,25 +49,25 @@ export class HealthProviderFactory {
     if (deviceType === 'fitbit') {
       return; // Fitbit is platform-independent
     }
-    
+
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
-      throw new HealthProviderError(
-        `Unsupported platform: ${Platform.OS}`,
-        'UNSUPPORTED_PLATFORM'
-      );
+      throw new HealthProviderError(`Unsupported platform: ${Platform.OS}`, 'UNSUPPORTED_PLATFORM');
     }
   }
 
   /**
    * Initializes the appropriate health provider based on platform or device type.
-   * 
+   *
    * @param deviceType - 'os' for platform-specific (Apple/Google) or 'fitbit' for Fitbit
    * @returns The initialized health provider
    * @throws HealthProviderError if initialization fails
    */
   private static initializeProvider(deviceType?: 'os' | 'fitbit'): HealthProvider {
     try {
-      logger.info(LogCategory.Health, `[HealthProviderFactory] Initializing provider for device type: ${deviceType || 'os'}`);
+      logger.info(
+        LogCategory.Health,
+        `[HealthProviderFactory] Initializing provider for device type: ${deviceType || 'os'}`
+      );
       this.validatePlatform(deviceType);
 
       if (deviceType === 'fitbit') {
@@ -86,17 +86,22 @@ export class HealthProviderFactory {
 
       return this.instance;
     } catch (error) {
-      this.lastError = error instanceof HealthProviderError
-        ? error
-        : new HealthProviderError(
-            `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            'INITIALIZATION_FAILED',
-            error instanceof Error ? error : undefined
-          );
-      
+      this.lastError =
+        error instanceof HealthProviderError
+          ? error
+          : new HealthProviderError(
+              `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              'INITIALIZATION_FAILED',
+              error instanceof Error ? error : undefined
+            );
+
       this.instance = null;
       this.platform = null;
-      logger.error(LogCategory.Health, '[HealthProviderFactory] Initialization failed:', this.lastError.message);
+      logger.error(
+        LogCategory.Health,
+        '[HealthProviderFactory] Initialization failed:',
+        this.lastError.message
+      );
       throw this.lastError;
     } finally {
       this.isInitializing = false;
@@ -107,7 +112,7 @@ export class HealthProviderFactory {
   /**
    * Gets the appropriate health provider instance for the current platform.
    * Creates a new instance if one doesn't exist.
-   * 
+   *
    * @param deviceType - 'os' for platform-specific (Apple/Google) or 'fitbit' for Fitbit
    * @returns The health provider instance
    * @throws HealthProviderError if initialization is in progress or fails
@@ -125,11 +130,17 @@ export class HealthProviderFactory {
     if (this.isInitializing) {
       if (this.initializationPromise) {
         // If initialization is in progress, return cached promise instead of throwing
-        logger.info(LogCategory.Health, '[HealthProviderFactory] Provider initialization in progress, returning promise...');
+        logger.info(
+          LogCategory.Health,
+          '[HealthProviderFactory] Provider initialization in progress, returning promise...'
+        );
         return this.instance || this.initializeProvider(deviceType);
       } else {
         // This is an inconsistent state that shouldn't happen
-        logger.error(LogCategory.Health, '[HealthProviderFactory] Inconsistent state: isInitializing true but no promise');
+        logger.error(
+          LogCategory.Health,
+          '[HealthProviderFactory] Inconsistent state: isInitializing true but no promise'
+        );
         this.isInitializing = false;
       }
     }
@@ -143,7 +154,7 @@ export class HealthProviderFactory {
   /**
    * Asynchronously gets the health provider. If initialization is in progress,
    * waits for it to complete instead of throwing an error.
-   * 
+   *
    * @param deviceType - 'os' for platform-specific (Apple/Google) or 'fitbit' for Fitbit
    * @returns Promise resolving to the health provider instance
    */
@@ -161,13 +172,13 @@ export class HealthProviderFactory {
         return provider;
       });
     }
-    
+
     try {
       return await this.initializationPromise;
     } catch (error) {
       this.initializationPromise = null; // Clear failed promise
-      throw error instanceof HealthProviderError 
-        ? error 
+      throw error instanceof HealthProviderError
+        ? error
         : new HealthProviderError(
             `Failed to initialize health provider: ${error instanceof Error ? error.message : 'Unknown error'}`,
             'ASYNC_INITIALIZATION_FAILED',
@@ -178,16 +189,13 @@ export class HealthProviderFactory {
 
   /**
    * Gets the current health platform.
-   * 
+   *
    * @returns The current health platform ('apple', 'google', or 'fitbit')
    * @throws HealthProviderError if provider is not initialized
    */
   static getPlatform(): HealthPlatform {
     if (!this.platform) {
-      throw new HealthProviderError(
-        'Health provider not initialized',
-        'PROVIDER_NOT_INITIALIZED'
-      );
+      throw new HealthProviderError('Health provider not initialized', 'PROVIDER_NOT_INITIALIZED');
     }
     return this.platform;
   }
@@ -195,7 +203,7 @@ export class HealthProviderFactory {
   /**
    * Cleans up the current provider instance and releases resources.
    * Should be called when switching users or providers.
-   * 
+   *
    * @returns Promise that resolves when cleanup is complete
    */
   static async cleanup(): Promise<void> {
@@ -214,7 +222,11 @@ export class HealthProviderFactory {
         'CLEANUP_FAILED',
         error instanceof Error ? error : undefined
       );
-      logger.error(LogCategory.Health, '[HealthProviderFactory] Cleanup error:', cleanupError.message);
+      logger.error(
+        LogCategory.Health,
+        '[HealthProviderFactory] Cleanup error:',
+        cleanupError.message
+      );
       throw cleanupError;
     } finally {
       this.instance = null;
@@ -228,13 +240,13 @@ export class HealthProviderFactory {
   /**
    * Resets the current provider instance and creates a new one.
    * Ensures proper cleanup of existing provider before initialization.
-   * 
+   *
    * @param deviceType - 'os' for platform-specific (Apple/Google) or 'fitbit' for Fitbit
    * @returns Promise resolving to the new provider instance
    */
   static async resetProvider(deviceType?: 'os' | 'fitbit'): Promise<HealthProvider> {
     logger.info(LogCategory.Health, '[HealthProviderFactory] Resetting provider...');
-    
+
     // Ensure previous instance is fully cleaned up
     try {
       if (this.instance) {
@@ -254,14 +266,17 @@ export class HealthProviderFactory {
       this.isInitializing = false;
       this.initializationPromise = null;
       this.lastError = null;
-      
+
       logger.info(LogCategory.Health, '[HealthProviderFactory] Provider state reset completed');
     }
-    
+
     // Now initialize a new provider
     try {
       const newProvider = await this.getProviderAsync(deviceType);
-      logger.info(LogCategory.Health, '[HealthProviderFactory] New provider initialized successfully');
+      logger.info(
+        LogCategory.Health,
+        '[HealthProviderFactory] New provider initialized successfully'
+      );
       return newProvider;
     } catch (error) {
       const resetError = new HealthProviderError(
@@ -276,7 +291,7 @@ export class HealthProviderFactory {
 
   /**
    * Gets the last error that occurred during initialization.
-   * 
+   *
    * @returns The last error or null if no error occurred
    */
   static getLastError(): HealthProviderError | null {
@@ -307,17 +322,26 @@ export class HealthProviderFactory {
     if (this.cleanupTimeout) {
       clearTimeout(this.cleanupTimeout);
     }
-    
-    this.cleanupTimeout = setTimeout(() => {
-      if (this.instance) {
-        logger.info(LogCategory.Health, '[HealthProviderFactory] Cleaning up inactive provider instance');
-        this.instance.cleanup().catch(error => {
-          logger.warn(LogCategory.Health, '[HealthProviderFactory] Cleanup error:', error);
-        }).finally(() => {
-          this.instance = null;
-          this.platform = null;
-        });
-      }
-    }, 10 * 60 * 1000); // Single 10-minute timeout
+
+    this.cleanupTimeout = setTimeout(
+      () => {
+        if (this.instance) {
+          logger.info(
+            LogCategory.Health,
+            '[HealthProviderFactory] Cleaning up inactive provider instance'
+          );
+          this.instance
+            .cleanup()
+            .catch(error => {
+              logger.warn(LogCategory.Health, '[HealthProviderFactory] Cleanup error:', error);
+            })
+            .finally(() => {
+              this.instance = null;
+              this.platform = null;
+            });
+        }
+      },
+      10 * 60 * 1000
+    ); // Single 10-minute timeout
   }
 }

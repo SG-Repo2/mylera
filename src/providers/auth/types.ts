@@ -35,4 +35,4 @@ export interface AuthState {
   healthPermissionStatus: PermissionStatus | null;
   healthDataInitialized: boolean;
   isAuthNavigationLocked: boolean;
-} 
+}

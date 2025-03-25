@@ -7,8 +7,8 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Helper function for responsive cards
 const getOptimalCardSize = (screenWidth: number, margin: number = 16, gap: number = 12) => {
   // Calculate available width after margins
-  const availableWidth = screenWidth - (margin * 2);
-  
+  const availableWidth = screenWidth - margin * 2;
+
   // For smaller screens, use a more compact layout
   if (screenWidth < 360) {
     return {
@@ -17,7 +17,7 @@ const getOptimalCardSize = (screenWidth: number, margin: number = 16, gap: numbe
       maxWidth: 180,
     };
   }
-  
+
   // For medium screens, standard layout
   if (screenWidth < 600) {
     return {
@@ -26,7 +26,7 @@ const getOptimalCardSize = (screenWidth: number, margin: number = 16, gap: numbe
       maxWidth: 200,
     };
   }
-  
+
   // For larger screens/tablets, show more cards in a row
   return {
     width: (availableWidth - gap * 2) / 3, // 3 cards per row
@@ -37,7 +37,7 @@ const getOptimalCardSize = (screenWidth: number, margin: number = 16, gap: numbe
 
 const createStyles = (theme: MD3Theme) => {
   const cardSize = getOptimalCardSize(SCREEN_WIDTH);
-  
+
   return StyleSheet.create({
     container: {
       flex: 1,
@@ -62,7 +62,7 @@ const createStyles = (theme: MD3Theme) => {
       minWidth: cardSize.minWidth,
       maxWidth: cardSize.maxWidth,
       marginBottom: 16,
-    }
+    },
   });
 };
 
@@ -74,13 +74,13 @@ export const metricColors = {
   exercise: brandColors.success,
   heart_rate: '#FF5252',
   basal_calories: '#9C27B0',
-  flights_climbed: '#FF9800'
+  flights_climbed: '#FF9800',
 };
 
 export const useMetricCardListStyles = () => {
   const theme = useTheme();
   return {
     styles: createStyles(theme),
-    colors: metricColors
+    colors: metricColors,
   };
 };

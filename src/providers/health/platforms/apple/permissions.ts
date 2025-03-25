@@ -14,10 +14,10 @@ export const HEALTH_PERMISSIONS = {
       AppleHealthKit.Constants.Permissions.HeartRate,
       AppleHealthKit.Constants.Permissions.BasalEnergyBurned,
       AppleHealthKit.Constants.Permissions.FlightsClimbed,
-      AppleHealthKit.Constants.Permissions.AppleExerciseTime
+      AppleHealthKit.Constants.Permissions.AppleExerciseTime,
     ],
-    write: []
-  }
+    write: [],
+  },
 };
 
 /**
@@ -32,10 +32,10 @@ export const permissions = {
       AppleHealthKit.Constants.Permissions.HeartRate,
       AppleHealthKit.Constants.Permissions.BasalEnergyBurned,
       AppleHealthKit.Constants.Permissions.FlightsClimbed,
-      AppleHealthKit.Constants.Permissions.AppleExerciseTime
+      AppleHealthKit.Constants.Permissions.AppleExerciseTime,
     ],
-    write: []
-  }
+    write: [],
+  },
 };
 
 /**
@@ -47,8 +47,11 @@ export async function checkHealthKitAvailability(): Promise<boolean> {
     const available = await promisify<boolean>(AppleHealthKit.isAvailable);
     return available;
   } catch (error) {
-    logger.error(LogCategory.Health, '[AppleHealthProvider] Error checking availability:', 
-      error instanceof Error ? error.message : String(error));
+    logger.error(
+      LogCategory.Health,
+      '[AppleHealthProvider] Error checking availability:',
+      error instanceof Error ? error.message : String(error)
+    );
     return false;
   }
 }

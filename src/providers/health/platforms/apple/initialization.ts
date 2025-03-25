@@ -17,7 +17,7 @@ export function checkPlatformCompatibility(): void {
   // Check iOS version (HealthKit requires iOS 8+)
   const iosVersion = Platform.Version ? parseFloat(Platform.Version.toString()) : null;
   logger.info(LogCategory.Health, `[AppleHealthProvider] iOS version: ${iosVersion}`);
-  
+
   if (iosVersion !== null && iosVersion < 8) {
     logger.error(LogCategory.Health, '[AppleHealthProvider] HealthKit requires iOS 8 or newer');
     throw new Error('HealthKit requires iOS 8 or newer');
@@ -31,26 +31,30 @@ export function checkPlatformCompatibility(): void {
  */
 export async function initializeHealthKit(): Promise<void> {
   logger.info(LogCategory.Health, '[AppleHealthProvider] Initializing HealthKit...');
-  
+
   try {
     await retryHealthKitOperation(
-      () => new Promise<void>((resolve, reject) => {
-        AppleHealthKit.initHealthKit(permissions, (error: string) => {
-          if (error) {
-            reject(new Error(error));
-            return;
-          }
-          resolve();
-        });
-      }),
-      2,  // 2 retries
-      500  // 500ms initial delay
+      () =>
+        new Promise<void>((resolve, reject) => {
+          AppleHealthKit.initHealthKit(permissions, (error: string) => {
+            if (error) {
+              reject(new Error(error));
+              return;
+            }
+            resolve();
+          });
+        }),
+      2, // 2 retries
+      500 // 500ms initial delay
     );
-    
+
     logger.info(LogCategory.Health, '[AppleHealthProvider] Successfully initialized');
   } catch (error) {
-    logger.error(LogCategory.Health, '[AppleHealthProvider] Initialization failed:', 
-      error instanceof Error ? error.message : String(error));
+    logger.error(
+      LogCategory.Health,
+      '[AppleHealthProvider] Initialization failed:',
+      error instanceof Error ? error.message : String(error)
+    );
     throw error;
   }
 }

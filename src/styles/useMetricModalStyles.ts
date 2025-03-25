@@ -6,7 +6,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const createStyles = (theme: MD3Theme) => {
   const surfaceColor = Color(theme.colors.surface);
-  
+
   return StyleSheet.create({
     modalContainer: {
       margin: 0,

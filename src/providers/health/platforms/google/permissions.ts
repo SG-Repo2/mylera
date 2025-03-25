@@ -5,7 +5,7 @@ export const RETRY_CONFIG = {
   MAX_RETRIES: 5,
   INITIAL_DELAY: 2000, // 2 seconds
   MAX_DELAY: 10000, // 10 seconds
-  BACKOFF_FACTOR: 1.5
+  BACKOFF_FACTOR: 1.5,
 };
 
 // Permission request timeout
@@ -18,19 +18,17 @@ export const HEALTH_PERMISSIONS: Permission[] = [
   { accessType: 'read', recordType: 'HeartRate' },
   { accessType: 'read', recordType: 'FloorsClimbed' },
   { accessType: 'read', recordType: 'BasalMetabolicRate' },
-  { accessType: 'read', recordType: 'ExerciseSession' }
+  { accessType: 'read', recordType: 'ExerciseSession' },
 ];
 
 // Group permissions by priority for graceful degradation
 export const PERMISSION_GROUPS = {
   essential: ['Steps', 'Distance', 'ActiveCaloriesBurned'],
   important: ['HeartRate', 'BasalMetabolicRate'],
-  optional: ['FloorsClimbed', 'ExerciseSession']
+  optional: ['FloorsClimbed', 'ExerciseSession'],
 };
 
 // Helper to check if essential permissions are granted
 export const hasEssentialPermissions = (grantedPermissions: string[]): boolean => {
-  return PERMISSION_GROUPS.essential.every(
-    permission => grantedPermissions.includes(permission)
-  );
+  return PERMISSION_GROUPS.essential.every(permission => grantedPermissions.includes(permission));
 };

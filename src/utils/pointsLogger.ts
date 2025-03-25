@@ -10,14 +10,14 @@ export const pointsLogger = {
    * Log calculated points for a specific metric
    */
   logMetricPoints(
-    metricType: MetricType, 
-    value: number, 
-    points: number, 
-    goal: number, 
+    metricType: MetricType,
+    value: number,
+    points: number,
+    goal: number,
     source: string
   ) {
     logger.debug(
-      LogCategory.Metrics, 
+      LogCategory.Metrics,
       `[${source}] Calculated points for ${metricType}`,
       undefined,
       undefined,
@@ -25,7 +25,7 @@ export const pointsLogger = {
         value,
         points,
         goal,
-        goalReached: value >= goal
+        goalReached: value >= goal,
       }
     );
   },
@@ -33,11 +33,7 @@ export const pointsLogger = {
   /**
    * Log total points calculation
    */
-  logTotalPoints(
-    metrics: DailyMetricScore[] | null, 
-    totalPoints: number, 
-    source: string
-  ) {
+  logTotalPoints(metrics: DailyMetricScore[] | null, totalPoints: number, source: string) {
     logger.debug(
       LogCategory.Metrics,
       `[${source}] Total points calculation`,
@@ -46,11 +42,12 @@ export const pointsLogger = {
       {
         metricCount: metrics?.length || 0,
         totalPoints,
-        breakdown: metrics?.map(m => ({
-          type: m.metric_type,
-          value: m.value,
-          points: m.points
-        })) || []
+        breakdown:
+          metrics?.map(m => ({
+            type: m.metric_type,
+            value: m.value,
+            points: m.points,
+          })) || [],
       }
     );
   },
@@ -74,7 +71,7 @@ export const pointsLogger = {
         userId,
         date,
         totalPoints,
-        metricsCompleted
+        metricsCompleted,
       }
     );
   },
@@ -82,20 +79,10 @@ export const pointsLogger = {
   /**
    * Log UI display of points
    */
-  logUiDisplay(
-    componentName: string,
-    userId: string,
-    totalPoints: number
-  ) {
-    logger.debug(
-      LogCategory.UI,
-      `[${componentName}] Displaying points`,
-      undefined,
-      undefined,
-      {
-        userId: userId.slice(0, 8), // Only show partial ID for privacy
-        totalPoints
-      }
-    );
-  }
+  logUiDisplay(componentName: string, userId: string, totalPoints: number) {
+    logger.debug(LogCategory.UI, `[${componentName}] Displaying points`, undefined, undefined, {
+      userId: userId.slice(0, 8), // Only show partial ID for privacy
+      totalPoints,
+    });
+  },
 };

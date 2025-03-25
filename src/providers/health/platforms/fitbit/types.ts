@@ -75,4 +75,4 @@ export interface FitbitProviderState {
   tokenRefreshPromise: Promise<void> | null;
   initialized: boolean;
   lastSyncTime: Date | null;
-} 
+}

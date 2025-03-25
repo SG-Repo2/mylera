@@ -2,11 +2,7 @@ import { Platform } from 'react-native';
 import AppleHealthKit from 'react-native-health';
 import { HealthInputOptions } from 'react-native-health';
 import { BaseHealthProvider } from '../../types/BaseHealthProvider';
-import { 
-  HealthMetrics, 
-  RawHealthData, 
-  NormalizedMetric
-} from '../../types/metrics';
+import { HealthMetrics, RawHealthData, NormalizedMetric } from '../../types/metrics';
 import { MetricType } from '../../../../types/schemas';
 import { PermissionState, PermissionStatus } from '../../types/permissions';
 import { HealthProviderPermissionError } from '../../types/errors';
@@ -16,14 +12,14 @@ import { logger, LogCategory } from '@/src/utils/logger';
 // Import modules from other files
 import { checkPlatformCompatibility, initializeHealthKit } from './initialization';
 import { checkHealthKitAvailability, permissions } from './permissions';
-import { 
+import {
   fetchStepsRaw,
   fetchDistanceRaw,
   fetchCaloriesRaw,
   fetchHeartRateRaw,
   fetchBasalCaloriesRaw,
   fetchFlightsClimbedRaw,
-  fetchExerciseRaw
+  fetchExerciseRaw,
 } from './metricFetchers';
 import { normalizeHealthKitMetrics, aggregateHealthKitMetric } from './dataProcessing';
 import { retryHealthKitOperation } from './utils';
@@ -54,9 +50,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
   async requestPermissions(): Promise<PermissionStatus> {
     if (!this.permissionManager) {
-      logger.error(LogCategory.Health, '[AppleHealthProvider] Permission manager not initialized during requestPermissions');
+      logger.error(
+        LogCategory.Health,
+        '[AppleHealthProvider] Permission manager not initialized during requestPermissions'
+      );
       await this.ensurePermissionsInitialized();
-      
+
       // If still not initialized, throw error
       if (!this.permissionManager) {
         throw new Error('Permission manager could not be initialized');
@@ -73,7 +72,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
       }
 
       // Request permissions through HealthKit
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         AppleHealthKit.initHealthKit(permissions, async (error: string) => {
           if (error) {
             // Handle null permissionManager safely
@@ -87,7 +86,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
           // Verify permissions were actually granted
           const available = await checkHealthKitAvailability();
           const status: PermissionStatus = available ? 'granted' : 'denied';
-          
+
           // Handle null permissionManager safely
           if (this.permissionManager) {
             await this.permissionManager.updatePermissionState(status);
@@ -98,10 +97,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
     } catch (error) {
       // Handle null permissionManager safely
       if (this.permissionManager) {
-        await this.permissionManager.handlePermissionError(
-          'HealthKit',
-          error
-        );
+        await this.permissionManager.handlePermissionError('HealthKit', error);
       }
       return 'denied';
     }
@@ -113,10 +109,13 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
     // If we still don't have a permission manager, use a default state
     if (!this.permissionManager) {
-      logger.error(LogCategory.Health, '[AppleHealthProvider] Permission manager still null after initialization attempt');
+      logger.error(
+        LogCategory.Health,
+        '[AppleHealthProvider] Permission manager still null after initialization attempt'
+      );
       return {
         status: 'not_determined',
-        lastChecked: Date.now()
+        lastChecked: Date.now(),
       };
     }
 
@@ -127,30 +126,38 @@ export class AppleHealthProvider extends BaseHealthProvider {
         return cachedState;
       }
     } catch (error) {
-      logger.warn(LogCategory.Health, '[AppleHealthProvider] Error getting cached permission state:', (error as Error).message);
+      logger.warn(
+        LogCategory.Health,
+        '[AppleHealthProvider] Error getting cached permission state:',
+        (error as Error).message
+      );
     }
 
     // If no cached state, check current status
     try {
       const available = await checkHealthKitAvailability();
       const status: PermissionStatus = available ? 'granted' : 'not_determined';
-      
+
       const state: PermissionState = {
         status,
-        lastChecked: Date.now()
+        lastChecked: Date.now(),
       };
-  
+
       // Only try to update if permission manager exists
       if (this.permissionManager) {
         await this.permissionManager.updatePermissionState(status);
       }
-      
+
       return state;
     } catch (error) {
-      logger.error(LogCategory.Health, '[AppleHealthProvider] Error checking availability:', (error as Error).message);
+      logger.error(
+        LogCategory.Health,
+        '[AppleHealthProvider] Error checking availability:',
+        (error as Error).message
+      );
       return {
         status: 'not_determined',
-        lastChecked: Date.now()
+        lastChecked: Date.now(),
       };
     }
   }
@@ -175,16 +182,16 @@ export class AppleHealthProvider extends BaseHealthProvider {
     }
 
     await this.ensureInitialized();
-    
-    const options = {  
+
+    const options = {
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
     };
 
     const rawData: RawHealthData = {};
-    
+
     await Promise.all(
-      types.map(async (type) => {
+      types.map(async type => {
         switch (type) {
           case 'steps':
             rawData.steps = await fetchStepsRaw(options);
@@ -229,17 +236,23 @@ export class AppleHealthProvider extends BaseHealthProvider {
       // This will now be called after ensuring proper initialization
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
-      logger.info(LogCategory.Health, '[AppleHealthProvider] Fetching metrics for time window:', 
+
+      logger.info(
+        LogCategory.Health,
+        '[AppleHealthProvider] Fetching metrics for time window:',
         `start: ${startOfDay.toISOString()}, end: ${now.toISOString()}`
       );
-      
+
       // Use batched fetch for all metrics
-      return await this.batchFetchHealthMetrics(
-        startOfDay,
-        now,
-        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-      );
+      return await this.batchFetchHealthMetrics(startOfDay, now, [
+        'steps',
+        'distance',
+        'calories',
+        'heart_rate',
+        'basal_calories',
+        'flights_climbed',
+        'exercise',
+      ]);
     } catch (error) {
       this.handleProviderError('fetching metrics', error);
     }
@@ -250,7 +263,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
     if (!this.permissionManager) {
       // Try to initialize with a default user ID if one wasn't provided
       const userId = 'default-user-id';
-      logger.warn(LogCategory.Health, `[AppleHealthProvider] Attempting to initialize permissions with default user ID: ${userId}`);
+      logger.warn(
+        LogCategory.Health,
+        `[AppleHealthProvider] Attempting to initialize permissions with default user ID: ${userId}`
+      );
       await this.initializePermissions(userId);
     }
   }
@@ -283,11 +299,12 @@ export class AppleHealthProvider extends BaseHealthProvider {
     if (!metricTypes.length) {
       return emptyMetrics;
     }
-    
+
     try {
       // Check permissions before fetching
       if (!this.permissionManager) {
-        logger.warn(LogCategory.Health, 
+        logger.warn(
+          LogCategory.Health,
           `[AppleHealthProvider] Permission manager is null during batchFetchHealthMetrics`
         );
         // Instead of using a default user ID, throw an error
@@ -301,10 +318,10 @@ export class AppleHealthProvider extends BaseHealthProvider {
 
       // Fetch all raw metrics in one call
       const rawData = await this.fetchRawMetrics(startDate, endDate, metricTypes);
-      
+
       // Process metrics with standard method
       const processedMetrics: Partial<HealthMetrics> = {};
-      
+
       // Process each requested metric type
       for (const type of metricTypes) {
         try {
@@ -313,7 +330,7 @@ export class AppleHealthProvider extends BaseHealthProvider {
           processedMetrics[type] = aggregatedValue;
         } catch (metricError) {
           logger.warn(
-            LogCategory.Health, 
+            LogCategory.Health,
             `[AppleHealthProvider] Error processing ${type} metric: ${metricError instanceof Error ? metricError.message : 'Unknown error'}`
           );
           processedMetrics[type] = null;
@@ -323,10 +340,14 @@ export class AppleHealthProvider extends BaseHealthProvider {
       return {
         ...emptyMetrics,
         ...processedMetrics,
-        last_updated: new Date().toISOString()
+        last_updated: new Date().toISOString(),
       };
     } catch (error) {
-      logger.error(LogCategory.Health, '[AppleHealthProvider] Error in batchFetchHealthMetrics:', (error as Error).message);
+      logger.error(
+        LogCategory.Health,
+        '[AppleHealthProvider] Error in batchFetchHealthMetrics:',
+        (error as Error).message
+      );
       throw error;
     }
   }

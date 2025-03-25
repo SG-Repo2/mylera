@@ -20,7 +20,7 @@ export function PodiumView({ topThree, currentUserId }: PodiumProps) {
     { entry: topThree[0] || null, rank: 1 }, // First place
     { entry: topThree[2] || null, rank: 3 }, // Third place
   ].filter(item => item.entry !== null); // Filter out null entries
-  
+
   return (
     <View style={podiumViewStyles.outerContainer}>
       <View style={podiumViewStyles.podiumContainer}>

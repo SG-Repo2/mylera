@@ -57,4 +57,4 @@ export type TimeRangeFilter = {
   endTime: string;
 };
 
-export type { MetricType, RawHealthMetric, RawHealthData }; 
+export type { MetricType, RawHealthMetric, RawHealthData };

@@ -9,7 +9,7 @@ export const DISPLAY_UNITS: Record<MetricType, Record<MeasurementSystem, string>
   heart_rate: { metric: 'bpm', imperial: 'bpm' },
   exercise: { metric: 'min', imperial: 'min' },
   basal_calories: { metric: 'kcal', imperial: 'kcal' },
-  flights_climbed: { metric: '', imperial: '' }
+  flights_climbed: { metric: '', imperial: '' },
 };
 
 export interface FormattedMetricValue {
@@ -26,8 +26,8 @@ export interface FormattedMetricValue {
  * @returns Formatted value and unit
  */
 export const formatMetricValue = (
-  value: number, 
-  metricType: MetricType, 
+  value: number,
+  metricType: MetricType,
   system: MeasurementSystem = 'metric'
 ): FormattedMetricValue => {
   if (value === null || value === undefined || isNaN(value)) {
@@ -37,54 +37,54 @@ export const formatMetricValue = (
   switch (metricType) {
     case 'distance':
       if (system === 'imperial') {
-        return { 
-          value: parseFloat((value / 1609.34).toFixed(2)), 
-          unit: 'mi' 
+        return {
+          value: parseFloat((value / 1609.34).toFixed(2)),
+          unit: 'mi',
         };
       }
-      return { 
-        value: parseFloat((value / 1000).toFixed(2)), 
-        unit: 'km' 
+      return {
+        value: parseFloat((value / 1000).toFixed(2)),
+        unit: 'km',
       };
-    
+
     case 'steps':
       // For steps, we want to keep the raw value but indicate if it should be displayed in K format
       const shouldUseKFormat = value >= 10000;
-      return { 
+      return {
         value: shouldUseKFormat ? parseFloat((value / 1000).toFixed(1)) : value,
         unit: shouldUseKFormat ? 'K' : '',
-        rawValue: value // Keep the raw value for calculations
+        rawValue: value, // Keep the raw value for calculations
       };
-      
+
     case 'calories':
     case 'basal_calories':
-      return { 
-        value: Math.round(value), 
-        unit: 'kcal' 
+      return {
+        value: Math.round(value),
+        unit: 'kcal',
       };
-      
+
     case 'heart_rate':
-      return { 
-        value: Math.round(value), 
-        unit: 'bpm' 
+      return {
+        value: Math.round(value),
+        unit: 'bpm',
       };
-      
+
     case 'exercise':
-      return { 
-        value: Math.round(value), 
-        unit: 'min' 
+      return {
+        value: Math.round(value),
+        unit: 'min',
       };
-      
+
     case 'flights_climbed':
-      return { 
-        value: Math.round(value), 
-        unit: '' 
+      return {
+        value: Math.round(value),
+        unit: '',
       };
-      
+
     default:
-      return { 
-        value, 
-        unit: DISPLAY_UNITS[metricType][system] || '' 
+      return {
+        value,
+        unit: DISPLAY_UNITS[metricType][system] || '',
       };
   }
 };

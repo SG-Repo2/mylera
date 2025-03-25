@@ -16,7 +16,7 @@ import {
   fetchHeartRateWithDailyAggregation,
   fetchBasalCaloriesWithDailyAggregation,
   fetchFlightsClimbedWithDailyAggregation,
-  fetchExerciseWithDailyAggregation
+  fetchExerciseWithDailyAggregation,
 } from './metricFetchers';
 import { FitbitProviderState } from './types';
 
@@ -28,7 +28,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     tokenRefreshInProgress: false,
     tokenRefreshPromise: null,
     initialized: false,
-    lastSyncTime: null
+    lastSyncTime: null,
   };
 
   async initialize(): Promise<void> {
@@ -36,7 +36,11 @@ export class FitbitHealthProvider extends BaseHealthProvider {
       this.state = await initializeFitbitProvider();
       this.initialized = true;
     } catch (error) {
-      logger.error(LogCategory.Health, '[FitbitHealthProvider] Initialization failed:', (error as Error).message);
+      logger.error(
+        LogCategory.Health,
+        '[FitbitHealthProvider] Initialization failed:',
+        (error as Error).message
+      );
       throw error;
     }
   }
@@ -44,11 +48,11 @@ export class FitbitHealthProvider extends BaseHealthProvider {
   async requestPermissions(): Promise<PermissionStatus> {
     const status = await requestFitbitPermissions();
     const state: PermissionState = { status, lastChecked: Date.now() };
-    
+
     if (this.permissionManager) {
       await this.permissionManager.updatePermissionState(status);
     }
-    
+
     return status;
   }
 
@@ -62,22 +66,21 @@ export class FitbitHealthProvider extends BaseHealthProvider {
 
     const status = await checkFitbitPermissions();
     const state: PermissionState = { status, lastChecked: Date.now() };
-    
+
     if (this.permissionManager) {
       await this.permissionManager.updatePermissionState(status);
     }
-    
+
     return state;
   }
 
-  async fetchRawMetrics(
-    startDate: Date,
-    endDate: Date,
-    types: string[]
-  ): Promise<RawHealthData> {
+  async fetchRawMetrics(startDate: Date, endDate: Date, types: string[]): Promise<RawHealthData> {
     const permissionState = await this.checkPermissionsStatus();
     if (permissionState.status !== 'granted') {
-      throw new HealthProviderPermissionError('Fitbit', 'Permission not granted for Fitbit data access');
+      throw new HealthProviderPermissionError(
+        'Fitbit',
+        'Permission not granted for Fitbit data access'
+      );
     }
     await this.ensureInitialized();
 
@@ -89,7 +92,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     const rawData: RawHealthData = {};
 
     await Promise.all(
-      types.map(async (type) => {
+      types.map(async type => {
         try {
           switch (type) {
             case 'steps':
@@ -143,7 +146,11 @@ export class FitbitHealthProvider extends BaseHealthProvider {
               break;
           }
         } catch (error) {
-          logger.error(LogCategory.Health, `[FitbitHealthProvider] Error fetching ${type} metrics:`, (error as Error).message);
+          logger.error(
+            LogCategory.Health,
+            `[FitbitHealthProvider] Error fetching ${type} metrics:`,
+            (error as Error).message
+          );
         }
       })
     );
@@ -159,7 +166,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     Object.keys(rawData).forEach(metricType => {
       const metrics = rawData[metricType as keyof RawHealthData];
       if (!metrics) return;
-      
+
       const existingDates = new Set(metrics.map(m => m.startDate.split('T')[0]));
       days.forEach((day: string) => {
         if (!existingDates.has(day)) {
@@ -168,7 +175,7 @@ export class FitbitHealthProvider extends BaseHealthProvider {
             endDate: `${day}T23:59:59.999Z`,
             value: 0,
             unit: metrics[0]?.unit || 'count',
-            sourceBundle: 'com.fitbit.api'
+            sourceBundle: 'com.fitbit.api',
           });
         }
       });
@@ -207,16 +214,22 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     try {
       const now = new Date();
       const startOfDay = DateUtils.getStartOfDay(now);
-      
-      logger.info(LogCategory.Health, '[FitbitHealthProvider] Fetching metrics for time window:', 
+
+      logger.info(
+        LogCategory.Health,
+        '[FitbitHealthProvider] Fetching metrics for time window:',
         startOfDay.toISOString() + ' to ' + now.toISOString()
       );
-      
-      return await this.batchFetchHealthMetrics(
-        startOfDay,
-        now,
-        ['steps', 'distance', 'calories', 'heart_rate', 'basal_calories', 'flights_climbed', 'exercise']
-      );
+
+      return await this.batchFetchHealthMetrics(startOfDay, now, [
+        'steps',
+        'distance',
+        'calories',
+        'heart_rate',
+        'basal_calories',
+        'flights_climbed',
+        'exercise',
+      ]);
     } catch (error) {
       this.handleProviderError('fetching metrics', error);
     }

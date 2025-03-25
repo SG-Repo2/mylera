@@ -54,8 +54,4 @@ const formatMetricProgress = memoize((value: number, goal: number): string => {
   return `${formatNumber(percentage, 1)}%`;
 });
 
-export {
-  formatMetricValue,
-  formatMetricLabel,
-  formatMetricProgress,
-}; 
+export { formatMetricValue, formatMetricLabel, formatMetricProgress };

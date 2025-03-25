@@ -61,11 +61,7 @@ export interface HealthProvider {
    * @returns Raw health data organized by metric type
    * @throws {Error} If data fetching fails
    */
-  fetchRawMetrics(
-    startDate: Date,
-    endDate: Date,
-    types: MetricType[]
-  ): Promise<RawHealthData>;
+  fetchRawMetrics(startDate: Date, endDate: Date, types: MetricType[]): Promise<RawHealthData>;
 
   /**
    * Normalize raw health data into a standardized format.
@@ -73,10 +69,7 @@ export interface HealthProvider {
    * @param type - Type of metric to normalize
    * @returns Array of normalized metrics
    */
-  normalizeMetrics(
-    rawData: RawHealthData,
-    type: MetricType
-  ): NormalizedMetric[];
+  normalizeMetrics(rawData: RawHealthData, type: MetricType): NormalizedMetric[];
 
   /**
    * Get aggregated health metrics for the current day.
@@ -109,13 +102,13 @@ export interface HealthProvider {
    * @throws {Error} If initialization fails
    */
   initializeWithPermissions(userId: string): Promise<void>;
-  
+
   /**
    * Get the available metric types supported by this provider.
    * @returns Array of supported metric types
    */
   getSupportedMetricTypes(): Promise<MetricType[]>;
-  
+
   /**
    * Retry a failed operation with exponential backoff.
    * @param operation - The async operation to retry
@@ -129,11 +122,11 @@ export interface HealthProvider {
     maxRetries?: number,
     initialDelay?: number
   ): Promise<T>;
-  
+
   /**
    * Safely initialize the health provider with timeout protection.
    * This unified method centralizes all initialization logic and provides safeguards.
-   * 
+   *
    * @param userId - The unique identifier of the user
    * @returns The current permission status after initialization
    */

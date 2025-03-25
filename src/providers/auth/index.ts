@@ -8,4 +8,4 @@ export { AuthProvider } from './AuthProvider';
 export { useAuth } from './useAuth';
 
 // This barrel file allows importing from a single point:
-// import { useAuth, AuthProvider } from '@/src/providers/auth'; 
+// import { useAuth, AuthProvider } from '@/src/providers/auth';

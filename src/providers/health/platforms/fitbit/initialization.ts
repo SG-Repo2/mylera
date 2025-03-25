@@ -7,7 +7,7 @@ import { FitbitProviderState } from './types';
 export async function initializeFitbitProvider(): Promise<FitbitProviderState> {
   try {
     logger.info(LogCategory.Health, '[FitbitHealthProvider] Initializing...');
-    
+
     // Load stored tokens
     const accessToken = await SecureStore.getItemAsync(STORAGE_KEYS.ACCESS_TOKEN);
     const refreshToken = await SecureStore.getItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
@@ -22,8 +22,7 @@ export async function initializeFitbitProvider(): Promise<FitbitProviderState> {
     }
 
     // Check token expiry with 5-minute buffer
-    if (accessToken && tokenExpiresAt && 
-        (Date.now() >= tokenExpiresAt - 5 * 60 * 1000)) {
+    if (accessToken && tokenExpiresAt && Date.now() >= tokenExpiresAt - 5 * 60 * 1000) {
       await refreshFitbitToken(refreshToken);
     }
 
@@ -33,7 +32,7 @@ export async function initializeFitbitProvider(): Promise<FitbitProviderState> {
     }
 
     logger.info(LogCategory.Health, '[FitbitHealthProvider] Initialization successful');
-    
+
     return {
       accessToken,
       refreshToken,
@@ -41,10 +40,14 @@ export async function initializeFitbitProvider(): Promise<FitbitProviderState> {
       tokenRefreshInProgress: false,
       tokenRefreshPromise: null,
       initialized: true,
-      lastSyncTime
+      lastSyncTime,
     };
   } catch (error) {
-    logger.error(LogCategory.Health, '[FitbitHealthProvider] Initialization failed:', (error as Error).message);
+    logger.error(
+      LogCategory.Health,
+      '[FitbitHealthProvider] Initialization failed:',
+      (error as Error).message
+    );
     throw new Error(`Failed to initialize Fitbit provider: ${error}`);
   }
 }
@@ -56,7 +59,7 @@ export async function refreshFitbitToken(refreshToken: string | null): Promise<v
 
   try {
     logger.info(LogCategory.Health, '[FitbitHealthProvider] Refreshing access token');
-    
+
     const { data, error } = await supabase.functions.invoke('fitbit-token-refresh', {
       body: { refresh_token: refreshToken },
     });
@@ -70,10 +73,14 @@ export async function refreshFitbitToken(refreshToken: string | null): Promise<v
       STORAGE_KEYS.TOKEN_EXPIRY,
       (Date.now() + data.expires_in * 1000).toString()
     );
-    
+
     logger.info(LogCategory.Health, '[FitbitHealthProvider] Token refreshed successfully');
   } catch (error) {
-    logger.error(LogCategory.Health, '[FitbitHealthProvider] Token refresh failed:', (error as Error).message);
+    logger.error(
+      LogCategory.Health,
+      '[FitbitHealthProvider] Token refresh failed:',
+      (error as Error).message
+    );
     throw new Error(`Failed to refresh token: ${error}`);
   }
-} 
+}

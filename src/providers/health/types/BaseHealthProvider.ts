@@ -4,11 +4,11 @@ import type { MetricType } from '../../../types/metrics';
 import { PermissionManager, PermissionState, PermissionStatus } from './permissions';
 import { HealthProviderPermissionError } from './errors';
 import { logger, LogCategory } from '../../../utils/logger';
-import { 
+import {
   standardizeHeartRateCalculation,
   standardizeStepsCalculation,
   standardizeCaloriesCalculation,
-  standardizeDistanceCalculation
+  standardizeDistanceCalculation,
 } from '../../../utils/health/normalizeHealthData';
 
 /**
@@ -35,10 +35,13 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /** Cache for supported metric types */
   protected supportedMetricTypes: MetricType[] | null = null;
 
-  private permissionCache: Map<string, {
-    state: PermissionState;
-    timestamp: number;
-  }> = new Map();
+  private permissionCache: Map<
+    string,
+    {
+      state: PermissionState;
+      timestamp: number;
+    }
+  > = new Map();
   private readonly PERMISSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   /**
@@ -69,11 +72,17 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * @param userId - The unique identifier of the user
    */
   async initializePermissions(userId: string): Promise<void> {
-    logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing permissions for user: ${userId}`);
+    logger.info(
+      LogCategory.Health,
+      `[BaseHealthProvider] Initializing permissions for user: ${userId}`
+    );
     this.permissionManager = new PermissionManager(userId);
     // Verify that the manager was created successfully
     if (!this.permissionManager) {
-      logger.error(LogCategory.Health, `[BaseHealthProvider] Failed to create permission manager for user: ${userId}`);
+      logger.error(
+        LogCategory.Health,
+        `[BaseHealthProvider] Failed to create permission manager for user: ${userId}`
+      );
       throw new Error('Failed to initialize permission manager');
     }
   }
@@ -84,37 +93,38 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async initializeWithPermissions(userId: string): Promise<void> {
     // Prevent multiple simultaneous initializations
     if (this.initializationInProgress) {
-      console.log('[BaseHealthProvider] Initialization already in progress, waiting for completion...');
+      console.log(
+        '[BaseHealthProvider] Initialization already in progress, waiting for completion...'
+      );
       // Wait for current initialization to complete
       let attempts = 0;
       while (this.initializationInProgress && attempts < 10) {
         await new Promise(resolve => setTimeout(resolve, 200));
         attempts++;
       }
-      
+
       if (this.initializationInProgress) {
         console.error('[BaseHealthProvider] Initialization timeout after waiting 2 seconds');
         throw new Error('Health provider initialization timeout');
       }
-      
+
       // If we're already initialized and not in progress, just return
       if (this.initialized) {
         console.log('[BaseHealthProvider] Already initialized, skipping duplicate initialization');
         return;
       }
     }
-    
+
     try {
       this.initializationInProgress = true;
-      
+
       // Main initialization logic
       await this.initialize();
       await this.initializePermissions(userId);
-      
+
       // Set initialization flags
       this.initialized = true;
       this.lastInitializationTime = Date.now();
-      
     } catch (error) {
       // Reset initialization state on error
       this.initialized = false;
@@ -128,58 +138,91 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /**
    * Safely initialize the health provider with timeout protection.
    * This unified method centralizes all initialization logic and provides safeguards.
-   * 
+   *
    * @param userId - The unique identifier of the user
    * @returns The current permission status after initialization
    * @throws Error if userId is invalid or missing
    */
   async safeInitialize(userId: string): Promise<PermissionStatus> {
     if (!userId || userId.trim() === '') {
-      logger.warn(LogCategory.Health, '[BaseHealthProvider] No valid user ID provided, skipping initialization');
+      logger.warn(
+        LogCategory.Health,
+        '[BaseHealthProvider] No valid user ID provided, skipping initialization'
+      );
       return 'not_determined';
     }
 
     try {
       // Check if provider is already initialized
       if (!this.initialized) {
-        logger.info(LogCategory.Health, `[BaseHealthProvider] Provider not initialized, initializing for user ${userId}...`);
+        logger.info(
+          LogCategory.Health,
+          `[BaseHealthProvider] Provider not initialized, initializing for user ${userId}...`
+        );
         await this.initialize();
       } else {
-        logger.info(LogCategory.Health, `[BaseHealthProvider] Provider already initialized, skipping initialization step`);
+        logger.info(
+          LogCategory.Health,
+          `[BaseHealthProvider] Provider already initialized, skipping initialization step`
+        );
       }
 
       // Check if permission manager is initialized
       if (!this.permissionManager) {
-        logger.info(LogCategory.Health, `[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`);
+        logger.info(
+          LogCategory.Health,
+          `[BaseHealthProvider] Permission manager not initialized, initializing for user ${userId}...`
+        );
         await this.initializePermissions(userId);
       } else {
-        logger.info(LogCategory.Health, `[BaseHealthProvider] Permission manager already initialized, skipping initialization step`);
+        logger.info(
+          LogCategory.Health,
+          `[BaseHealthProvider] Permission manager already initialized, skipping initialization step`
+        );
       }
 
       // Check permission status with timeout protection
-      logger.info(LogCategory.Health, `[BaseHealthProvider] Checking permission status with timeout protection...`);
+      logger.info(
+        LogCategory.Health,
+        `[BaseHealthProvider] Checking permission status with timeout protection...`
+      );
       const permissionState = await Promise.race([
         this.checkPermissionsStatus(),
         new Promise<PermissionStatus>((_, reject) =>
           setTimeout(() => reject(new Error('Permission check timeout')), 3000)
-        )
+        ),
       ]);
 
       // Handle different return types from checkPermissionsStatus
       let status: PermissionStatus;
       if (typeof permissionState === 'string') {
         status = permissionState as PermissionStatus;
-      } else if (typeof permissionState === 'object' && permissionState !== null && 'status' in permissionState) {
+      } else if (
+        typeof permissionState === 'object' &&
+        permissionState !== null &&
+        'status' in permissionState
+      ) {
         status = permissionState.status as PermissionStatus;
       } else {
-        logger.warn(LogCategory.Health, `[BaseHealthProvider] Unexpected permission state format:`, permissionState);
+        logger.warn(
+          LogCategory.Health,
+          `[BaseHealthProvider] Unexpected permission state format:`,
+          permissionState
+        );
         status = 'not_determined';
       }
 
-      logger.info(LogCategory.Health, `[BaseHealthProvider] Safe initialization completed with status: ${status}`);
+      logger.info(
+        LogCategory.Health,
+        `[BaseHealthProvider] Safe initialization completed with status: ${status}`
+      );
       return status;
     } catch (error) {
-      logger.error(LogCategory.Health, `[BaseHealthProvider] Safe initialization error:`, error instanceof Error ? error.message : 'Unknown error');
+      logger.error(
+        LogCategory.Health,
+        `[BaseHealthProvider] Safe initialization error:`,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       return 'not_determined';
     }
   }
@@ -208,10 +251,17 @@ export abstract class BaseHealthProvider implements HealthProvider {
       try {
         await this.permissionManager.clearCache();
       } catch (error) {
-        logger.error(LogCategory.Health, '[BaseHealthProvider] Error clearing permission cache:', (error as Error).message);
+        logger.error(
+          LogCategory.Health,
+          '[BaseHealthProvider] Error clearing permission cache:',
+          (error as Error).message
+        );
       }
     } else {
-      logger.warn(LogCategory.Health, '[BaseHealthProvider] Permission manager is null during handlePermissionDenial');
+      logger.warn(
+        LogCategory.Health,
+        '[BaseHealthProvider] Permission manager is null during handlePermissionDenial'
+      );
     }
   }
 
@@ -232,7 +282,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     this.initialized = false;
     this.lastSyncTime = null;
     this.supportedMetricTypes = null;
-    
+
     // Clear permission manager cache if it exists
     if (this.permissionManager) {
       try {
@@ -258,40 +308,45 @@ export abstract class BaseHealthProvider implements HealthProvider {
       logger.debug(LogCategory.Health, `No ${type} data to normalize`);
       return [];
     }
-    
+
     try {
-      const rawValues = rawData[type].map(item => 
+      const rawValues = rawData[type].map(item =>
         typeof item.value === 'number' ? item.value : parseFloat(item.value as string)
       );
-      
+
       // Use standardized calculation based on metric type
       const standardizedValue = this.standardizeMetric(type, rawValues);
-      
+
       // Return normalized format with timestamps from the first and last entries
       const timestamps = rawData[type]
         .filter(item => item.startDate)
         .map(item => new Date(item.startDate).getTime())
         .sort((a, b) => a - b);
-      
+
       const startTime = timestamps.length ? new Date(timestamps[0]) : new Date();
       const endTime = timestamps.length ? new Date(timestamps[timestamps.length - 1]) : new Date();
-      
+
       // Get the unit from the first item, or use a default based on metric type
       const unit = rawData[type][0]?.unit || this.getDefaultUnitForType(type);
-      
-      return [{
-        timestamp: startTime.toISOString(),
-        value: standardizedValue,
-        unit,
-        type,
-        confidence: 1.0
-      }];
+
+      return [
+        {
+          timestamp: startTime.toISOString(),
+          value: standardizedValue,
+          unit,
+          type,
+          confidence: 1.0,
+        },
+      ];
     } catch (error) {
-      logger.error(LogCategory.Health, `Error normalizing ${type} data: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(
+        LogCategory.Health,
+        `Error normalizing ${type} data: ${error instanceof Error ? error.message : String(error)}`
+      );
       return [];
     }
   }
-  
+
   /**
    * Get default unit for a metric type
    * @param type The metric type
@@ -324,10 +379,10 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async getMetrics(): Promise<HealthMetrics> {
     // Ensure provider is initialized before fetching metrics
     await this.ensureInitialized();
-    
+
     // Ensure permissions are initialized
     await this.ensurePermissionsInitialized();
-    
+
     // Now fetch the metrics
     return this.fetchMetrics();
   }
@@ -343,29 +398,39 @@ export abstract class BaseHealthProvider implements HealthProvider {
    * Ensure the provider is initialized before operations.
    * This method should be called before any operation that requires initialization.
    * It will attempt to initialize the provider if not already initialized.
-   * 
+   *
    * @param userId - The unique identifier of the user
    * @throws Error if userId is invalid or missing
    */
   protected async ensureInitialized(userId?: string): Promise<void> {
     if (!this.initialized) {
       if (!userId || userId.trim() === '') {
-        logger.warn(LogCategory.Health, '[BaseHealthProvider] Cannot initialize health provider: user ID is not valid or not provided');
+        logger.warn(
+          LogCategory.Health,
+          '[BaseHealthProvider] Cannot initialize health provider: user ID is not valid or not provided'
+        );
         throw new Error('Cannot initialize health provider: user ID is not valid or not provided');
       }
-      
-      logger.warn(LogCategory.Health, '[BaseHealthProvider] Provider accessed before initialization, forcing initialize');
+
+      logger.warn(
+        LogCategory.Health,
+        '[BaseHealthProvider] Provider accessed before initialization, forcing initialize'
+      );
       try {
         await this.safeInitialize(userId);
-        
+
         // Verify initialization was successful
         if (!this.initialized) {
           throw new Error('Provider initialization completed but initialized flag not set');
         }
-        
+
         logger.info(LogCategory.Health, '[BaseHealthProvider] Provider successfully initialized');
       } catch (error) {
-        logger.error(LogCategory.Health, '[BaseHealthProvider] Forced initialization failed:', error instanceof Error ? error.message : String(error));
+        logger.error(
+          LogCategory.Health,
+          '[BaseHealthProvider] Forced initialization failed:',
+          error instanceof Error ? error.message : String(error)
+        );
         throw new Error('Health provider must be initialized before use');
       }
     }
@@ -395,7 +460,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   async isAvailable(): Promise<boolean> {
     return true;
   }
-  
+
   /**
    * Get the available metric types supported by this provider.
    * Default implementation returns a common set - override in platform-specific providers.
@@ -405,7 +470,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     if (this.supportedMetricTypes) {
       return this.supportedMetricTypes;
     }
-    
+
     // Default supported metrics - platform-specific providers should override this
     this.supportedMetricTypes = [
       'steps',
@@ -414,12 +479,12 @@ export abstract class BaseHealthProvider implements HealthProvider {
       'heart_rate',
       'exercise',
       'basal_calories',
-      'flights_climbed'
+      'flights_climbed',
     ];
-    
+
     return this.supportedMetricTypes;
   }
-  
+
   /**
    * Validate a metric value to ensure it is reasonable.
    * @param value - The metric value to validate
@@ -430,7 +495,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     if (isNaN(value) || !isFinite(value)) {
       return false;
     }
-    
+
     switch (type) {
       case 'steps':
         return value >= 0 && value < 100000; // Reasonable upper limit
@@ -449,7 +514,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
         return value >= 0;
     }
   }
-  
+
   /**
    * Retry a failed operation with exponential backoff.
    * @param operation - The async operation to retry
@@ -464,39 +529,39 @@ export abstract class BaseHealthProvider implements HealthProvider {
     initialDelay: number = 1000
   ): Promise<T> {
     let lastError: Error | null = null;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         // First attempt without delay
         if (attempt === 0) {
           return await operation();
         }
-        
+
         // Log retry attempts consistently
         logger.info(
           LogCategory.Health,
           `[${this.constructor.name}] Retry attempt ${attempt}/${maxRetries} after ${initialDelay * Math.pow(2, attempt - 1)}ms`
         );
-        
+
         // Apply exponential backoff delay
         await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, attempt - 1)));
-        
+
         // Try the operation again
         return await operation();
       } catch (error) {
         // Transform error to standard format
         lastError = this.standardizeError(error);
-        
+
         if (attempt === maxRetries) {
           // Final attempt failed
           logger.error(
-            LogCategory.Health, 
+            LogCategory.Health,
             `[${this.constructor.name}] All retry attempts failed: ${lastError.message}`
           );
         }
       }
     }
-    
+
     throw lastError || new Error('Operation failed after all retry attempts');
   }
 
@@ -522,19 +587,20 @@ export abstract class BaseHealthProvider implements HealthProvider {
   protected validateHealthData(data: HealthMetrics): HealthMetrics {
     try {
       const validated = { ...data };
-      
+
       Object.entries(validated).forEach(([key, value]) => {
         if (typeof value === 'number') {
           const metricType = key as MetricType;
           if (!this.validateMetricValue(value, metricType)) {
-            this.handleProviderError('validating metric value', 
-              `Invalid value: ${value}`, 
+            this.handleProviderError(
+              'validating metric value',
+              `Invalid value: ${value}`,
               metricType
             );
           }
         }
       });
-      
+
       return validated;
     } catch (error) {
       this.handleProviderError('validating health data', error);
@@ -545,7 +611,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /**
    * Standardized health metric normalization that can be used by all providers.
    * This ensures consistent calculation of metrics across platforms.
-   * 
+   *
    * @param metricType Type of health metric to normalize
    * @param rawValues Array of raw readings
    * @returns Standardized and normalized value
@@ -558,36 +624,32 @@ export abstract class BaseHealthProvider implements HealthProvider {
     switch (metricType) {
       case 'heart_rate':
         return standardizeHeartRateCalculation(rawValues);
-      
+
       case 'steps':
         return standardizeStepsCalculation(rawValues);
-      
+
       case 'calories':
       case 'basal_calories':
         return standardizeCaloriesCalculation(rawValues);
-      
+
       case 'distance':
         return standardizeDistanceCalculation(rawValues);
-      
+
       case 'flights_climbed':
         // Simple sum for flights climbed
-        return Math.round(
-          rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0)
-        );
-      
+        return Math.round(rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0));
+
       case 'exercise':
         // Exercise should be in minutes - cap at 24 hours per day
         return Math.min(
-          Math.round(
-            rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0)
-          ),
+          Math.round(rawValues.filter(v => v >= 0).reduce((sum, val) => sum + val, 0)),
           1440 // 24 hours in minutes
         );
-      
+
       default:
         // For any other metrics, just do a basic non-negative average
         const validValues = rawValues.filter(v => v >= 0);
-        return validValues.length 
+        return validValues.length
           ? Math.round(validValues.reduce((sum, val) => sum + val, 0) / validValues.length)
           : 0;
     }
@@ -608,16 +670,16 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
     // Apply different strategies based on metric type
     const metricType = metrics[0]?.type;
-    
+
     if (metricType === 'heart_rate') {
       // For heart rate, use weighted average with more recent readings weighted higher
       const validHeartRates = metrics
         .filter(m => typeof m.value === 'number' && m.value >= 30 && m.value <= 220)
         .map(m => ({ value: m.value, timestamp: new Date(m.timestamp).getTime() }))
         .sort((a, b) => b.timestamp - a.timestamp); // Sort by most recent first
-      
+
       if (validHeartRates.length === 0) return 0;
-      
+
       // Take weighted average - more recent readings have more weight
       // Most recent 3 readings get 60% of weight, the rest 40%
       if (validHeartRates.length <= 3) {
@@ -626,19 +688,21 @@ export abstract class BaseHealthProvider implements HealthProvider {
       } else {
         const recentReadings = validHeartRates.slice(0, 3);
         const olderReadings = validHeartRates.slice(3);
-        
-        const recentAvg = recentReadings.reduce((acc, hr) => acc + hr.value, 0) / recentReadings.length;
-        const olderAvg = olderReadings.reduce((acc, hr) => acc + hr.value, 0) / olderReadings.length;
-        
-        return Math.round((recentAvg * 0.6) + (olderAvg * 0.4));
+
+        const recentAvg =
+          recentReadings.reduce((acc, hr) => acc + hr.value, 0) / recentReadings.length;
+        const olderAvg =
+          olderReadings.reduce((acc, hr) => acc + hr.value, 0) / olderReadings.length;
+
+        return Math.round(recentAvg * 0.6 + olderAvg * 0.4);
       }
     }
-    
+
     // For all other metrics, sum up all valid values
-    const validMetrics = metrics.filter(m => 
-      typeof m.value === 'number' && !isNaN(m.value) && isFinite(m.value)
+    const validMetrics = metrics.filter(
+      m => typeof m.value === 'number' && !isNaN(m.value) && isFinite(m.value)
     );
-    
+
     const sum = validMetrics.reduce((total, metric) => total + metric.value, 0);
     return Math.round(sum);
   }
@@ -653,27 +717,27 @@ export abstract class BaseHealthProvider implements HealthProvider {
    */
   protected handleProviderError(operation: string, error: unknown, metricType?: string): never {
     // Create a consistent error format regardless of provider
-    const formattedError = error instanceof Error 
-      ? error 
-      : new Error(typeof error === 'string' ? error : 'Unknown error');
-    
+    const formattedError =
+      error instanceof Error
+        ? error
+        : new Error(typeof error === 'string' ? error : 'Unknown error');
+
     // Add context to the error message
-    const contextMessage = metricType 
+    const contextMessage = metricType
       ? `[${this.constructor.name}] Error ${operation} for ${metricType}: ${formattedError.message}`
       : `[${this.constructor.name}] Error ${operation}: ${formattedError.message}`;
-    
+
     // Log the error with appropriate category
     logger.error(LogCategory.Health, contextMessage);
-    
+
     // For permission errors, use the standard health permission error type
-    if (contextMessage.toLowerCase().includes('permission') || 
-        formattedError.message.toLowerCase().includes('permission')) {
-      throw new HealthProviderPermissionError(
-        metricType || 'health data',
-        formattedError.message
-      );
+    if (
+      contextMessage.toLowerCase().includes('permission') ||
+      formattedError.message.toLowerCase().includes('permission')
+    ) {
+      throw new HealthProviderPermissionError(metricType || 'health data', formattedError.message);
     }
-    
+
     // Rethrow with improved context
     formattedError.message = contextMessage;
     throw formattedError;
@@ -696,7 +760,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
     if (!metricTypes.length) {
       return this.createEmptyHealthMetrics();
     }
-    
+
     try {
       // Check permissions before fetching - handle null permissionManager safely
       if (this.permissionManager) {
@@ -705,14 +769,16 @@ export abstract class BaseHealthProvider implements HealthProvider {
           await this.ensurePermissionsInitialized();
           const permissionStatus = await this.requestPermissions();
           if (permissionStatus !== 'granted') {
-            logger.warn(LogCategory.Health, 
+            logger.warn(
+              LogCategory.Health,
               `[${this.constructor.name}] Permission not granted for health data access, proceeding with limited functionality`
             );
           }
         }
       } else {
         // If permission manager is null, try to initialize it
-        logger.warn(LogCategory.Health, 
+        logger.warn(
+          LogCategory.Health,
           `[${this.constructor.name}] Permission manager is null during batchFetchHealthMetrics, attempting to initialize`
         );
         await this.ensurePermissionsInitialized();
@@ -720,42 +786,42 @@ export abstract class BaseHealthProvider implements HealthProvider {
 
       // Fetch all raw metrics in one call
       const rawData = await this.fetchRawMetrics(startDate, endDate, metricTypes);
-      
+
       // Track fetch timing for analytics
       const fetchEndTime = Date.now();
-      
+
       // Process metrics with standard method
       const processedMetrics: Partial<HealthMetrics> = {};
-      
+
       // Process each requested metric type
       for (const type of metricTypes) {
         try {
           const normalizedMetrics = this.normalizeMetrics(rawData, type);
           const aggregatedValue = this.standardizedAggregateMetric(normalizedMetrics);
-          
+
           // Store in result object
           processedMetrics[type] = aggregatedValue;
         } catch (metricError) {
           logger.warn(
-            LogCategory.Health, 
+            LogCategory.Health,
             `[${this.constructor.name}] Error processing ${type} metric: ${metricError instanceof Error ? metricError.message : 'Unknown error'}`
           );
           processedMetrics[type] = null;
         }
       }
-      
+
       // Create a complete metrics object
       return {
         id: '',
         user_id: '',
         date: startDate.toISOString().split('T')[0],
-        steps: processedMetrics.steps as number | null ?? null,
-        distance: processedMetrics.distance as number | null ?? null,
-        calories: processedMetrics.calories as number | null ?? null,
-        heart_rate: processedMetrics.heart_rate as number | null ?? null,
-        exercise: processedMetrics.exercise as number | null ?? null,
-        basal_calories: processedMetrics.basal_calories as number | null ?? null,
-        flights_climbed: processedMetrics.flights_climbed as number | null ?? null,
+        steps: (processedMetrics.steps as number | null) ?? null,
+        distance: (processedMetrics.distance as number | null) ?? null,
+        calories: (processedMetrics.calories as number | null) ?? null,
+        heart_rate: (processedMetrics.heart_rate as number | null) ?? null,
+        exercise: (processedMetrics.exercise as number | null) ?? null,
+        basal_calories: (processedMetrics.basal_calories as number | null) ?? null,
+        flights_climbed: (processedMetrics.flights_climbed as number | null) ?? null,
         daily_score: 0, // Will be calculated elsewhere
         weekly_score: null,
         streak_days: null,
@@ -771,21 +837,30 @@ export abstract class BaseHealthProvider implements HealthProvider {
   /**
    * Ensure the permission manager is initialized
    * Creates a permission manager with the provided user ID if not already initialized
-   * 
+   *
    * @param userId - The unique identifier of the user
    * @throws Error if userId is invalid or missing
    */
   protected async ensurePermissionsInitialized(userId?: string): Promise<void> {
     if (!userId || userId.trim() === '') {
-      logger.warn(LogCategory.Health, '[BaseHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided');
+      logger.warn(
+        LogCategory.Health,
+        '[BaseHealthProvider] Cannot initialize permission manager: user ID is not valid or not provided'
+      );
       throw new Error('Cannot initialize permission manager: user ID is not valid or not provided');
     }
-    
-    logger.info(LogCategory.Health, `[BaseHealthProvider] Initializing permissions with user ID: ${userId}`);
+
+    logger.info(
+      LogCategory.Health,
+      `[BaseHealthProvider] Initializing permissions with user ID: ${userId}`
+    );
     await this.initializePermissions(userId);
-    
+
     if (!this.permissionManager) {
-      logger.error(LogCategory.Health, '[BaseHealthProvider] Failed to initialize permission manager');
+      logger.error(
+        LogCategory.Health,
+        '[BaseHealthProvider] Failed to initialize permission manager'
+      );
       throw new Error('Failed to initialize permission manager');
     }
   }
@@ -827,7 +902,7 @@ export abstract class BaseHealthProvider implements HealthProvider {
   protected setCachedPermissionState(type: string, state: PermissionState): void {
     this.permissionCache.set(type, {
       state,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
   }
 
@@ -841,12 +916,8 @@ export abstract class BaseHealthProvider implements HealthProvider {
     const results: RawHealthData = {};
 
     for (const chunk of chunks) {
-      const chunkData = await this.fetchRawMetrics(
-        chunk.start,
-        chunk.end,
-        types
-      );
-      
+      const chunkData = await this.fetchRawMetrics(chunk.start, chunk.end, types);
+
       this.mergeResults(results, chunkData);
     }
 
@@ -856,18 +927,18 @@ export abstract class BaseHealthProvider implements HealthProvider {
   private getDateChunks(startDate: Date, endDate: Date, daysPerChunk: number) {
     const chunks = [];
     let currentStart = new Date(startDate);
-    
+
     while (currentStart < endDate) {
       const chunkEnd = new Date(currentStart);
       chunkEnd.setDate(chunkEnd.getDate() + daysPerChunk);
       if (chunkEnd > endDate) {
         chunkEnd.setTime(endDate.getTime());
       }
-      
+
       chunks.push({ start: new Date(currentStart), end: chunkEnd });
       currentStart = new Date(chunkEnd);
     }
-    
+
     return chunks;
   }
   private mergeResults(target: RawHealthData, source: RawHealthData): void {
@@ -875,11 +946,8 @@ export abstract class BaseHealthProvider implements HealthProvider {
       if (target[type]) {
         target[type] = target[type].concat(source[type] ?? []);
       } else {
-        target[type] = source
-            ? source[type] ?? []
-            : [];
-        }
-        }
-        }
-        }
-        
+        target[type] = source ? (source[type] ?? []) : [];
+      }
+    }
+  }
+}

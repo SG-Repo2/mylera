@@ -1,5 +1,17 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, StyleSheet, AppState, AppStateStatus, Platform, StatusBar, Dimensions } from 'react-native';
+import {
+  View,
+  Text,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  StyleSheet,
+  AppState,
+  AppStateStatus,
+  Platform,
+  StatusBar,
+  Dimensions,
+} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { SegmentedButtons } from 'react-native-paper';
 import { theme } from '../../theme/theme';
@@ -9,7 +21,10 @@ import { PodiumView } from './PodiumView';
 import { ErrorView } from '../shared/ErrorView';
 import { useAuth } from '../../providers/auth';
 import { DateUtils } from '../../utils/DateUtils';
-import type { LeaderboardEntry as LeaderboardEntryType, LeaderboardTimeframe } from '../../types/leaderboard';
+import type {
+  LeaderboardEntry as LeaderboardEntryType,
+  LeaderboardTimeframe,
+} from '../../types/leaderboard';
 
 export function ToggleableLeaderboard() {
   const { user } = useAuth();
@@ -22,94 +37,106 @@ export function ToggleableLeaderboard() {
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const loadData = useCallback(async (showLoading = true) => {
-    if (!user || !isMountedRef.current) {
-      console.log('No user found in loadData or component unmounted');
-      return;
-    }
-    
-    // Cancel any in-progress requests
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    // Create a new abort controller for this request
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-    
-    if (showLoading && isMountedRef.current) setLoading(true);
-    if (isMountedRef.current) setError(null);
-    
-    try {
-      const today = DateUtils.getLocalDateString();
-      console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
-      
-      const data = timeframe === 'daily' 
-        ? await leaderboardService.getDailyLeaderboard(today)
-        : await leaderboardService.getWeeklyLeaderboard(today);
-        
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return;
-      
-      // Add detailed logging of point values
-      console.log('Fetched leaderboard data:', data.map(entry => ({
-        id: entry.user_id.slice(0, 8),
-        name: entry.display_name,
-        points: entry.total_points,
-        rank: entry.rank
-      })));
-      
-      setLeaderboardData(data);
-    } catch (err) {
-      // Don't update state if the request was aborted or component unmounted
-      if (!isMountedRef.current) return;
-      
-      // Don't treat aborted requests as errors
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('Leaderboard request was aborted');
+  const loadData = useCallback(
+    async (showLoading = true) => {
+      if (!user || !isMountedRef.current) {
+        console.log('No user found in loadData or component unmounted');
         return;
       }
-      
-      console.error('Error while fetching leaderboard:', err);
-      
-      if (err instanceof Error) {
-        if (err.message.includes('PGRST200')) {
-          setError(new Error('Leaderboard data is temporarily unavailable. Please try again later.'));
-        } else if (err.message.includes('42501')) {
-          setError(new Error('You do not have permission to view the leaderboard.'));
-        } else {
-          setError(err);
-        }
-      } else {
-        setError(new Error('Failed to load leaderboard'));
-      }
-    } finally {
-      // Only update loading state if component is still mounted
-      if (showLoading && isMountedRef.current) setLoading(false);
-    }
-  }, [user, timeframe]);
 
-  const handleAppStateChange = useCallback((nextAppState: AppStateStatus) => {
-    if (
-      appStateRef.current.match(/inactive|background/) &&
-      nextAppState === 'active' &&
-      isMountedRef.current
-    ) {
-      console.log('App has come to foreground, refreshing leaderboard');
-      loadData(false);
-    }
-    appStateRef.current = nextAppState;
-  }, [loadData]);
+      // Cancel any in-progress requests
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create a new abort controller for this request
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      if (showLoading && isMountedRef.current) setLoading(true);
+      if (isMountedRef.current) setError(null);
+
+      try {
+        const today = DateUtils.getLocalDateString();
+        console.log('Attempting to fetch leaderboard for:', { timeframe, date: today });
+
+        const data =
+          timeframe === 'daily'
+            ? await leaderboardService.getDailyLeaderboard(today)
+            : await leaderboardService.getWeeklyLeaderboard(today);
+
+        // Check if component is still mounted before updating state
+        if (!isMountedRef.current) return;
+
+        // Add detailed logging of point values
+        console.log(
+          'Fetched leaderboard data:',
+          data.map(entry => ({
+            id: entry.user_id.slice(0, 8),
+            name: entry.display_name,
+            points: entry.total_points,
+            rank: entry.rank,
+          }))
+        );
+
+        setLeaderboardData(data);
+      } catch (err) {
+        // Don't update state if the request was aborted or component unmounted
+        if (!isMountedRef.current) return;
+
+        // Don't treat aborted requests as errors
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          console.log('Leaderboard request was aborted');
+          return;
+        }
+
+        console.error('Error while fetching leaderboard:', err);
+
+        if (err instanceof Error) {
+          if (err.message.includes('PGRST200')) {
+            setError(
+              new Error('Leaderboard data is temporarily unavailable. Please try again later.')
+            );
+          } else if (err.message.includes('42501')) {
+            setError(new Error('You do not have permission to view the leaderboard.'));
+          } else {
+            setError(err);
+          }
+        } else {
+          setError(new Error('Failed to load leaderboard'));
+        }
+      } finally {
+        // Only update loading state if component is still mounted
+        if (showLoading && isMountedRef.current) setLoading(false);
+      }
+    },
+    [user, timeframe]
+  );
+
+  const handleAppStateChange = useCallback(
+    (nextAppState: AppStateStatus) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active' &&
+        isMountedRef.current
+      ) {
+        console.log('App has come to foreground, refreshing leaderboard');
+        loadData(false);
+      }
+      appStateRef.current = nextAppState;
+    },
+    [loadData]
+  );
 
   const onRefresh = useCallback(async () => {
     if (!isMountedRef.current) return;
-    
+
     setRefreshing(true);
-    
+
     try {
       await loadData(false);
     } catch (error) {
-      console.error("Error during refresh:", error);
+      console.error('Error during refresh:', error);
     } finally {
       if (isMountedRef.current) {
         setRefreshing(false);
@@ -120,22 +147,22 @@ export function ToggleableLeaderboard() {
   useEffect(() => {
     // Set mounted flag
     isMountedRef.current = true;
-    
+
     if (user) {
       loadData();
-      
+
       const subscription = AppState.addEventListener('change', handleAppStateChange);
-      
+
       return () => {
         // Set unmounted flag
         isMountedRef.current = false;
-        
+
         // Cancel any in-progress requests
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
         }
-        
+
         // Remove app state listener
         subscription.remove();
       };
@@ -151,12 +178,7 @@ export function ToggleableLeaderboard() {
   }
 
   if (error) {
-    return (
-      <ErrorView 
-        error={error} 
-        onRetry={loadData}
-      />
-    );
+    return <ErrorView error={error} onRetry={loadData} />;
   }
 
   return (
@@ -164,11 +186,11 @@ export function ToggleableLeaderboard() {
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
       refreshControl={
-        <RefreshControl 
+        <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
           tintColor="#1E3A8A"
-          colors={["#1E3A8A"]}
+          colors={['#1E3A8A']}
           progressBackgroundColor="#F0F9FF"
         />
       }
@@ -176,71 +198,57 @@ export function ToggleableLeaderboard() {
       <View style={styles.toggleContainer}>
         <SegmentedButtons
           value={timeframe}
-          onValueChange={(value) => setTimeframe(value as LeaderboardTimeframe)}
+          onValueChange={value => setTimeframe(value as LeaderboardTimeframe)}
           buttons={[
             { value: 'daily', label: 'Daily' },
-            { value: 'weekly', label: 'Weekly' }
+            { value: 'weekly', label: 'Weekly' },
           ]}
           style={styles.toggle}
         />
       </View>
 
       {/* Header */}
-      <View 
+      <View
         style={styles.header}
         accessibilityRole="header"
         accessibilityLabel={`${timeframe === 'daily' ? 'Daily' : 'Weekly'} Leaderboard`}
       >
         <View style={styles.headerTop}>
-          <Text style={styles.title}>
-            {timeframe === 'daily' ? 'Daily' : 'Weekly'} Leaderboard
-          </Text>
+          <Text style={styles.title}>{timeframe === 'daily' ? 'Daily' : 'Weekly'} Leaderboard</Text>
           {leaderboardData.length > 0 && (
             <View style={styles.participantsContainer}>
-              <MaterialCommunityIcons 
-                name="account-group" 
-                size={24} 
-                color="#1E3A8A"
-              />
-              <Text style={styles.participantCount}>
-                {leaderboardData.length}
-              </Text>
+              <MaterialCommunityIcons name="account-group" size={24} color="#1E3A8A" />
+              <Text style={styles.participantCount}>{leaderboardData.length}</Text>
             </View>
           )}
         </View>
         <Text style={styles.subtitle}>
-          {timeframe === 'daily' 
-            ? DateUtils.formatDateForDisplay(new Date())
-            : 'This Week'
-          }
+          {timeframe === 'daily' ? DateUtils.formatDateForDisplay(new Date()) : 'This Week'}
         </Text>
       </View>
 
       {leaderboardData.length > 0 ? (
         <>
-          <PodiumView 
+          <PodiumView
             topThree={leaderboardData.slice(0, Math.min(3, leaderboardData.length))}
             currentUserId={user?.id || ''}
           />
-          
-          {leaderboardData.length > 3 && (
-            leaderboardData.slice(3).map((entry) => (
-              <LeaderboardEntry 
-                key={entry.user_id} 
-                entry={entry}
-                highlight={entry.user_id === user?.id}
-                variant="standard"
-              />
-            ))
-          )}
+
+          {leaderboardData.length > 3 &&
+            leaderboardData
+              .slice(3)
+              .map(entry => (
+                <LeaderboardEntry
+                  key={entry.user_id}
+                  entry={entry}
+                  highlight={entry.user_id === user?.id}
+                  variant="standard"
+                />
+              ))}
         </>
       ) : (
         <View style={styles.emptyState}>
-          <MaterialCommunityIcons 
-            name="trophy-outline" 
-            size={48} 
-            color="#64748B"
-          />
+          <MaterialCommunityIcons name="trophy-outline" size={48} color="#64748B" />
           <Text style={styles.emptyStateText}>
             No leaderboard data available for {timeframe === 'daily' ? 'today' : 'this week'}.
           </Text>
@@ -279,7 +287,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: Platform.select({
       android: DYNAMIC_PADDING,
-      ios: DYNAMIC_PADDING
+      ios: DYNAMIC_PADDING,
     }),
     paddingBottom: 16,
     backgroundColor: '#F0F9FF',

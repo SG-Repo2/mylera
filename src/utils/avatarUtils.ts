@@ -17,22 +17,28 @@ export const getAvatarSource = (
     console.log('[avatarUtils] No avatar URL provided, using default');
     return defaultImage || require('@/assets/images/favicon.png');
   }
-  
+
   // Check if the avatar is a numeric string (index) - ensure string comparison
   if (/^\d+$/.test(String(avatarUrl))) {
     const index = parseInt(String(avatarUrl), 10);
     console.log('[avatarUtils] Numeric avatar detected, using index:', index);
-    
+
     // Select the corresponding avatar image
     try {
       switch (index) {
-        case 1: return require('@/assets/images/avatars/1.png');
-        case 2: return require('@/assets/images/avatars/2.png');
-        case 3: return require('@/assets/images/avatars/3.png');
-        case 4: return require('@/assets/images/avatars/4.png');
-        case 5: return require('@/assets/images/avatars/5.png');
-        case 6: return require('@/assets/images/avatars/6.png');
-        default: 
+        case 1:
+          return require('@/assets/images/avatars/1.png');
+        case 2:
+          return require('@/assets/images/avatars/2.png');
+        case 3:
+          return require('@/assets/images/avatars/3.png');
+        case 4:
+          return require('@/assets/images/avatars/4.png');
+        case 5:
+          return require('@/assets/images/avatars/5.png');
+        case 6:
+          return require('@/assets/images/avatars/6.png');
+        default:
           console.log('[avatarUtils] Unknown avatar index, using default avatar 1');
           return require('@/assets/images/avatars/1.png');
       }
@@ -41,7 +47,7 @@ export const getAvatarSource = (
       return defaultImage || require('@/assets/images/favicon.png');
     }
   }
-  
+
   // Otherwise treat as a URL
   console.log('[avatarUtils] URL-based avatar detected');
   return { uri: avatarUrl };
@@ -58,6 +64,6 @@ export const getAvatarDisplay = (
 ) => {
   const firstLetter = displayName?.charAt(0)?.toUpperCase() || '?';
   const hasAvatar = !!avatarUrl;
-  
+
   return { firstLetter, hasAvatar };
 };
