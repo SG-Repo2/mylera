@@ -310,16 +310,14 @@ export class HealthProviderFactory {
     
     this.cleanupTimeout = setTimeout(() => {
       if (this.instance) {
-        // Log instead of immediately cleaning up
-        logger.info(LogCategory.Health, '[HealthProviderFactory] Provider instance inactive, scheduled for cleanup');
-        // Only clean up if no active usage
-        this.cleanupTimeout = setTimeout(() => {
-          if (this.instance) {
-            this.instance.cleanup();
-            this.instance = null;
-          }
-        }, 60 * 1000); // Add another minute before actual cleanup
+        logger.info(LogCategory.Health, '[HealthProviderFactory] Cleaning up inactive provider instance');
+        this.instance.cleanup().catch(error => {
+          logger.warn(LogCategory.Health, '[HealthProviderFactory] Cleanup error:', error);
+        }).finally(() => {
+          this.instance = null;
+          this.platform = null;
+        });
       }
-    }, 5 * 60 * 1000); // Cleanup after 5 minutes of inactivity
+    }, 10 * 60 * 1000); // Single 10-minute timeout
   }
 }
