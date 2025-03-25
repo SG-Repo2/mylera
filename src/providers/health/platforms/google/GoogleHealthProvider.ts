@@ -5,7 +5,7 @@ import {
   readRecords,
 } from 'react-native-health-connect';
 import { mapHealthProviderError } from '../../../../utils/errorUtils';
-import { BaseHealthProvider } from '../../types/provider';
+import { BaseHealthProvider } from '../../types/BaseHealthProvider';
 import { 
   HealthMetrics, 
   RawHealthData, 

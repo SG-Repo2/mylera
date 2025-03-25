@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import AppleHealthKit from 'react-native-health';
 import { HealthInputOptions } from 'react-native-health';
-import { BaseHealthProvider } from '../../types/provider';
+import { BaseHealthProvider } from '../../types/BaseHealthProvider';
 import { 
   HealthMetrics, 
   RawHealthData, 

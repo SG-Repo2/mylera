@@ -1,4 +1,4 @@
-import { BaseHealthProvider } from '../../types/provider';
+import { BaseHealthProvider } from '../../types/BaseHealthProvider';
 import type { HealthMetrics, RawHealthData, NormalizedMetric } from '../../types/metrics';
 import { DateUtils } from '../../../../utils/DateUtils';
 import type { PermissionState, PermissionStatus } from '../../types/permissions';
@@ -227,4 +227,4 @@ export class FitbitHealthProvider extends BaseHealthProvider {
     await SecureStore.setItemAsync(STORAGE_KEYS.LAST_SYNC, date.getTime().toString());
     this.state.lastSyncTime = date;
   }
-} 
+}

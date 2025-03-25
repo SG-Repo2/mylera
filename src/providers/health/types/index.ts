@@ -1,2 +1,3 @@
 export * from './metrics';
-export * from './provider';
+export * from './HealthProvider';
+export * from './BaseHealthProvider';
