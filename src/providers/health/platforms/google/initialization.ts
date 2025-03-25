@@ -1,12 +1,19 @@
 import { Platform } from 'react-native';
 import { initialize } from 'react-native-health-connect';
 import { logger, LogCategory } from '@/src/utils/logger';
-import { retryOperation } from './utils';
+import { retryOperation, checkAndUpdateInstallationId } from './utils';
+import { verifyHealthConnectPermissions } from './permissions';
 
 export async function performInitialization(): Promise<void> {
   if (Platform.OS !== 'android') {
     logger.error(LogCategory.Health, '[GoogleHealthProvider] Attempted to initialize on non-Android platform');
     throw new Error('GoogleHealthProvider can only be used on Android');
+  }
+
+  // Check and update installation ID - detect reinstalls
+  const isNewInstallation = await checkAndUpdateInstallationId();
+  if (isNewInstallation) {
+    logger.info(LogCategory.Health, '[GoogleHealthProvider] New installation detected, permissions will need to be requested again');
   }
 
   // Check Android version for Health Connect compatibility
@@ -47,4 +54,4 @@ export async function performInitialization(): Promise<void> {
     }
     throw error;
   }
-} 
+}
