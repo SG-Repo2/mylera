@@ -8,6 +8,17 @@ import { calculateTotalPoints } from '@/src/utils/pointsCalculator';
 import type { HealthProvider } from '@/src/providers/health/types/provider';
 import { useHealthSync } from './useHealthSync';
 
+// Define type for cached dashboard data
+interface CachedDashboardData {
+  dailyTotal: DailyTotal | null;
+  healthMetrics: HealthMetrics | null;
+  userRank: number | null;
+}
+
+// Cache implementation for metrics data
+const metricsCache = new Map<string, {data: CachedDashboardData, timestamp: number}>();
+const CACHE_TTL = 60000; // 1 minute cache lifetime
+
 /**
  * Custom hook for fetching and processing health metrics data
  */
@@ -41,6 +52,7 @@ export const useDashboardData = (
 
   /**
    * Transform daily metric scores into HealthMetrics format
+   * Memoized with no dependencies to prevent unnecessary recalculations
    */
   const transformMetricsToHealthMetrics = useCallback((
     metrics: DailyMetricScore[],
@@ -89,10 +101,63 @@ export const useDashboardData = (
     // Log final transformed metrics
     console.log('[useDashboardData] Transformed metrics:', result);
     return result;
-  }, []);
+  }, []); // No dependencies needed to prevent unnecessary recalculations
 
   /**
-   * Fetch metrics data from API
+   * Helper to extract valid metrics from provider data
+   */
+  const getValidMetrics = (providerMetrics: HealthMetrics): Partial<Record<MetricType, number>> => {
+    const metricValues: Partial<Record<MetricType, number>> = {
+      steps: providerMetrics.steps || undefined,
+      distance: providerMetrics.distance || undefined,
+      calories: providerMetrics.calories || undefined,
+      heart_rate: providerMetrics.heart_rate || undefined,
+      exercise: providerMetrics.exercise || undefined,
+      basal_calories: providerMetrics.basal_calories || undefined,
+      flights_climbed: providerMetrics.flights_climbed || undefined
+    };
+
+    // Filter out null/undefined values
+    return Object.fromEntries(
+      Object.entries(metricValues).filter(([_, value]) => value !== null && value !== undefined)
+    ) as Partial<Record<MetricType, number>>;
+  };
+
+  /**
+   * Helper to process and update metrics to avoid duplicate logic
+   */
+  const processAndUpdateMetrics = async (userId: string, providerMetrics: HealthMetrics | null) => {
+    if (!providerMetrics) return;
+
+    const metricValues = getValidMetrics(providerMetrics);
+
+    if (Object.keys(metricValues).length > 0) {
+      return metricsService.updateMetrics(userId, metricValues);
+    }
+  };
+
+  /**
+   * Helper to get cached metrics
+   */
+  const getCachedMetrics = (userId: string, date: string): CachedDashboardData | null => {
+    const cacheKey = `${userId}-${date}`;
+    const cached = metricsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+      return cached.data;
+    }
+    return null;
+  };
+
+  /**
+   * Helper to set cached metrics
+   */
+  const setCachedMetrics = (userId: string, date: string, data: CachedDashboardData) => {
+    const cacheKey = `${userId}-${date}`;
+    metricsCache.set(cacheKey, { data, timestamp: Date.now() });
+  };
+
+  /**
+   * Fetch metrics data from API with optimized parallel requests and caching
    */
   const fetchData = useCallback(async (requestId: number) => {
     if (!isInitialized || !userId || isFetchingRef.current || !isMountedRef.current) return;
@@ -103,41 +168,30 @@ export const useDashboardData = (
     try {
       console.log('[useDashboardData] Starting metrics fetch for:', { userId, date });
       
-      // First get the health data from provider
-      const providerMetrics = await provider.getMetrics();
+      // Fetch health data and check cache in parallel
+      const [providerMetrics, cachedMetrics] = await Promise.all([
+        provider.getMetrics(),
+        getCachedMetrics(userId, date)
+      ]);
       
-      // Extract only the metric values for updating
-      if (providerMetrics) {
-        const metricValues: Partial<Record<MetricType, number>> = {
-          steps: providerMetrics.steps || undefined,
-          distance: providerMetrics.distance || undefined,
-          calories: providerMetrics.calories || undefined,
-          heart_rate: providerMetrics.heart_rate || undefined,
-          exercise: providerMetrics.exercise || undefined,
-          basal_calories: providerMetrics.basal_calories || undefined,
-          flights_climbed: providerMetrics.flights_climbed || undefined
-        };
-
-        // Filter out null values
-        const validMetrics = Object.fromEntries(
-          Object.entries(metricValues).filter(([_, value]) => value !== null)
-        ) as Partial<Record<MetricType, number>>;
-
-        // Only update if we have valid metrics
-        if (Object.keys(validMetrics).length > 0) {
-          await metricsService.updateMetrics(userId, validMetrics);
-        }
-
-        console.log('[useDashboardData] Fetched metrics:', {
-          validMetricCount: Object.keys(validMetrics).length
-        });
+      // Use cached data if available and valid
+      if (cachedMetrics) {
+        setDailyTotal(cachedMetrics.dailyTotal);
+        setHealthMetrics(cachedMetrics.healthMetrics);
+        setUserRank(cachedMetrics.userRank);
+        setIsDataLoaded(true);
+        return;
       }
-
-      // Then fetch the saved metrics and totals
+      
+      // Process metrics and update database in parallel with fetching other data
+      const updatePromise = processAndUpdateMetrics(userId, providerMetrics);
+      
+      // Fetch daily totals, metrics, and rank in parallel
       const [totals, metricScores, rank] = await Promise.all([
         metricsService.getDailyTotals(date),
         metricsService.getDailyMetrics(userId, date),
-        leaderboardService.getUserRank(userId, date)
+        leaderboardService.getUserRank(userId, date),
+        updatePromise // Wait for the update to complete too
       ]);
 
       if (!isMountedRef.current || requestId !== fetchIdRef.current) return;
@@ -159,6 +213,13 @@ export const useDashboardData = (
         userId,
         date
       );
+
+      // Cache the results for future use
+      setCachedMetrics(userId, date, {
+        dailyTotal: userTotal,
+        healthMetrics: transformedMetrics,
+        userRank: rank
+      });
 
       setDailyTotal(userTotal);
       setHealthMetrics(transformedMetrics);
