@@ -29,6 +29,15 @@ class MetricsDatabaseError extends Error {
   }
 }
 
+// Add session verification function
+async function verifySession() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    throw new MetricsAuthError('No active session found. Please log in again.');
+  }
+  return session;
+}
+
 /**
  * Service responsible for interacting with metrics data in the database.
  * Handles fetching, updating, and aggregating health metrics.
@@ -278,6 +287,14 @@ export const metricsService = {
     value: number,
     measurementSystem: string
   ) {
+    // Verify session before proceeding
+    const session = await verifySession();
+    logger.debug(LogCategory.Metrics, 'Session verified', undefined, undefined, {
+      userId,
+      sessionUserId: session.user.id,
+      hasSession: !!session
+    });
+    
     // Get date in local timezone
     const today = DateUtils.getLocalDateString();
     
@@ -450,8 +467,8 @@ export const metricsService = {
         timestamp: options.timestamp || new Date().toISOString()
       });
 
-      // Verify authentication
-      await this.verifyUserAuthentication(userId);
+      // Verify session before proceeding
+      await verifySession();
       
       // Get user's measurement system preference
       const measurementSystem = await this.getUserMeasurementSystem(userId);
@@ -518,8 +535,8 @@ export const metricsService = {
         );
       }
       
-      // Verify auth once for all metrics
-      await this.verifyUserAuthentication(userId);
+      // Verify session before proceeding
+      await verifySession();
       
       // Get user's measurement system once for all metrics
       const measurementSystem = await this.getUserMeasurementSystem(userId);
